@@ -138,6 +138,18 @@ internal sealed class LareRawUI : PSHostRawUserInterface
         if (isWholeBuffer)
         {
             TrySet(() => Console.Clear());
+
+            // Console.Clear() cancella anche le due righe fisse della StatusBar (e
+            // resetta la scroll region DECSTBM, che il terminale riporta a "tutta
+            // l'altezza" ogni volta che il buffer viene toccato pesantemente): senza
+            // questa chiamata, dopo Clear-Host/cls la barra in basso spariva per
+            // sempre. StatusBar.Current è l'hook statico impostato da StatusBar.Start
+            // (vedi StatusBar.cs): non abbiamo un riferimento diretto alla StatusBar
+            // qui (LareRawUI non la conosce), quindi usiamo l'hook invece di dover
+            // far passare l'istanza attraverso PSHostRawUserInterface, PSHostUserInterface
+            // e PSHost solo per questo. No-op se non c'è nessuna StatusBar attiva
+            // (--selftest, o StatusBar disabilitata perché la console è rediretta).
+            StatusBar.Current?.Redraw();
             return;
         }
 

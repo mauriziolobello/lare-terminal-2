@@ -26,9 +26,51 @@ internal sealed class LareHost : PSHost
     // è LareHostUI a tradurre le richieste del motore in chiamate a System.Console.
     private readonly LareHostUI _ui;
 
+    // --- Stato per NotifyBeginApplication/NotifyEndApplication --------------
+    // Vedi il commento sui due metodi più sotto per la spiegazione completa. Qui
+    // teniamo solo i campi: le console mode "iniziali" (catturate qui nel
+    // costruttore, PRIMA che StatusBar abiliti la virtual terminal processing
+    // sull'output - in Repl.cs l'host viene costruito prima della StatusBar), le
+    // mode "salvate" nel momento in cui un'app nativa parte (per poterle
+    // ripristinare quando finisce) e un contatore di nesting (un'app nativa
+    // potrebbe lanciarne un'altra).
+    private readonly bool _consoleModesAvailable;
+    private readonly uint _initialOutputMode;
+    private readonly uint _initialInputMode;
+    private bool _savedModesValid;
+    private uint _savedOutputMode;
+    private uint _savedInputMode;
+    private int _beginApplicationNotifyCount;
+    private readonly object _appNotifyLock = new();
+
     public LareHost()
     {
         _ui = new LareHostUI(this);
+
+        // Catturiamo qui le console mode "di partenza". Solo Windows: le altre
+        // piattaforme non hanno il concetto di "console mode" via kernel32, e
+        // OperatingSystem.IsWindows() viene ricontrollato in Notify*Application.
+        if (OperatingSystem.IsWindows())
+        {
+            try
+            {
+                IntPtr outHandle = ConsoleModes.GetHandle(ConsoleModes.StdOutputHandle);
+                IntPtr inHandle = ConsoleModes.GetHandle(ConsoleModes.StdInputHandle);
+
+                // Usiamo "&" (non "&&") apposta: vogliamo che ENTRAMBE le GetMode
+                // vengano tentate anche se la prima fallisce, non un cortocircuito.
+                _consoleModesAvailable =
+                    ConsoleModes.TryGetMode(outHandle, out _initialOutputMode) &
+                    ConsoleModes.TryGetMode(inHandle, out _initialInputMode);
+            }
+            catch
+            {
+                // Nessuna console reale (--selftest, pipe...): NotifyBeginApplication
+                // e NotifyEndApplication diventeranno no-op, vedi il controllo su
+                // _consoleModesAvailable in entrambi.
+                _consoleModesAvailable = false;
+            }
+        }
     }
 
     // --- Identità dell'host -------------------------------------------------
@@ -83,17 +125,118 @@ internal sealed class LareHost : PSHost
 
     /// <summary>
     /// Chiamati dal motore prima/dopo l'avvio di un programma esterno (es. quando
-    /// lo script lancia notepad.exe). Un host "serio" li usa per, ad esempio,
-    /// ripristinare la modalità raw della console prima di cedere il controllo al
-    /// processo figlio. Nel nostro spike non serve: no-op.
+    /// lo script lancia python.exe o notepad.exe).
+    ///
+    /// Bug osservato con questo spike PRIMA di questo fix: lanciare `python`
+    /// (il suo REPL interattivo, un'app nativa) produceva un flusso infinito di
+    /// errori finché non si premeva Ctrl+C. Replica lo stesso pattern del
+    /// `ConsoleHost` reale (vedi src/Microsoft.PowerShell.ConsoleHost/host/msh/
+    /// ConsoleHost.cs ~1220-1275 nel repo di riferimento PowerShell:
+    /// NotifyBeginApplication/NotifyEndApplication con _initialConsoleMode/
+    /// _savedConsoleMode e un contatore di nesting), con una differenza voluta:
+    /// ConsoleHost reale tocca solo l'handle di OUTPUT (GetActiveScreenBufferHandle);
+    /// qui tocchiamo anche l'handle di INPUT (stdin, handle -10), perché in questo
+    /// spike anche la modalità di INPUT viene alterata (Console/PSReadLine la
+    /// mettono in modalità "raw" per leggere tasto per tasto) e un'app nativa
+    /// interattiva come il REPL di `python` si aspetta, all'avvio, la stessa
+    /// modalità di input "di sistema" che aveva pwsh.exe all'avvio.
+    ///
+    /// Il contatore (_beginApplicationNotifyCount) gestisce il caso in cui un'app
+    /// nativa ne lanci un'altra (nesting): ripristiniamo le mode "originali" solo
+    /// quando l'ULTIMA app nativa attiva termina (il contatore torna a 0), non alla
+    /// prima NotifyEndApplication.
     /// </summary>
     public override void NotifyBeginApplication()
     {
-        // no-op: nessuna gestione speciale per i processi esterni in questo spike.
+        if (!OperatingSystem.IsWindows() || !_consoleModesAvailable)
+        {
+            return;
+        }
+
+        lock (_appNotifyLock)
+        {
+            if (++_beginApplicationNotifyCount == 1)
+            {
+                try
+                {
+                    IntPtr outHandle = ConsoleModes.GetHandle(ConsoleModes.StdOutputHandle);
+                    IntPtr inHandle = ConsoleModes.GetHandle(ConsoleModes.StdInputHandle);
+
+                    // Salviamo la mode CORRENTE (quella che StatusBar/PSReadLine hanno
+                    // impostato finora) per poterla ripristinare in NotifyEndApplication.
+                    bool outOk = ConsoleModes.TryGetMode(outHandle, out _savedOutputMode);
+                    bool inOk = ConsoleModes.TryGetMode(inHandle, out _savedInputMode);
+                    _savedModesValid = outOk && inOk;
+
+                    // Riportiamo entrambi gli handle alla mode "di partenza" catturata
+                    // nel costruttore, così l'app nativa vede una console come all'avvio.
+                    ConsoleModes.TrySetMode(outHandle, _initialOutputMode);
+                    ConsoleModes.TrySetMode(inHandle, _initialInputMode);
+                }
+                catch
+                {
+                    // Difensivo: se qualcosa va storto qui non vogliamo comunque
+                    // impedire l'avvio dell'app nativa.
+                }
+            }
+        }
     }
 
+    /// <summary>Vedi il commento su NotifyBeginApplication qui sopra.</summary>
     public override void NotifyEndApplication()
     {
-        // no-op.
+        if (!OperatingSystem.IsWindows() || !_consoleModesAvailable)
+        {
+            return;
+        }
+
+        lock (_appNotifyLock)
+        {
+            if (--_beginApplicationNotifyCount == 0)
+            {
+                try
+                {
+                    IntPtr outHandle = ConsoleModes.GetHandle(ConsoleModes.StdOutputHandle);
+                    IntPtr inHandle = ConsoleModes.GetHandle(ConsoleModes.StdInputHandle);
+
+                    if (_savedModesValid)
+                    {
+                        ConsoleModes.TrySetMode(inHandle, _savedInputMode);
+
+                        // Ripristiniamo l'output e, per sicurezza, ci assicuriamo che
+                        // ENABLE_VIRTUAL_TERMINAL_PROCESSING resti accesa: un'app nativa
+                        // "full screen" (es. vim/less, o lo stesso python) potrebbe
+                        // averla spenta senza rimetterla come l'aveva trovata.
+                        uint restoredOutputMode = _savedOutputMode
+                            | ConsoleModes.EnableVirtualTerminalProcessing
+                            | ConsoleModes.EnableProcessedOutput;
+                        ConsoleModes.TrySetMode(outHandle, restoredOutputMode);
+                    }
+                    else
+                    {
+                        // Non siamo riusciti a leggere le mode salvate in
+                        // NotifyBeginApplication (_savedModesValid è false): come
+                        // fallback ripristiniamo almeno le mode iniziali, meglio che
+                        // lasciare la console nello stato lasciato dall'app nativa.
+                        ConsoleModes.TrySetMode(inHandle, _initialInputMode);
+                        uint fallbackOutputMode = _initialOutputMode
+                            | ConsoleModes.EnableVirtualTerminalProcessing
+                            | ConsoleModes.EnableProcessedOutput;
+                        ConsoleModes.TrySetMode(outHandle, fallbackOutputMode);
+                    }
+                }
+                catch
+                {
+                    // Difensivo, vedi NotifyBeginApplication.
+                }
+
+                // Un'app "full screen" (vim/less/python) potrebbe aver usato lo schermo
+                // alternato o comunque aver scritto sopra le nostre due righe fisse:
+                // ridisegniamole. StatusBar.Current è l'hook statico impostato da
+                // StatusBar.Start() (vedi StatusBar.cs): se non c'è nessuna StatusBar
+                // attiva (--selftest, o StatusBar disabilitata) Redraw() è no-op/null-safe.
+                StatusBar.Current?.Redraw();
+            }
+        }
     }
 }

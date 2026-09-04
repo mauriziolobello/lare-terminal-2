@@ -9,8 +9,9 @@ namespace LareShellSpike;
 /// ospitata (con PSReadLine importato), legge le righe di comando esattamente come
 /// fa pwsh.exe (invocando la funzione PSConsoleHostReadLine), intercetta le righe
 /// che iniziano con "/" senza eseguirle in PowerShell, ed esegue tutto il resto
-/// nella runspace mostrando sia l'output "normale" sia un conteggio degli oggetti
-/// prodotti.
+/// nella runspace mostrando l'output "normale" via Out-Default (vedi il commento
+/// su Repl.Execute per il perché qui NON c'è nessun cmdlet di conteggio oggetti
+/// interposto nella pipeline, a differenza di --selftest).
 /// </summary>
 internal static class Repl
 {
@@ -100,14 +101,6 @@ internal static class Repl
             Console.WriteLine("[LARE] stdin rediretto: PSReadLine non verrà usato per leggere le righe (fallback a Console.ReadLine), per evitare il loop infinito osservato altrimenti.");
         }
 
-        lock (ConsoleLock)
-        {
-            Console.WriteLine("Lare Terminal 2.0 - spike host PowerShell");
-            Console.WriteLine("PSReadLine disponibile: " + (psReadLineAvailable ? "si" : "NO (fallback a Console.ReadLine)"));
-            Console.WriteLine("Righe che iniziano con '/' vengono intercettate, non eseguite. '/exit' esce.");
-            Console.WriteLine();
-        }
-
         // Ctrl+C: invece di terminare bruscamente il processo, fermiamo solo la
         // pipeline PowerShell eventualmente in esecuzione (comportamento identico a
         // quello di pwsh.exe: Ctrl+C interrompe il comando corrente, non la shell).
@@ -120,8 +113,24 @@ internal static class Repl
 
         try
         {
-            DotSourceProfiles(runspace, host);
+            // ORDINE IMPORTANTE (bug osservato: il prompt iniziale veniva stampato
+            // SOPRA la barra in basso, "prompt> ...  /help  /config" sulla stessa
+            // riga): la VT processing è già abilitata dal costruttore di StatusBar
+            // (poco sopra); qui statusBar.Start() applica la scroll region, disegna
+            // le due barre e clampa il cursore dentro la regione (riga 2..H-1) PRIMA
+            // di stampare qualunque cosa. Solo DOPO stampiamo banner/profili/prompt,
+            // così finiscono tutti dentro la regione gestita, mai sopra la barra.
             statusBar.Start();
+
+            lock (ConsoleLock)
+            {
+                Console.WriteLine("Lare Terminal 2.0 - spike host PowerShell");
+                Console.WriteLine("PSReadLine disponibile: " + (psReadLineAvailable ? "si" : "NO (fallback a Console.ReadLine)"));
+                Console.WriteLine("Righe che iniziano con '/' vengono intercettate, non eseguite. '/exit' esce.");
+                Console.WriteLine();
+            }
+
+            DotSourceProfiles(runspace, host);
 
             while (!host.ShouldExit)
             {
@@ -150,6 +159,12 @@ internal static class Repl
                         Console.ResetColor();
                     }
                     statusBar.SetLastCommand(line.Trim());
+                    // Ridisegno dopo ogni comando "intercettato": non strettamente
+                    // necessario quanto dopo un comando PowerShell (qui non tocchiamo
+                    // lo schermo intero), ma economico e coerente con "dopo ogni
+                    // comando eseguito" — e copre il caso in cui un futuro comando /
+                    // faccia output più corposo.
+                    statusBar.Redraw();
 
                     if (string.Equals(line.Trim(), "/exit", StringComparison.OrdinalIgnoreCase))
                     {
@@ -164,7 +179,14 @@ internal static class Repl
                     continue;
                 }
 
-                ExecuteAndCount(runspace, host, line);
+                Execute(runspace, host, line);
+
+                // Bug osservato: dopo Clear-Host la barra in basso spariva (coperto
+                // ora anche da LareRawUI.SetBufferContents, vedi StatusBar.Current),
+                // e più in generale qualunque comando che scrive molto output può
+                // aver disturbato le due righe fisse. Ridisegniamo sempre, qui, dopo
+                // OGNI comando PowerShell eseguito, non solo dopo Clear-Host.
+                statusBar.Redraw();
             }
         }
         finally
@@ -271,27 +293,35 @@ internal static class Repl
     }
 
     /// <summary>
-    /// Esegue la riga NON intercettata nella runspace ospitata e mostra sia
-    /// l'output "normale" (via Out-Default, quindi con la stessa formattazione
-    /// a colori che vedresti in pwsh.exe) sia un conteggio degli oggetti prodotti.
+    /// Esegue la riga NON intercettata nella runspace ospitata e mostra l'output
+    /// "normale" via Out-Default, con la stessa formattazione a colori che vedresti
+    /// in pwsh.exe: pipeline = AddScript(riga) | Out-Default, ESATTAMENTE come fa
+    /// ConsoleHost reale, senza nessun cmdlet interposto fra lo script dell'utente
+    /// e Out-Default.
     ///
-    /// Tecnica usata (spiegata perché è la parte concettualmente più delicata):
-    /// pipeline = AddScript(riga) | Tee-Object -Variable __LareLastOutput | Out-Default
-    /// Tee-Object duplica ogni oggetto che passa nella pipeline: una copia va,
-    /// come al solito, a Out-Default (quindi l'utente vede l'output esattamente
-    /// come lo vedrebbe in pwsh normale, in streaming), l'altra copia viene
-    /// accumulata in una variabile della sessione. Dopo l'esecuzione, una seconda
-    /// (piccolissima) invocazione PowerShell legge quella variabile per contare
-    /// gli oggetti e poi la rimuove. Questo NON è un "secondo passaggio" sul
-    /// comando dell'utente (che gira una volta sola, in streaming): è solo una
-    /// letturaisurina della variabile che Tee-Object ha già popolato.
-    ///
-    /// Il conteggio esclude i record di errore (ErrorRecord), che finiscono nella
-    /// stessa pipeline a causa del merge error->output (vedi sotto): altrimenti un
-    /// comando che produce solo errori risulterebbe fuorviante mente "produce
-    /// oggetti".
+    /// STORIA (round 2 dello spike, bug confermato — Fix 6): la prima versione di
+    /// questo metodo inseriva un Tee-Object -Variable in mezzo alla pipeline per
+    /// mostrare anche un conteggio "[LARE] oggetti prodotti: N" (Tee-Object duplica
+    /// ogni oggetto: una copia a Out-Default, l'altra in una variabile di sessione
+    /// letta/rimossa da una seconda, piccola invocazione PowerShell). Sembrava
+    /// innocuo ("Out-Default resta l'ultimo comando, l'utente vede lo stesso
+    /// output"), ma non lo è per i comandi NATIVI (un .exe, non un cmdlet):
+    /// NativeCommandProcessor decide se un processo nativo eredita direttamente i
+    /// device standard della console (stdout/stderr = la console vera) oppure se
+    /// il suo output va rediretto su una pipe .NET, in base a SE è l'ULTIMO comando
+    /// della pipeline. Con Tee-Object di mezzo, un comando nativo non è più
+    /// l'ultimo: il suo stdout finisce su una pipe, non sulla console. Sintomo
+    /// osservato: lanciando `python` (il suo REPL interattivo), il modulo Python
+    /// _pyrepl (windows_console.py, getheightwidth) chiama
+    /// GetConsoleScreenBufferInfo su un handle che non è più quello della console
+    /// reale (è una pipe), la chiamata fallisce, e python va in loop stampando
+    /// l'eccezione finché non si interrompe con Ctrl+C. Fix: NESSUN cmdlet fra lo
+    /// script dell'utente e Out-Default. Il conteggio oggetti resta disponibile
+    /// SOLO in modalità --selftest (vedi Program.cs/SelfTest.Run), dove il conteggio
+    /// è fatto direttamente lato .NET su PowerShell.Invoke() senza toccare affatto
+    /// la pipeline interattiva.
     /// </summary>
-    private static void ExecuteAndCount(Runspace runspace, LareHost host, string line)
+    private static void Execute(Runspace runspace, LareHost host, string line)
     {
         using var ps = PowerShell.Create();
         ps.Runspace = runspace;
@@ -306,10 +336,11 @@ internal static class Repl
             // (Executor.cs: "tempPipeline.Commands[0].MergeMyResults(Error, Output)").
             // In questo modo gli ErrorRecord vengono formattati e stampati da
             // Out-Default con lo stile "errore" (testo rosso), invece di finire
-            // silenziosamente in ps.Streams.Error senza mai essere mostrati.
+            // silenziosamente in ps.Streams.Error senza mai essere mostrati. Questo
+            // NON introduce un cmdlet nella pipeline (è solo redirezione di stream),
+            // quindi non ha l'effetto collaterale di Tee-Object spiegato sopra.
             ps.Commands.Commands[0].MergeMyResults(PipelineResultTypes.Error, PipelineResultTypes.Output);
 
-            ps.AddCommand("Tee-Object").AddParameter("Variable", "__LareLastOutput");
             ps.AddCommand("Out-Default");
 
             ps.Invoke();
@@ -344,51 +375,6 @@ internal static class Repl
         {
             _currentPipeline = null;
         }
-
-        int count = ReadAndClearObjectCount(runspace);
-        lock (ConsoleLock)
-        {
-            Console.ForegroundColor = ConsoleColor.DarkGray;
-            Console.WriteLine("[LARE] oggetti prodotti: " + count);
-            Console.ResetColor();
-        }
-    }
-
-    /// <summary>
-    /// Legge il numero di oggetti accumulati da Tee-Object nella variabile
-    /// __LareLastOutput (escludendo gli ErrorRecord, vedi commento sopra) e la
-    /// rimuove, il tutto con un piccolissimo script PowerShell: usare il
-    /// linguaggio stesso per questa operazione ci evita di dover indovinare/usare
-    /// API interne meno pubbliche per leggere variabili di sessione da .NET.
-    /// </summary>
-    private static int ReadAndClearObjectCount(Runspace runspace)
-    {
-        const string script = """
-            $__c = 0
-            if ($null -ne $__LareLastOutput) {
-                $items = @($__LareLastOutput)
-                $__c = @($items | Where-Object { $_ -isnot [System.Management.Automation.ErrorRecord] }).Count
-            }
-            Remove-Variable -Name __LareLastOutput -ErrorAction SilentlyContinue
-            $__c
-            """;
-        try
-        {
-            using var ps = PowerShell.Create();
-            ps.Runspace = runspace;
-            Collection<PSObject> result = ps.AddScript(script).Invoke();
-            if (result.Count > 0 && int.TryParse(result[0].BaseObject?.ToString(), out int n))
-            {
-                return n;
-            }
-        }
-        catch
-        {
-            // Se anche questo piccolo script fallisce, ripieghiamo su 0: non è
-            // critico, è solo un contatore informativo per lo spike.
-        }
-
-        return 0;
     }
 
     /// <summary>

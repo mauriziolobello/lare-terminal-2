@@ -85,12 +85,21 @@ Avviandolo senza `--selftest` si ottiene un prompt PowerShell quasi normale:
   in ciano con prefisso `[LARE] intercettato: ...` e **non eseguite** in
   PowerShell. `/exit` esce dallo shell.
 - Tutte le altre righe vengono eseguite nella runspace con
-  `AddScript(riga).AddCommand("Tee-Object").AddCommand("Out-Default")`: l'utente
-  vede l'output normale (formattato, a colori, in streaming) e in più una riga
-  informativa `[LARE] oggetti prodotti: N` che conta quanti oggetti .NET sono
-  transitati nella pipeline (esclusi gli `ErrorRecord`, che vengono mostrati
-  come errori normali grazie al merge error→output, stesso pattern usato da
-  `ConsoleHost`/`Executor.cs`).
+  `AddScript(riga).AddCommand("Out-Default")` — **esattamente** come fa
+  `ConsoleHost` reale, senza nessun cmdlet interposto fra lo script e
+  `Out-Default`. Gli errori vengono mostrati come errori normali (rosso) grazie
+  al merge error→output sulla prima istruzione (stesso pattern usato da
+  `ConsoleHost`/`Executor.cs`). **Round 2 — bug corretto:** la prima versione
+  interponeva un `Tee-Object -Variable` per mostrare anche un conteggio
+  `[LARE] oggetti prodotti: N`; con un comando nativo (es. `python`) questo
+  faceva sì che `NativeCommandProcessor` non lo trattasse più come "ultimo
+  comando della pipeline" e ne rediretgesse stdout/stderr su una pipe .NET
+  invece di lasciarli sulla console reale — `python` (il suo REPL interattivo)
+  andava in loop stampando errori (`GetConsoleScreenBufferInfo` su un handle
+  che non è più la console) finché non si premeva Ctrl+C. Il conteggio oggetti
+  resta disponibile solo in `--selftest`, che lo fa lato .NET su
+  `PowerShell.Invoke()` senza toccare la pipeline interattiva. Vedi il commento
+  su `Repl.Execute` in `Repl.cs` per i dettagli completi.
 - Ctrl+C interrompe solo il comando in corso (`PowerShell.Stop()`), non il
   processo.
 - Digitare `exit` (senza `/`) esegue il comando PowerShell `exit`, che chiama
@@ -164,12 +173,13 @@ Rimuove solo il file
   `ScrollBufferContents`: `NotImplementedException`. L'unico caso gestito di
   `SetBufferContents` è quello usato da `Clear-Host`/`cls` (rettangolo "tutto
   -1"), che viene tradotto in `Console.Clear()`.
-- Conteggio oggetti (`[LARE] oggetti prodotti: N`): tecnica scelta è
-  `Tee-Object -Variable` + una seconda, piccola invocazione PowerShell che
-  legge e rimuove quella variabile. Non è un "secondo passaggio" sul comando
-  dell'utente (che gira una volta sola, in streaming, tramite `Out-Default`):
-  è solo una lettura della variabile già popolata da `Tee-Object`. Il
-  conteggio esclude esplicitamente gli `ErrorRecord`.
+- Conteggio oggetti (`[LARE] oggetti prodotti: N`): **rimosso dal REPL
+  interattivo in round 2** (era `Tee-Object -Variable` + una seconda, piccola
+  invocazione PowerShell che leggeva e rimuoveva quella variabile) perché
+  rompeva i comandi nativi interattivi come `python` — vedi la sezione "REPL
+  interattivo" sopra per i dettagli. Resta disponibile solo in `--selftest`
+  (`Program.cs`), dove il conteggio è fatto lato .NET su
+  `PowerShell.Invoke().Count`, senza alcun cmdlet aggiuntivo nella pipeline.
 - `ReadLineAsSecureString`: implementata leggendo un tasto alla volta e
   mascherando con `*`, senza dipendenze esterne — funzionale ma minimale
   (nessun supporto per frecce sinistra/destra durante l'editing della
