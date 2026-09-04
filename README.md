@@ -30,12 +30,24 @@ AI Chat), cambiando solo il punto d'ingresso e ciò che vi è accoppiato.
 ## Decisioni già prese (2026-09-04)
 
 - I comandi OS proposti dall'AI eseguono **nella shell reale dell'utente** (Lare è ospite, non
-  proprietario della shell) fin dalla prima versione. Meccanismo: *exit-and-resume* fra wrapper
-  shell e client CLI Rust; nuovo `ToolClient` lato orchestratore. La shell posseduta dal
-  `mcp-server` v1 resta per i canali senza shell utente (Telegram, AI Chat).
+  proprietario della shell) fin dalla prima versione. La shell posseduta dal `mcp-server` v1 resta
+  per i canali senza shell utente (Telegram, AI Chat).
+- **Sterzata (sera del 2026-09-04):** il lato shell non è un hook PSReadLine + client CLI, ma una
+  **host PowerShell custom in C#** (`lare-shell`, come `pwsh.exe` è una host del motore
+  PowerShell): possiede il REPL, legge con PSReadLine, intercetta le righe `/…`, esegue il resto
+  in-process, disegna barra di stato e segnalini nel terminale, e si presenta come profilo
+  "Lare Terminal" in Windows Terminal. Il core Rust (orchestratore, protocollo, plugin, pytools)
+  non cambia. In corso uno **spike** usa-e-getta in `spikes/lare-shell-host/`; lo spec in
+  `Docs/superpowers/specs/` verrà riscritto nelle sezioni shell (§2, §4, §6) dopo l'esito.
+- L'overlay F2 della v1 **non sopravvive**: `ui.exe` resta solo host di finestre Tauri
+  (Markdown, `/config`, `/library`, plugin). Ogni output dei comandi slash, `/ai` incluso, va in
+  una finestra Markdown; nel terminale restano prompt di conferma, conferme brevi ed errori.
 - Comportamento **non difforme dalla v1** per le superfici che restano: `/markets`, `/calc`,
-  `/library` aprono le stesse finestre Tauri.
+  `/library` aprono le stesse finestre Tauri. AI Chat, Library, `/config`, `/help` sono finestre
+  **uniche per macchina**, condivise da tutte le sessioni Lare aperte.
 - MVP: plugin `/ping` (round-trip di salute attraverso tutti gli strati) e `/calc`; slash
-  `/help`, `/config`, `/open`, `/web`, `/library`.
+  `/help`, `/config`, `/open`, `/web`, `/library`, `/ai "testo"` (≡ `/ "testo"`).
 - Niente variabili d'ambiente dove evitabile: tutto in file JSON sotto `Configuration\`; unico
-  override ammesso il flag `--config-dir` da riga di comando.
+  override ammesso il flag `--config-dir` da riga di comando. Una sola cwd: quella della sessione
+  PowerShell.
+- Documentazione narrativa in `Docs/i18n/<lingua>/`, italiano (`ita`) come riferimento.

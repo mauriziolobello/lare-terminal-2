@@ -9,6 +9,11 @@
 **/__pycache__/
 **/.pytest_cache/
 
+# .NET (lare-shell host C# e spike)
+**/bin/
+**/obj/
+*.user
+
 # Tauri / Node (UI)
 node_modules
 dist
