@@ -13,7 +13,8 @@ AI Chat), cambiando solo il punto d'ingresso e ciò che vi è accoppiato.
 ## Stato
 
 **Brainstorming in corso** (dal 2026-09-04). Nessun codice ancora. Spec di design in
-`Docs/superpowers/specs/` quando approvata; da lì il piano di implementazione.
+`Docs/i18n/ita/superpowers/specs/`; da lì il piano di implementazione. Tutta la documentazione
+sta sotto `Docs/i18n/<lingua>/` (italiano come riferimento).
 
 ## Punti di partenza
 
@@ -38,7 +39,8 @@ AI Chat), cambiando solo il punto d'ingresso e ciò che vi è accoppiato.
   in-process, disegna barra di stato e segnalini nel terminale, e si presenta come profilo
   "Lare Terminal" in Windows Terminal. Il core Rust (orchestratore, protocollo, plugin, pytools)
   non cambia. In corso uno **spike** usa-e-getta in `spikes/lare-shell-host/`; lo spec in
-  `Docs/superpowers/specs/` verrà riscritto nelle sezioni shell (§2, §4, §6) dopo l'esito.
+  `Docs/i18n/ita/superpowers/specs/` verrà riscritto nelle sezioni shell (§2, §4, §6) dopo
+  l'esito.
 - L'overlay F2 della v1 **non sopravvive**: `ui.exe` resta solo host di finestre Tauri
   (Markdown, `/config`, `/library`, plugin). Ogni output dei comandi slash, `/ai` incluso, va in
   una finestra Markdown; nel terminale restano prompt di conferma, conferme brevi ed errori.

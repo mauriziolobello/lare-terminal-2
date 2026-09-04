@@ -2,7 +2,7 @@
 
 > **Stato:** spec approvata a sezioni in chat il 2026-09-04 (brainstorming), in attesa della revisione
 > finale dell'utente sul file. Prossimo passo dopo l'approvazione: piano di implementazione
-> (`Docs/superpowers/plans/`).
+> (`Docs/i18n/ita/superpowers/plans/`).
 >
 > **Cosa decide questo documento:** il modello di esecuzione 2.0 (front-end integrato nella shell
 > reale), il protocollo fra shell, client CLI e orchestratore, la configurazione unificata, il
