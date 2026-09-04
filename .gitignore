@@ -1,0 +1,60 @@
+# Rust
+/target
+**/target
+*.pdb
+# Cargo.lock NON ignorato di proposito: workspace di applicazioni, build riproducibili.
+
+# Python tool venvs / cache — mai committare (come target/)
+**/venv/
+**/__pycache__/
+**/.pytest_cache/
+
+# Tauri / Node (UI)
+node_modules
+dist
+*.local
+**/gen/
+
+# Test Run — specchio del layout di deploy (C:\Lare Terminal): la STRUTTURA
+# (cartelle, manifest plugin.json, script di avvio) è committata; binari,
+# segreti e dati generati dall'uso no.
+Test Run/**/*.exe
+Test Run/**/*.dll
+Test Run/Configuration/token
+Test Run/Configuration/llms.json
+Test Run/Configuration/telegram-state.json
+Test Run/Configuration/memory-*.md
+Test Run/Configuration/notes.json
+Test Run/Configuration/plugin-storage/
+Test Run/Configuration/library/
+Test Run/pytools/**/*_cache.json
+Test Run/pytools/**/discoveries.json
+Test Run/pytools/**/tickers_us.json
+
+# Segreti e config locali (token Telegram, API key) — mai committare
+.env
+.env.*
+config.local.*
+secrets.*
+*API Key*.txt
+*.key
+telegramsettings.json
+*telegram*token*
+*Google Auth*
+*Authenticator*
+.lare-data/
+
+# Scratch di processo (subagent-driven-development, worktree locali)
+.superpowers/
+.worktrees/
+
+# Script di dev/deploy specifici della macchina
+cargo_build.ps1
+deploy_binary_only.ps1
+not_shared.txt
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
