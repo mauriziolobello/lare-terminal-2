@@ -195,11 +195,25 @@ lare     → exit 0 · wrapper termina
 Il loop si ripete a ogni `ExecInShell` dello stesso turno (l'AI può eseguire più comandi in
 sequenza, ciascuno col proprio gate batched per turno come in v1).
 
+**Comandi interattivi — il limite v1 non sparisce da solo.** Con `Invoke-Expression … | Tee-Object`
+lo stdout del comando è una pipe: i programmi che controllano di avere un terminale (editor,
+REPL, pager, `git` col pager, molti installer) si comportano male o si bloccano, esattamente come
+nella shell posseduta della v1. Lo stdin invece resta la console, quindi i prompt semplici
+(`Read-Host`, conferme `y/n`) funzionano. Per realizzare davvero il guadagno di §20.1
+STATO-ATTUALE v1, `ExecInShell` porta un flag **`capture: bool`**:
+- `capture: true` (default) — come sopra, output catturato e restituito all'AI.
+- `capture: false` — il wrapper esegue il comando **nudo**, attaccato alla console; `output`
+  torna vuoto, restano `exit_code` e `cwd`. L'AI lo chiede con l'input opzionale
+  `interactive: true` del tool `run_in_session` (esposto solo dal `ShellProxyToolClient`, §4.3),
+  descritto nel `tool_defs` come "per programmi interattivi: editor, REPL, wizard".
+Quando l'AI sbaglia a non dichiararlo, il comando si blocca finché l'utente non lo chiude
+(Ctrl+C → §8): non peggio della v1, e con la via d'uscita documentata.
+
 **Codici di uscita di `lare.exe`:** `0` completato · `10` esegui-e-riprendi · `2` orchestratore
 non raggiungibile (dopo eventuale autostart) · `1` ogni altro errore (già stampato).
 
 **File di scambio** (prefisso passato dal wrapper: cartella temporanea di sistema, `lare-<PID>`):
-- `<prefisso>.exec.json` — `{ "turn_id", "exec_id", "command" }`, scritto da `lare.exe`.
+- `<prefisso>.exec.json` — `{ "turn_id", "exec_id", "command", "capture" }`, scritto da `lare.exe`.
 - `<prefisso>.result.json` — `{ "turn_id", "exec_id", "exit_code", "output", "cwd" }`, scritto
   dal wrapper. `output` = stdout+stderr fusi; il wrapper tronca oltre **200 KB** (testa + coda,
   marcatore `[… troncato N byte …]`), stesso principio del cap output v1.
@@ -221,12 +235,28 @@ non raggiungibile (dopo eventuale autostart) · `1` ogni altro errore (già stam
   **Disconnessione senza `Detach`** (Ctrl+C sul CLI, crash) = cancel del turno, come v1.
 - **`ShellProxyToolClient`** (`impl ToolClient`): `run_in_session` → manda `ExecInShell`,
   registra la oneshot, attende `ExecResult`, restituisce `CommandResult{exit_code, output, cwd}`
-  (stesso tipo v1). `reset_session` → no-op. `open_target`, `search_routines`, `run_routine`,
+  (stesso tipo v1). `reset_session` → no-op. `open_target`, `search_routines`,
   `get_routine_content`, `save_routine` → **delegati** al `McpToolClient` v1 (non hanno bisogno
-  della shell dell'utente; composizione, non ereditarietà). `tool_defs`/`dispatch` come
-  `McpToolClient`. Decorato da `CwdTrackingToolClient` v1 come oggi.
-- **`Command.cwd`** dalla shell inizializza `cwd_state` del turno (prompt di sistema AI, `/find`);
-  ogni `ExecResult.cwd` lo aggiorna.
+  della shell dell'utente; composizione, non ereditarietà). `run_routine` **non** è delegato
+  (eseguirebbe nella shell del daemon, contro D1): nell'MVP risponde "non disponibile dalla
+  shell" (default del trait v1); la via corretta — corpo via `get_routine_content`, esecuzione via
+  `ExecInShell` — è in §11. `tool_defs` = quelli v1 meno `run_routine`, con l'input opzionale
+  `interactive` su `run_in_session`; `dispatch` lo legge e imposta `ExecInShell.capture`.
+- **cwd per connessione, non globale.** In v1 `cwd_state` è un solo `Arc<Mutex<String>>` creato
+  in `main.rs` e condiviso da tutte le connessioni (`/find`, emissione `Cwd`), perché c'era una
+  sola shell. Nel 2.0 ci sono due cwd reali: quella della shell posseduta (`mcp-server`, condivisa
+  da `ui` e Telegram, invariata) e quella della shell dell'utente, **diversa per ogni connessione
+  `cli`**. `Command.cwd` inizializza la cwd della connessione `cli`; ogni `ExecResult.cwd` la
+  aggiorna; prompt di sistema AI e `/find` di quel turno leggono quella. Un turno `cli` non tocca
+  mai il globale v1 (altrimenti sporcherebbe la cwd mostrata dall'overlay). Realizzazione: il
+  `CwdTrackingToolClient` v1 riceve un `Arc<Mutex<String>>` per-connessione invece di quello
+  globale — il decorator non cambia, cambia solo cosa gli si passa.
+- **Plugin e finestre appartengono all'orchestratore, mai alla connessione che ha digitato lo
+  slash.** Verificato in v1: `PluginHost` è `Arc<Mutex<PluginHost>>` creato in `main.rs`, condiviso
+  fra le connessioni, non smontato quando una `handle_connection` termina. Quindi `/calc` dalla
+  shell: il CLI esce a `Done`, la finestra vive in `ui.exe`, i `PluginUiEvent` viaggiano
+  `ui`→orchestratore→sidecar come oggi. I `ShowWindow`/`UpdateWindow`/`CloseWindow` dei plugin
+  sono sempre instradati alla connessione `ui`, qualunque sia l'origine dello slash.
 - **Routing di superficie**: metodo `ServerMsg::surface() -> Surface { Ui, Origin }` sul crate
   `protocol`, tabella esaustiva. `Ui`: le 7 varianti che aprono/gestiscono finestre (`OpenWindow`,
   `OpenScreenerPicker`, `SearchOpen`, `OpenPluginWindow`, `UpdatePluginWindow`,
@@ -248,7 +278,7 @@ non raggiungibile (dopo eventuale autostart) · `1` ogni altro errore (già stam
 { "type": "ExecResult", "turn_id": "…", "exec_id": "…", "exit_code": 0, "output": "…", "cwd": "…" }
 { "type": "UiPong",     "id": "…", "version": "2.0.0" }
 // ServerMsg
-{ "type": "ExecInShell", "turn_id": "…", "exec_id": "…", "command": "…" }
+{ "type": "ExecInShell", "turn_id": "…", "exec_id": "…", "command": "…", "capture": true }
 { "type": "OpenUiLocal", "name": "config" }                           // "config" | "library"
 { "type": "UiPing",      "id": "…" }
 ```
@@ -303,9 +333,13 @@ perde il livello env: `resolve(file_value, default)`.
   "ai_model": "claude-sonnet-4-6",   // override del modello del provider attivo in llms.json
   "autostart": { "orchestrator": true, "ui": true },
   "resume_timeout_min": 30,
-  "log_level": "info"
+  "log": { "level": "info", "dir": "Configuration/logs" }   // orchestrator.log, ui.log, mcp-server.log
 }
 ```
+
+I log vanno **su file** in `log.dir` (rotazione giornaliera, 7 file), mai sulla console: un
+orchestratore avviato in autostart da `lare.exe` non deve sporcare il terminale dell'utente.
+`init_*.ps1` (avvio manuale) aggiunge anche l'output su console.
 
 Tutti i campi opzionali con default uguali ai valori sopra; file assente = tutti i default. I
 percorsi relativi sono risolti rispetto alla **cartella dell'eseguibile**, non alla cwd né alla
@@ -315,9 +349,12 @@ aveva percorsi assoluti `C:/Lare Terminal/...`).
 ### 5.4 Avvio e self-heal
 
 - `lare.exe` non raggiunge il WS → se `autostart.orchestrator`, avvia `orchestrator.exe` (stessa
-  cartella, processo staccato) e ritenta per **5 s**; altrimenti errore, exit 2.
+  cartella) e ritenta per **5 s**; altrimenti errore, exit 2.
 - L'orchestratore senza connessione `ui` entro **3 s** dall'avvio (o quando serve instradare un
-  messaggio `Ui`) → se `autostart.ui`, avvia `ui.exe` (stessa cartella, processo staccato).
+  messaggio `Ui`) → se `autostart.ui`, avvia `ui.exe` (stessa cartella).
+- **Processo staccato** in entrambi i casi: su Windows `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP`
+  (nessuna console ereditata, un Ctrl+C nella shell dell'utente non abbatte il daemon), stdio
+  chiusi — l'output va solo sui file di log (§5.3). Su unix `setsid`, stessa regola.
 - Servizio Windows, autorun al login, tray: fuori MVP (§11). Gli script `init_*.ps1` restano per
   l'avvio manuale.
 
@@ -375,6 +412,8 @@ percorso in `$PROFILE` è assoluto).
 | Disconnessione `cli` senza `Detach` | Turno cancellato (v1) |
 | Ctrl+C durante l'exec nella shell | `finally` del wrapper → `lare.exe abort --turn` best-effort; altrimenti scade il timeout |
 | `Invoke-Expression` solleva eccezione | Messaggio nell'`output`, `exit_code` 1, il turno continua (l'AI vede l'errore) |
+| Comando che richiede un terminale eseguito con `capture: true` | Si blocca come in v1; l'utente lo chiude (Ctrl+C → riga sopra); l'AI vede l'esito e può ripetere con `interactive: true` |
+| Exit code di un comando PowerShell puro (nessun `$LASTEXITCODE`) | Il wrapper usa `$?` come fallback (0/1) |
 | Output dell'exec > 200 KB | Troncato testa+coda dal wrapper con marcatore |
 | `startup.json` malformato | Log + default, mai panic (v1) |
 | `--config-dir` inesistente | Creata al primo avvio (come le cartelle app-data v1) |
@@ -405,8 +444,19 @@ Convenzioni v1 non derogabili: TDD con RED reale prima del codice; i test come s
 
 **PowerShell** — Pester su `Invoke-Lare` con un `lare.exe` finto (script che esce 10 una volta con
 un `.exec.json` noto, poi 0): verifica il `.result.json` (exit code, output, `cwd`), che un `cd`
-nel comando sopravviva al loop, la pulizia dei file, e `abort` chiamato su interruzione. Se Pester
-non è disponibile sulla macchina: gli stessi casi nella checklist manuale.
+nel comando sopravviva al loop, `capture: false` → output vuoto e comando eseguito senza pipe, la
+pulizia dei file, e `abort` chiamato su interruzione. Se Pester non è disponibile sulla macchina:
+gli stessi casi nella checklist manuale.
+
+**Verifiche da spike, prima del codice (task dedicato del piano, esito scritto nel piano stesso):**
+- `AddToHistory($line)` nel handler Enter aggiunge davvero la riga anche con
+  `AddToHistoryHandler` che rifiuta `Invoke-Lare *` (o l'ordine va invertito).
+- Il handler Enter sostitutivo conserva il comportamento di `AcceptLine()` su input incompleto
+  (riga di continuazione con `>>`), che non deve mai passare da `Invoke-Lare`.
+- `[Console]::OutputEncoding` nella pipe di cattura: l'output di comandi nativi (es. `ipconfig`)
+  può riproporre il KNOWN-ISSUE codepage della v1; misurare e, se serve, forzare UTF-8 nel wrapper.
+- Un comando che si blocca per assenza di TTY con `capture: true` è interrompibile con Ctrl+C e il
+  `finally` del wrapper parte davvero.
 
 **E2E manuale** (`Docs/TESTING-e2e.md`, da compilare a mano prima di ogni release):
 `/ping` con tutti gli strati · `/calc` apre la finestra · `/config`, `/library`, `/help` ·
@@ -432,6 +482,10 @@ architetture. Il `CLAUDE.md` del repo 2.0 le riporta (primo task del piano).
   (`/markets quote NVDA`): feature nuove, da brainstormare a parte.
 - Verifica dal vivo di Telegram, AI Chat, `/find`, `/markets`, nmap, routine, `/lc`, `/crypto`,
   `/counter`: codice copiato e compilante (D10), ciascuno con slice dedicata.
+- **Routine dal canale shell** (`run_routine` via `ShellProxyToolClient`): nell'MVP il tool non è
+  esposto su quel canale. Slice futura: l'orchestratore legge il corpo con `get_routine_content`
+  (delegato a `mcp-server`, sola lettura) e lo esegue con `ExecInShell` nella shell dell'utente —
+  coerente con D1, niente doppia shell.
 - Servizio Windows, autorun al login, tray icon, supervisione/restart (Fase 5 v1).
 - Port macOS/Linux (Fase 6 v1), voce (Fase 3 v1).
 - Backlog v1 (`Docs/STATO-ATTUALE.md` §16): `/towin`, Library broadcast, `find_files` AI,
