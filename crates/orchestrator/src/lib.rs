@@ -47,13 +47,11 @@
 //! - `mcp-server` validates `cwd` (UNC/NTLM guard, Fase 1).
 
 pub mod agent;
-pub mod aichat;
 pub mod ai_adapter;
+pub mod aichat;
 pub mod chat_backend;
 pub mod claude_backend;
-pub mod openrouter_backend;
-pub mod plugins;
-pub mod token_store;
+pub mod connections;
 pub mod core;
 pub mod cwd_tracking;
 pub mod external_channel;
@@ -63,11 +61,14 @@ pub mod logging;
 pub mod messages_client;
 pub mod nmap_tool_client;
 pub mod notes;
+pub mod openrouter_backend;
+pub mod plugins;
 pub mod python_mcp_tool_client;
 pub mod router;
 pub mod runtime_config;
 pub mod search;
 pub mod telegram;
+pub mod token_store;
 pub mod tool_client;
 pub mod ws;
 
