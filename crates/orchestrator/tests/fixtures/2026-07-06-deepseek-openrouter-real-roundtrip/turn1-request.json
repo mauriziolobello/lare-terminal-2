@@ -1,0 +1,22 @@
+{
+  "model": "deepseek/deepseek-chat",
+  "messages": [
+    {"role": "user", "content": "Elenca i file nella cartella corrente usando lo strumento run_in_session."}
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "run_in_session",
+        "description": "Esegui un comando nella shell persistente e ricevi l'output.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "command": { "type": "string", "description": "Il comando da eseguire" }
+          },
+          "required": ["command"]
+        }
+      }
+    }
+  ]
+}

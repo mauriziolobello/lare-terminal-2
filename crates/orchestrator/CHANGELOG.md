@@ -10,6 +10,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), versioning: [S
 Copia del crate dalla v1 (`mauriziolobello/lare-terminal`) nel repo 2.0. Nessuna modifica
 funzionale in questa voce; le modifiche del piano 1 seguono nelle voci successive.
 
+- Fixture dei test OpenRouter spostate in `tests/fixtures/` (nella v1 vivevano in `Docs/superpowers/fixtures/`, fuori dal crate).
+
 ## [0.41.21] — 2026-08-26 — `/markets`: quarto screener `citadel`
 
 Nuovo screener registrato nel canale `financial-markets`: `citadel`

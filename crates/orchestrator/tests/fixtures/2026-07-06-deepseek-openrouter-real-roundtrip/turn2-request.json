@@ -1,0 +1,38 @@
+{
+  "model": "deepseek/deepseek-chat",
+  "messages": [
+    {"role": "user", "content": "Elenca i file nella cartella corrente usando lo strumento run_in_session."},
+    {
+      "role": "assistant",
+      "content": null,
+      "tool_calls": [
+        {
+          "type": "function",
+          "id": "28714ee3a8ce4c3f926a572d72bb434c",
+          "function": { "name": "run_in_session", "arguments": "{\"command\":\"ls\"}" }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "28714ee3a8ce4c3f926a572d72bb434c",
+      "content": "Cargo.lock\nCargo.toml\ncrates\nDocs\ntarget"
+    }
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "run_in_session",
+        "description": "Esegui un comando nella shell persistente e ricevi l'output.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "command": { "type": "string", "description": "Il comando da eseguire" }
+          },
+          "required": ["command"]
+        }
+      }
+    }
+  ]
+}

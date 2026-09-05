@@ -695,16 +695,16 @@ mod tests {
     use std::sync::Mutex;
 
     const TURN1_REQUEST: &str = include_str!(
-        "../../../Docs/superpowers/fixtures/2026-07-06-deepseek-openrouter-real-roundtrip/turn1-request.json"
+        "../tests/fixtures/2026-07-06-deepseek-openrouter-real-roundtrip/turn1-request.json"
     );
     const TURN1_RESPONSE: &str = include_str!(
-        "../../../Docs/superpowers/fixtures/2026-07-06-deepseek-openrouter-real-roundtrip/turn1-response.json"
+        "../tests/fixtures/2026-07-06-deepseek-openrouter-real-roundtrip/turn1-response.json"
     );
     const TURN2_REQUEST: &str = include_str!(
-        "../../../Docs/superpowers/fixtures/2026-07-06-deepseek-openrouter-real-roundtrip/turn2-request.json"
+        "../tests/fixtures/2026-07-06-deepseek-openrouter-real-roundtrip/turn2-request.json"
     );
     const TURN2_RESPONSE: &str = include_str!(
-        "../../../Docs/superpowers/fixtures/2026-07-06-deepseek-openrouter-real-roundtrip/turn2-response.json"
+        "../tests/fixtures/2026-07-06-deepseek-openrouter-real-roundtrip/turn2-response.json"
     );
 
     fn run_in_session_tool() -> OrTool {
