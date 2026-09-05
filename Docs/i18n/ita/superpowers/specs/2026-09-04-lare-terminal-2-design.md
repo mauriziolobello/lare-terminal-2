@@ -1,495 +1,490 @@
 # Lare Terminal 2.0 — Design
 
-> **Stato:** spec approvata a sezioni in chat il 2026-09-04 (brainstorming), in attesa della revisione
-> finale dell'utente sul file. Prossimo passo dopo l'approvazione: piano di implementazione
-> (`Docs/i18n/ita/superpowers/plans/`).
+> **Stato:** prima stesura approvata a sezioni in chat il 2026-09-04; **riscritta il 2026-09-05
+> dopo i due spike** (`Docs/i18n/ita/spikes/2026-09-05-lare-shell-host.md` e
+> `2026-09-05-lare-terminal-window.md`) sulla forma finale del lato shell. In attesa della
+> revisione dell'utente sul file; poi il piano di implementazione
+> (`Docs/i18n/ita/superpowers/plans/`). La storia della prima stesura (hook PSReadLine + client
+> CLI + exit-and-resume) è nel git log; non è più un'alternativa.
 >
-> **Cosa decide questo documento:** il modello di esecuzione 2.0 (front-end integrato nella shell
-> reale), il protocollo fra shell, client CLI e orchestratore, la configurazione unificata, il
-> layout di deploy, i confini dell'MVP. **Cosa NON decide:** la struttura interna dei crate copiati
-> dalla v1 (resta quella, vedi `Docs/STATO-ATTUALE.md` del repo v1) e tutto ciò che è elencato in
-> §11 "Fuori MVP".
+> **Cosa decide questo documento:** il modello di esecuzione 2.0 (Lare Terminal = finestra Tauri
+> che ospita una host PowerShell custom), il protocollo fra host e orchestratore, la configurazione
+> unificata, il layout di deploy, i confini dell'MVP. **Cosa NON decide:** la struttura interna dei
+> crate copiati dalla v1 (resta quella, vedi `Docs/STATO-ATTUALE.md` del repo v1) e tutto ciò che è
+> in §12 "Fuori MVP".
 >
 > **Punti di partenza:** repo v1 `C:\Users\Maurizio\Documents\Progetti\Lare Terminal` (leggere
-> `Docs/STATO-ATTUALE.md`, Parte II §18-20 — contratti verificati sul codice e domande aperte);
-> Google Doc "Lare Terminal 2.0" (bozza di un'altra AI, usata solo come inquadramento — vedi §1.2);
-> layout di deploy v1 `C:\Lare Terminal`.
+> `Docs/STATO-ATTUALE.md`, Parte II §18-20); Google Doc "Lare Terminal 2.0" (bozza di un'altra AI,
+> solo inquadramento — §1.2); layout di deploy v1 `C:\Lare Terminal`; sorgente di PowerShell in
+> `C:\Users\Maurizio\Documents\GitHub\PowerShell` (riferimento per la host:
+> `src/Microsoft.PowerShell.ConsoleHost/host/msh/ConsoleHost.cs` e `ConsoleHostUserInterface.cs`).
 
 ## 1. Contesto e obiettivo
 
 ### 1.1 Obiettivo (parole dell'utente)
 
-> L'obiettivo di questa versione 2.0 è che l'utente scrive nella stessa riga di comando della
-> finestra PowerShell, i comandi slash vengono interpretati dal nostro programma. Se esiste il
-> corrispondente comando esso viene elaborato, se non esiste il comando viene silenziosamente
-> scartato.
+> L'utente scrive nella stessa riga di comando di una sessione PowerShell; i comandi slash vengono
+> interpretati dal nostro programma. Se esiste il corrispondente comando viene elaborato, se non
+> esiste viene silenziosamente scartato.
 
-Vincolo dichiarato: **mantenere il più possibile** di quanto costruito nella v1 ("implementato in
-maniera molto robusta e riutilizzabile"). Comportamento **non difforme dalla v1** per le superfici
-che restano: `/markets`, `/calc`, `/library` aprono le stesse finestre Tauri di oggi.
+Evoluto il 2026-09-04 sera in: **Lare Terminal è un terminale in tutto e per tutto simile a una
+sessione PowerShell**, con i "power command" `/…` e l'AI integrata, con una UI estendibile (barra di
+stato, segnalini, comandi cliccabili) e l'estetica grafica della v1. Vincolo: **mantenere il più
+possibile** di quanto costruito nella v1; comportamento **non difforme dalla v1** per le superfici
+che restano (`/markets`, `/calc`, `/library` aprono le stesse finestre Tauri).
 
 ### 1.2 Cosa si prende dalla bozza Google Doc e cosa no
 
-La bozza è stata scritta senza conoscere la v1. Si adotta come **inquadramento**: "command layer
-sopra le shell esistenti" (mai una nuova shell, mai hook tastiera globali), adapter shell sottile →
-daemon che ignora quale shell lo chiama, self-heal del daemon all'avvio del client. Si **scarta**
-ciò che ri-deriva cose già esistenti (named pipe al posto del WS v1, `hubd`/`hubctl` al posto
-dell'orchestratore, "moduli compilati ora e WASM dopo" al posto dei plugin sidecar) e la forma
-request/response del protocollo, incompatibile con lo streaming (token AI, trasparenza tool,
-cancel, gate di conferma) su cui vive la v1. L'output testuale dei plugin (`/calc 5*20 → 840`) è
-lavoro nuovo, non riuso (i plugin v1 emettono solo HTML): fuori MVP, §11.
+Si adotta come inquadramento: "command layer sopra la shell esistente", adapter sottile → daemon
+che ignora chi lo chiama, self-heal del daemon. Si scarta ciò che ri-deriva cose già esistenti
+(named pipe al posto del WS v1, `hubd`/`hubctl` al posto dell'orchestratore, plugin WASM al posto
+dei sidecar) e la forma request/response del protocollo (la v1 vive di streaming: token AI,
+trasparenza tool, cancel, gate). L'output testuale dei plugin (`/calc 5*20 → 840`) è lavoro nuovo:
+fuori MVP (§12).
 
-### 1.3 Decisioni prese (2026-09-04)
+### 1.3 Decisioni prese
 
-| # | Decisione | Nota |
+| # | Decisione | Data / nota |
 |---|---|---|
-| D1 | I comandi OS proposti dall'AI eseguono **nella shell reale dell'utente** fin dalla prima versione (Lare ospite, non proprietario) | Meccanismo *exit-and-resume*, §4. La shell posseduta dal `mcp-server` v1 resta per i canali senza shell utente |
-| D2 | L'overlay F2 **sopravvive** come secondo canale accanto alla shell | Comportamento v1 invariato sull'overlay (NL senza slash → AI, comandi OS → `mcp-server`) |
-| D3 | Linguaggio naturale solo con slash: `/ai "testo"` e `/ "testo"` equivalenti, **virgolette obbligatorie** | Mai testo nudo, mai fallback `CommandNotFoundAction` (verificato: smonta gli argomenti) |
-| D4 | Slash sconosciuto digitato nella shell → **scartato in silenzio** nel terminale, una riga di log nell'orchestratore | Dall'overlay resta `Error` come v1 |
-| D5 | MVP: plugin `/ping` e `/calc`; slash `/help`, `/config`, `/open`, `/web`, `/library`, `/ai` | `/ping` diventa comando utente (v1: solo prova di concetto interna) |
-| D6 | Cartella unica `Configuration\` al posto di `Local\` + `Roaming\`; **nessuna variabile d'ambiente** letta da alcun binario; unico override `--config-dir` | §5 |
-| D7 | `Test Run\` dentro il repo, specchio di `C:\Lare Terminal`, copiabile fuori senza modifiche | §6 |
-| D8 | Repo GitHub nuovo e privato `mauriziolobello/lare-terminal-2`, completamente slegato dalla v1: crate **copiati**, niente path-dep né subtree | La v1 resta congelata come riferimento |
-| D9 | pwsh **7+** unica shell Windows supportata; bash/zsh dopo, stesso `lare.exe` | Windows PowerShell 5.1 non supportata |
-| D10 | Tutti i crate v1 copiati e compilanti; nell'MVP verificate dal vivo solo le superfici di D5 | Telegram, AI Chat, `/find`, `/markets`, nmap, routine: "come v1, non testate" fino a slice dedicata |
-| D11 | Il codice lo scrivono subagenti su modelli meno costosi (Sonnet, Haiku dove basta); Fable supervisiona e decide l'architettura | Convenzione v1 (`lare-builder` Sonnet), rafforzata |
+| D1 | I comandi OS proposti dall'AI eseguono **nella shell dell'utente**, in-process nella host (Lare è la shell, non un ospite di una shell altrui) | 04/09; realizzata dalla host custom (D12) |
+| D2 | L'overlay F2 della v1 **muore**; il suo codice viene **rimosso** dal crate `ui` copiato, non lasciato dormiente | 04/09 sera; rimozione = mia raccomandazione, da confermare |
+| D3 | Linguaggio naturale solo con slash: `/ai "testo"` ≡ `/ "testo"`, **virgolette obbligatorie** | 04/09 |
+| D4 | Slash sconosciuto → **scartato in silenzio** nel terminale, una riga di log nell'orchestratore | 04/09 |
+| D5 | MVP: plugin `/ping` e `/calc`; slash `/help`, `/config`, `/open`, `/web`, `/library`, `/ai` | 04/09 |
+| D6 | Cartella unica `Configuration\`; **nessuna variabile d'ambiente** letta da alcun binario; unico override `--config-dir` | 04/09 |
+| D7 | `Test Run\` dentro il repo, specchio del layout di deploy, copiabile fuori senza modifiche | 04/09 |
+| D8 | Repo nuovo `mauriziolobello/lare-terminal-2`, slegato dalla v1: crate **copiati** | 04/09 |
+| D9 | **pwsh 7+**; Windows PowerShell 5.1 non supportata. Conseguenza (§12): Linux/macOS saranno *pwsh-flavored* | 04/09; conseguenza da confermare |
+| D10 | Tutti i crate v1 copiati e compilanti; nell'MVP verificate dal vivo solo le superfici di D5 | 04/09 |
+| D11 | Codice scritto da subagenti su modelli meno costosi (Sonnet, Haiku); Fable supervisiona | 04/09 |
+| D12 | **Lato shell = host custom del motore PowerShell in C#** (`lare-shell`), come `pwsh.exe` è una host: possiede il REPL, legge con PSReadLine, intercetta `/…`, esegue il resto in-process | 04/09 sera; **provato dallo spike 1** |
+| D13 | **Lare Terminal = finestra Tauri** con emulatore xterm.js che ospita `lare-shell` via ConPTY; barre e segnalini in HTML fuori dall'area terminale; scrollback dell'emulatore | 05/09; **provato dallo spike 2** |
+| D14 | **Ogni output dei comandi slash, `/ai` incluso, va in una finestra Markdown**; nel terminale restano prompt `[Y/n]`, una riga di conferma, errori di sintassi | 04/09 sera |
+| D15 | AI Chat, Library, `/config`, `/help`: **finestre uniche per macchina** (`/aichat` a finestra aperta → focus). Conversazione `/ai` **per sessione** shell | 04/09 sera |
+| D16 | **Tutta** la documentazione sotto `Docs/i18n/<lingua>/`, italiano di riferimento | 04/09 sera |
+| D17 | **Una sola cwd**: quella della sessione PowerShell; ogni componente la riceve col comando | 04/09 sera |
 
 ## 2. Architettura
 
 ```
-Shell utente (pwsh 7+; bash/zsh dopo, stesso lare.exe)
- │ hook Enter PSReadLine: riga inizia con "/" → Invoke-Lare (wrapper lare.ps1)
- │   riga non "/" → PowerShell normale, Lare non la vede mai
- ▼
-lare.exe  (NUOVO crate `cli`, Rust) ──── WS 127.0.0.1:7331 + token ──┐
-ui.exe    (overlay F2 + finestre, v1) ── WS, Hello{role: "ui"} ───────┤
-Telegram  (in-process, v1) ───────────────────────────────────────────┤
-                                                                      ▼
-                                              orchestrator.exe (v1 + 3 estensioni)
-   ① Router: slash noto → dispatch · `/ai "…"` e `/ "…"` → AI · ignoto da cli → discard+log
-   ② ToolClient per canale (trait v1, nessun cambio di firma):
-        cli     → ShellProxyToolClient  (NUOVO: exec nella shell utente, exit-and-resume)
-        ui      → McpToolClient          (v1: mcp-server, shell posseduta)
-        Telegram→ McpToolClient          (v1)
-   ③ Routing di superficie (NUOVO): ServerMsg "apri/aggiorna finestra" → connessione `ui`,
-        non al mittente; ServerMsg testuali → al mittente (cli)
-   plugin host sidecar stdio (v1) · mcp-server (v1) · pytools MCP Python (v1)
+ui.exe (Tauri v2 — crate `ui` v1 evoluto)
+ ├─ finestra "Lare Terminal"  ── xterm.js ↔ ConPTY (portable-pty) ↔ lare-shell.exe (host C#)
+ │    chrome HTML: riga segnalini (alto) · barra comandi cliccabili (basso)
+ ├─ finestre v1: Markdown (output slash), /config, /library, /help, plugin, /find, AI Chat
+ └─ WS ← orchestrator (role "ui": riceve tutto ciò che è "apri/aggiorna finestra")
+
+lare-shell.exe  ── WS persistente (role "shell") ──┐
+Telegram (in-process, v1) ─────────────────────────┤
+                                                   ▼
+                              orchestrator.exe (v1 + estensioni)
+   ① Router: slash noto → dispatch · `/ai "…"`/`/ "…"` → AI · ignoto da shell → discard+log
+   ② ToolClient per canale (trait v1): shell → ShellSessionToolClient (NUOVO: ExecInShell sul WS)
+                                       Telegram/AI Chat → McpToolClient (v1, shell posseduta)
+   ③ Routing di superficie (NUOVO): ServerMsg "finestra" → connessione ui; testo → mittente
+   plugin host sidecar (v1) · mcp-server (v1) · pytools MCP Python (v1)
 ```
 
 I tre strati v1 (canali → orchestratore → server MCP) restano. Cambia il **primo canale**: la
-shell dell'utente entra tramite un client CLI Rust (`lare.exe`) lanciato da un wrapper PowerShell
-che intercetta le righe `/…` prima che PowerShell le analizzi.
+shell dell'utente è una host custom del motore PowerShell, connessa all'orchestratore per tutta la
+durata della sessione, resa a schermo da una finestra Tauri.
 
 ### 2.1 Componenti
 
 | Componente | Stato | Cosa fa nel 2.0 |
 |---|---|---|
-| `crates/cli` → `lare.exe` | **nuovo** | Client WS del canale shell: manda la riga, stampa lo stream in terminale (ANSI), prompt `[Y/n]` per il gate, esce con codice 10 su `ExecInShell`, riprende con `--resume`. Self-heal dell'orchestratore |
-| `Test Run\lare.ps1` | **nuovo** | Hook Enter PSReadLine + `Invoke-Lare` (loop exit-and-resume) + `-Install` in `$PROFILE` |
-| `orchestrator` — `ws.rs` | esteso | Registro connessioni con ruolo (`ui`/`cli`); registro turni (attach/detach/resume); routing di superficie |
-| `orchestrator` — `shell_proxy_tool_client.rs` | **nuovo** | `impl ToolClient`: `run_in_session` → `ExecInShell` + attesa `ExecResult` |
-| `orchestrator` — `router.rs` | esteso | `/ai "…"` ≡ `/ "…"` (virgolette obbligatorie); discard+log per slash ignoto da `cli`; `/ping` |
-| `protocol` | esteso (additivo) | `Hello.role`, `ExecInShell`, `Detach`, `Resume`, `ExecResult`, `OpenUiLocal`, `UiPing`/`UiPong`, `ServerMsg::surface()`. `Command.cwd` esiste già in v1 (`Option<String>`) e viene semplicemente valorizzato dal CLI |
-| `startup-config` | modificato | Via il livello env var; `--config-dir`; percorsi relativi a exe_dir |
-| `ui` (Tauri) | esteso | Legge `startup.json`/`--config-dir` (fase 2 v1, mai fatta); risponde a `UiPing`; esegue `OpenUiLocal` come se digitato nel cursore |
-| `plugin-ping` | copiato, invariato | Risponde `Ready` a `Init` (v1). Il handler `/ping` dell'orchestratore lo attiva e misura il round-trip `Init→Ready`; la versione viene da `plugin.json`. Manifest resta `triggers: {}` (`/ping` è slash built-in, non trigger plugin) |
+| `shell/lare-shell/` → `lare-shell.exe` | **nuovo (C#, .NET 10, `Microsoft.PowerShell.SDK` 7.6.x)** | Host custom: `PSHost`/`PSHostUserInterface`/`PSHostRawUserInterface`; runspace con PSReadLine (funzione `PSConsoleHostReadLine`, come `ConsoleHost.cs`); REPL; riga `/…` → WS; altro → `AddScript(riga) \| Out-Default`; `NotifyBegin/EndApplication` come `ConsoleHost`; client WS persistente; `[Y/n]` del gate; `ExecInShell`; OSC 9001 verso l'emulatore |
+| `crates/ui` (Tauri) | esteso | Finestra terminale (xterm.js vendored + `portable-pty`, chrome HTML); finestra Markdown di output; `startup.json`/`--config-dir` (fase 2 v1, mai fatta); `UiPing`; `OpenUiLocal`; singleton (D15). **Rimosso**: overlay F2, line-editor, tab-completion, global-shortcut (D2) |
+| `orchestrator` — `ws.rs` | esteso | Registro connessioni con ruolo (`ui`/`shell`), cwd e history **per connessione shell** (la history v1 è già per connessione: `ws.rs:298`); routing di superficie |
+| `orchestrator` — `shell_session_tool_client.rs` | **nuovo** | `impl ToolClient`: `run_in_session` → `ExecInShell` sul WS della sessione, attesa `ExecResult` |
+| `orchestrator` — `router.rs` / `core.rs` | esteso | `/ai "…"` ≡ `/ "…"`; discard+log; `/ping`; apertura finestra Markdown per l'output slash (D14) |
+| `protocol` | esteso (additivo) | `Hello.role` + `Hello.session_id`, `ExecInShell`, `ExecResult`, `OpenUiLocal`, `UiPing`/`UiPong`, `OpenOutputWindow`/`OutputWindowContent`, `ActivityIndicator`, `ServerMsg::surface()`. `Command.cwd` e `CancelCommand` esistono già in v1 |
+| `startup-config` | modificato | Via il livello env; `--config-dir`; percorsi relativi a exe_dir |
+| `plugin-ping` | copiato, invariato | Il handler `/ping` lo attiva e misura `Init→Ready`; versione da `plugin.json` |
 | `mcp-server`, `mcp-nmap`, `plugin-protocol`, `plugin-calc`, pytools | copiati | Solo `--config-dir` al posto dell'env var ereditata |
 | `plugin-counter`, `plugin-lc`, `plugin-crypto` | copiati, non deployati in `Test Run\` nell'MVP | Compilano; rientrano quando serviranno |
 
 ### 2.2 Versioni
 
-Ogni crate del 2.0 riparte da **`2.0.0`**, con una voce di `CHANGELOG.md` "2.0.0 — fork da v1
-x.y.z" che cita la versione v1 da cui è stato copiato. Il crate nuovo `cli` parte anch'esso da
-`2.0.0`. Storia git v1 non importata (D8).
+Ogni crate/progetto del 2.0 riparte da **`2.0.0`** con una voce di `CHANGELOG.md` "2.0.0 — fork da
+v1 x.y.z". `lare-shell` parte da `2.0.0`.
+
+### 2.3 Ciclo di vita e due modalità d'ingresso
+
+- **Modalità A — app (predefinita):** l'utente avvia `ui.exe`; si apre la finestra terminale;
+  `ui.exe` lancia `lare-shell.exe --config-dir <dir> --session <id>` dentro una ConPTY; la host si
+  connette al WS; se l'orchestratore non risponde, **`ui.exe`** lo avvia (`autostart.orchestrator`).
+- **Modalità B — profilo Windows Terminal:** `lare-shell.exe` nudo in una scheda WT (fragment
+  installato da `install-wt-profile.ps1`, come nello spike). La host avvia orchestratore e `ui.exe`
+  se assenti (§6.4). Nessuna barra VT nel terminale (D13: le barre sono HTML in modalità A);
+  segnalini nel titolo della scheda (OSC 2) — fuori MVP, §12.
+- **Gara all'avvio:** due host che partono insieme tentano entrambe di avviare l'orchestratore; il
+  bind della porta WS decide (il secondo processo esce), le host ritentano la connessione per 5 s.
+- **Vincoli ConPTY (spike 2):** la lettura dalla pty **non riceve EOF** all'uscita del figlio —
+  l'uscita si rileva con `Child::wait()` in un thread dedicato. Chiusura della finestra = morte della
+  pty = morte della host (verificato: nessun orfano). Dimensione iniziale della pty = colonne/righe
+  dell'emulatore al primo `fit`.
 
 ## 3. Routing dei comandi
 
-Una riga digitata nella shell che inizia con `/` viene intercettata dall'hook e inviata intera
-(riga grezza, virgolette e parentesi intatte) all'orchestratore con `Command{line, cwd}`.
+La host manda **ogni** riga che inizia con `/` all'orchestratore con `Command{input, cwd}`; non ha
+un elenco di comandi proprio (lo possiede l'orchestratore). Tutto il resto va al runspace.
 
-| Riga (dalla shell) | Esito |
+| Riga | Esito |
 |---|---|
-| `/ai "testo"` · `/ "testo"` | Turno AI (loop tool-use v1; comandi OS via `ShellProxyToolClient`) |
-| `/ai testo` (senza virgolette) · `/ testo` | `Error` "sintassi: `/ai \"testo\"`", stampato |
-| `/open <target>` · `/web <query>` | Backend slash v1 → `Chunk`+`Done` stampati |
-| `/help` | Backend slash v1 (`core.rs`, `HELP_MARKDOWN`) → `OpenWindow` → instradato a `ui` |
-| `/config` · `/library` | `OpenUiLocal{name}` → `ui` li tratta come digitati nel cursore |
-| `/calc` | Plugin → `OpenPluginWindow` → `ui` |
+| `/ai "testo"` · `/ "testo"` | Turno AI (loop tool-use v1; comandi OS via `ShellSessionToolClient`); output nella finestra Markdown (§3.2) |
+| `/ai testo` · `/ testo` (senza virgolette) | `Error` "sintassi: `/ai \"testo\"`", stampato nel terminale |
+| `/open <target>` · `/web <query>` | Backend slash v1; esito nella finestra Markdown (D14), una riga di conferma nel terminale |
+| `/help` | Backend slash v1 (`core.rs`, `HELP_MARKDOWN`) → `OpenWindow` → `ui` (singleton, D15) |
+| `/config` · `/library` | `OpenUiLocal{name}` → `ui` (singleton) |
+| `/calc` | Plugin → `OpenPluginWindow` → `ui` (una finestra per invocazione, v1) |
 | `/markets`, `/nmap`, `/pyping`, `/lc`, `/crypto`, `/counter`, `/aichat`, `/find` | Come v1 (finestra → `ui`); **non verificati nell'MVP** (D10) |
-| `/ping` | Una riga per strato, §3.1 |
-| `/reset` | `Done` con messaggio "non applicabile dalla shell" (la sessione è la tua) |
-| `/qualunque-altro` | **Scartato**: `Done` immediata, niente in terminale; riga di log `info` nell'orchestratore (`discard slash: /qualunque-altro`) |
-| riga senza `/` | Mai vista da Lare |
-
-Dall'overlay (`role: ui`) il routing resta quello v1, incluso `Error` sullo slash ignoto e il
-linguaggio naturale senza slash.
+| `/ping` | §3.1 |
+| `/reset` | `Done` con "non applicabile: la sessione è la tua" |
+| `/qualunque-altro` | **Scartato**: `Done` muta; log `info` nell'orchestratore (`discard slash: …`) |
+| riga senza `/` | Mai vista dall'orchestratore |
 
 ### 3.1 `/ping`
 
-Comando utente che attraversa tutti gli strati e stampa una riga per ciascuno:
+Comando built-in dell'orchestratore, una riga per strato, nella finestra Markdown (D14) e una riga
+di conferma nel terminale:
 
 ```
-lare.exe       2.0.0  ok
+lare-shell     2.0.0  ok   sessione a1b2
 orchestrator   2.0.0  ok   uptime 1h12m · 3 ms
 plugin-ping    2.0.0  ok   round-trip 8 ms
 ui.exe         2.0.0  ok   12 ms
 ```
 
-Se uno strato non risponde: `ui.exe  --  non connesso` (dopo l'eventuale autostart, §5.4) oppure
-`plugin-ping  --  errore: <motivo>`; il comando finisce comunque con `Done`. Nuovi messaggi
-`UiPing{id}` / `UiPong{id, version}` fra orchestratore e `ui`. Per il plugin non serve nulla di
-nuovo: il handler `/ping` lo spawna (o riusa il processo vivo), manda `Init`, cronometra la
-`Ready` (protocollo v1 invariato) e legge la versione dal suo `plugin.json`. `/ping` è uno slash
-built-in dell'orchestratore, non un trigger `command` del manifest.
+Strato assente: `ui.exe  --  non connesso` / `plugin-ping  --  errore: <motivo>`; il comando finisce
+comunque con `Done`. `UiPing{id}`/`UiPong{id, version}` fra orchestratore e `ui`; il plugin
+risponde alla `Init` con `Ready` (v1, invariato), versione dal suo `plugin.json`.
 
-## 4. Protocollo shell ↔ CLI ↔ orchestratore
+### 3.2 Output dei comandi slash: finestra Markdown (D14)
 
-### 4.1 Hook (installato in `$PROFILE` da `lare.ps1 -Install`)
+Ogni comando slash originato dalla shell produce il suo output in una **finestra Markdown**, non nel
+terminale. Nell'MVP la finestra si apre **all'inizio** del comando con un segnaposto ("in corso…")
+e riceve il contenuto **una volta, a `Done`** — come il pannello v1, che renderizza il Markdown a
+fine risposta perché il Markdown progressivo (fence aperti, tabelle a metà) è brutto. Lo streaming
+token-per-token nella finestra è una slice successiva (§12). I chunk di **trasparenza** dell'AI
+("eseguo `dir`…") vanno nella stessa finestra: nel terminale l'utente vede già l'output reale del
+comando, che gira lì.
 
-```powershell
-# Lare Terminal 2.0 — integrazione shell (pwsh 7+, PSReadLine 2.x)
-Set-PSReadLineKeyHandler -Key Enter -ScriptBlock {
-    $line = $null; $cursor = $null
-    [Microsoft.PowerShell.PSConsoleReadLine]::GetBufferState([ref]$line, [ref]$cursor)
-    if ($line -match '^\s*/') {
-        [Microsoft.PowerShell.PSConsoleReadLine]::AddToHistory($line)
-        $escaped = $line -replace "'", "''"
-        [Microsoft.PowerShell.PSConsoleReadLine]::Replace(0, $line.Length, "Invoke-Lare '$escaped'")
-    }
-    [Microsoft.PowerShell.PSConsoleReadLine]::AcceptLine()
-}
-Set-PSReadLineOption -AddToHistoryHandler {
-    param($line)
-    -not ($line -like 'Invoke-Lare *')   # la riga originale è già stata aggiunta sopra
-}
-```
+Messaggi: `OpenOutputWindow{window_id, title}` (apre col segnaposto), `OutputWindowContent
+{window_id, markdown}` (sostituisce il contenuto; a `Done` o su `Error`). Instradati a `ui`.
 
-Perché l'hook Enter e non `CommandNotFoundAction`: verificato il 2026-09-04 che quest'ultimo vede
-gli argomenti **dopo** il parsing di PowerShell (`sqrt(123)` → `sqrt|123`, `directory, per` →
-array, virgolette perse). L'hook Enter vede il buffer grezzo. Righe che non iniziano con `/`
-passano ad `AcceptLine()` senza alcuna modifica.
+Nel terminale, per un comando slash, compaiono solo: il prompt `[Y/n]` del gate (§4.3), l'output
+reale dei comandi eseguiti dall'AI, una riga di conferma finale (`→ finestra "…" aperta` oppure
+l'errore), gli errori di sintassi.
 
-### 4.2 `Invoke-Lare` — loop exit-and-resume
+## 4. Protocollo host ↔ orchestratore
 
-Un processo figlio non può eseguire comandi nella shell padre. Quindi: quando l'orchestratore
-vuole eseguire un comando nella shell dell'utente, `lare.exe` **esce** con codice 10 lasciando la
-richiesta in un file di scambio; il wrapper esegue il comando **nella sessione corrente**
-(`Invoke-Expression`), scrive il risultato in un secondo file e **rilancia** `lare.exe --resume`.
+Una connessione WS **persistente per sessione shell** (`127.0.0.1:7331` + token da file), aperta
+all'avvio della host e tenuta viva fino all'uscita — a differenza di un client usa-e-getta, permette
+all'orchestratore di fare **push** verso la sessione (segnalini, notifiche) anche a prompt fermo.
 
-```
-wrapper  → lare.exe run --cwd <pwd> --exchange <tmp>\lare-<PID> -- '<riga>'
-lare     → WS: Hello{token, role:"cli"} · Command{id, line, cwd}
-orch     → Chunk… (stream AI) · ToolConfirmRequest{id, commands}     ← gate ADR-007 v1, invariato
-lare     → prompt "[Y/n]" in terminale · ToolConfirmResponse{id, accept}
-orch     → ExecInShell{turn_id, exec_id, command}
-lare     → scrive <exchange>.exec.json · Detach{turn_id} · exit 10
-wrapper  → Invoke-Expression $cmd 2>&1 | Tee-Object | Out-Host   (output live nel terminale)
-         → scrive <exchange>.result.json
-         → lare.exe run --resume <turn_id> --exchange <tmp>\lare-<PID>
-lare     → WS: Hello · Resume{turn_id} · ExecResult{turn_id, exec_id, exit_code, output, cwd}
-orch     → riprende run_in_session → l'AI continua → Chunk… → Done
-lare     → exit 0 · wrapper termina
-```
-
-Il loop si ripete a ogni `ExecInShell` dello stesso turno (l'AI può eseguire più comandi in
-sequenza, ciascuno col proprio gate batched per turno come in v1).
-
-**Comandi interattivi — il limite v1 non sparisce da solo.** Con `Invoke-Expression … | Tee-Object`
-lo stdout del comando è una pipe: i programmi che controllano di avere un terminale (editor,
-REPL, pager, `git` col pager, molti installer) si comportano male o si bloccano, esattamente come
-nella shell posseduta della v1. Lo stdin invece resta la console, quindi i prompt semplici
-(`Read-Host`, conferme `y/n`) funzionano. Per realizzare davvero il guadagno di §20.1
-STATO-ATTUALE v1, `ExecInShell` porta un flag **`capture: bool`**:
-- `capture: true` (default) — come sopra, output catturato e restituito all'AI.
-- `capture: false` — il wrapper esegue il comando **nudo**, attaccato alla console; `output`
-  torna vuoto, restano `exit_code` e `cwd`. L'AI lo chiede con l'input opzionale
-  `interactive: true` del tool `run_in_session` (esposto solo dal `ShellProxyToolClient`, §4.3),
-  descritto nel `tool_defs` come "per programmi interattivi: editor, REPL, wizard".
-Quando l'AI sbaglia a non dichiararlo, il comando si blocca finché l'utente non lo chiude
-(Ctrl+C → §8): non peggio della v1, e con la via d'uscita documentata.
-
-**Codici di uscita di `lare.exe`:** `0` completato · `10` esegui-e-riprendi · `2` orchestratore
-non raggiungibile (dopo eventuale autostart) · `1` ogni altro errore (già stampato).
-
-**File di scambio** (prefisso passato dal wrapper: cartella temporanea di sistema, `lare-<PID>`):
-- `<prefisso>.exec.json` — `{ "turn_id", "exec_id", "command", "capture" }`, scritto da `lare.exe`.
-- `<prefisso>.result.json` — `{ "turn_id", "exec_id", "exit_code", "output", "cwd" }`, scritto
-  dal wrapper. `output` = stdout+stderr fusi; il wrapper tronca oltre **200 KB** (testa + coda,
-  marcatore `[… troncato N byte …]`), stesso principio del cap output v1.
-- Entrambi cancellati dal wrapper a fine loop (`finally`).
-
-**Sottocomandi `lare.exe`:** `run` (sopra) · `run --resume` · `abort --turn <id>` (best-effort dal
-`finally` del wrapper su Ctrl+C durante l'exec) · `version`. Opzione globale `--config-dir`.
-
-### 4.3 Lato orchestratore
-
-- **Registro connessioni** (`ws.rs`): ogni connessione dichiara `Hello.role` (`"ui"` | `"cli"`;
-  assente → `"ui"`, compatibilità con la v1). Al più una connessione `ui` attiva (l'ultima vince).
-- **Registro turni** — solo per turni originati da `cli`: `turn_id → { outbound: mpsc unbounded,
-  exec_pendente: Option<oneshot>, stato: Attached | Detached }`. Un task *forwarder* per turno
-  drena `outbound` verso la connessione attaccata; mentre nessuna è attaccata i messaggi restano in
-  coda: **niente perso** fra `exit 10` e `--resume`.
-- **`Detach` + disconnessione** = turno vivo in attesa di `Resume`, con timeout
-  `resume_timeout_min` (default **30** — un comando lungo lanciato dall'AI non va ucciso).
-  **Disconnessione senza `Detach`** (Ctrl+C sul CLI, crash) = cancel del turno, come v1.
-- **`ShellProxyToolClient`** (`impl ToolClient`): `run_in_session` → manda `ExecInShell`,
-  registra la oneshot, attende `ExecResult`, restituisce `CommandResult{exit_code, output, cwd}`
-  (stesso tipo v1). `reset_session` → no-op. `open_target`, `search_routines`,
-  `get_routine_content`, `save_routine` → **delegati** al `McpToolClient` v1 (non hanno bisogno
-  della shell dell'utente; composizione, non ereditarietà). `run_routine` **non** è delegato
-  (eseguirebbe nella shell del daemon, contro D1): nell'MVP risponde "non disponibile dalla
-  shell" (default del trait v1); la via corretta — corpo via `get_routine_content`, esecuzione via
-  `ExecInShell` — è in §11. `tool_defs` = quelli v1 meno `run_routine`, con l'input opzionale
-  `interactive` su `run_in_session`; `dispatch` lo legge e imposta `ExecInShell.capture`.
-- **cwd per connessione, non globale.** In v1 `cwd_state` è un solo `Arc<Mutex<String>>` creato
-  in `main.rs` e condiviso da tutte le connessioni (`/find`, emissione `Cwd`), perché c'era una
-  sola shell. Nel 2.0 ci sono due cwd reali: quella della shell posseduta (`mcp-server`, condivisa
-  da `ui` e Telegram, invariata) e quella della shell dell'utente, **diversa per ogni connessione
-  `cli`**. `Command.cwd` inizializza la cwd della connessione `cli`; ogni `ExecResult.cwd` la
-  aggiorna; prompt di sistema AI e `/find` di quel turno leggono quella. Un turno `cli` non tocca
-  mai il globale v1 (altrimenti sporcherebbe la cwd mostrata dall'overlay). Realizzazione: il
-  `CwdTrackingToolClient` v1 riceve un `Arc<Mutex<String>>` per-connessione invece di quello
-  globale — il decorator non cambia, cambia solo cosa gli si passa.
-- **Plugin e finestre appartengono all'orchestratore, mai alla connessione che ha digitato lo
-  slash.** Verificato in v1: `PluginHost` è `Arc<Mutex<PluginHost>>` creato in `main.rs`, condiviso
-  fra le connessioni, non smontato quando una `handle_connection` termina. Quindi `/calc` dalla
-  shell: il CLI esce a `Done`, la finestra vive in `ui.exe`, i `PluginUiEvent` viaggiano
-  `ui`→orchestratore→sidecar come oggi. I `ShowWindow`/`UpdateWindow`/`CloseWindow` dei plugin
-  sono sempre instradati alla connessione `ui`, qualunque sia l'origine dello slash.
-- **Routing di superficie**: metodo `ServerMsg::surface() -> Surface { Ui, Origin }` sul crate
-  `protocol`, tabella esaustiva. `Ui`: le 7 varianti che aprono/gestiscono finestre (`OpenWindow`,
-  `OpenScreenerPicker`, `SearchOpen`, `OpenPluginWindow`, `UpdatePluginWindow`,
-  `ClosePluginWindow`, `RoutineSavePreview`) più le altre UI-only che oggi Telegram degrada a
-  no-op (§18.1 STATO-ATTUALE v1), più `OpenUiLocal` e `UiPing`. `Origin`: `Chunk`, `Done`,
-  `Error`, `Cwd`, `ToolConfirmRequest`, `ExecInShell`, `Pong`. Per turni `ui` il routing è identità
-  (tutto al mittente, come v1). Un messaggio `Ui` con nessuna connessione `ui` disponibile:
-  autostart (§5.4), attesa fino a **10 s**, poi scartato con un `Chunk` di avviso al `cli`
-  ("finestra non disponibile: ui.exe non raggiungibile").
-
-### 4.4 Messaggi nuovi (tutti additivi, `protocol` resta compatibile con i client v1)
+### 4.1 Messaggi
 
 ```jsonc
-// ClientMsg
-{ "type": "Hello",      "token": "…", "channel": null, "role": "cli" }   // role: "ui" | "cli", default "ui"; channel come v1
-{ "type": "Command",    "id": "…", "input": "/ai \"…\"", "input_mode": "…", "command_type": "Auto", "cwd": "C:\\…" }  // campi v1 invariati; il CLI valorizza cwd
-{ "type": "Detach",     "turn_id": "…" }
-{ "type": "Resume",     "turn_id": "…" }
-{ "type": "ExecResult", "turn_id": "…", "exec_id": "…", "exit_code": 0, "output": "…", "cwd": "…" }
-{ "type": "UiPong",     "id": "…", "version": "2.0.0" }
-// ServerMsg
+// host → orchestratore (ClientMsg)
+{ "type": "Hello",      "token": "…", "channel": null, "role": "shell", "session_id": "a1b2…", "cwd": "C:\\…" }
+{ "type": "Command",    "id": "…", "input": "/ai \"…\"", "input_mode": "…", "command_type": "Auto", "cwd": "C:\\…" }  // v1
+{ "type": "ExecResult", "turn_id": "…", "exec_id": "…", "exit_code": 0, "output": "…", "cwd": "C:\\…" }
+{ "type": "ToolConfirmResponse", "id": "…", "accept": true }                                                    // v1
+{ "type": "CancelCommand", "id": "…" }                                                                          // v1
+{ "type": "UiPong", "id": "…", "version": "2.0.0" }                                                             // solo ui
+// orchestratore → host / ui (ServerMsg)
 { "type": "ExecInShell", "turn_id": "…", "exec_id": "…", "command": "…", "capture": true }
-{ "type": "OpenUiLocal", "name": "config" }                           // "config" | "library"
-{ "type": "UiPing",      "id": "…" }
+{ "type": "ToolConfirmRequest", "id": "…", "commands": "…" }                                                    // v1
+{ "type": "Done", "id": "…" } · { "type": "Error", "id": "…", "message": "…" }                                  // v1
+{ "type": "OpenOutputWindow", "window_id": "…", "title": "…" } · { "type": "OutputWindowContent", "window_id": "…", "markdown": "…" }
+{ "type": "OpenUiLocal", "name": "config" }                                                                     // "config" | "library"
+{ "type": "UiPing", "id": "…" }
+{ "type": "ActivityIndicator", "session_id": "…", "kind": "ai_busy", "on": true }                               // → ui
 ```
 
-### 4.5 bash / zsh (dopo l'MVP, D9)
+`Hello.role`: `"ui"` | `"shell"`; assente → `"ui"` (compatibilità). `Hello.session_id`: generato
+dalla host (o passato da `ui.exe` con `--session`), lega la connessione shell alla finestra
+terminale che la ospita. Tutte le aggiunte sono additive: i client v1 restano validi.
 
-Stesso `lare.exe`, stesso loop, stessi file di scambio. Cambia solo l'hook: zsh — widget che
-sostituisce `accept-line` e guarda `$BUFFER`; bash — `bind -x` con `READLINE_LINE`. Il wrapper
-`lare.sh` replica `Invoke-Lare` con `eval` + `tee`. Nessuna decisione qui vincola quella slice
-oltre al protocollo di §4.2.
+### 4.2 Sequenza di un turno `/ai`
 
-## 5. Configurazione
+```
+utente   → digita  /ai "elenca i 3 file più grandi qui"  + Invio
+host     → Command{id, input, cwd = $PWD del runspace}
+orch     → OpenOutputWindow → ui (segnaposto "in corso…") · ActivityIndicator{ai_busy: on} → ui
+orch     → ToolConfirmRequest{commands}                       ← gate ADR-007 v1, invariato
+host     → prompt "[Y/n]" nel terminale · ToolConfirmResponse
+orch     → ExecInShell{turn, exec, "Get-ChildItem … | Sort …", capture: true}
+host     → esegue nel runspace (thread REPL); output a schermo; ExecResult{exit_code, output, cwd}
+orch     → (l'AI continua; altri ExecInShell possibili) → OutputWindowContent{markdown} → ui · Done
+host     → stampa "→ finestra \"…\" aperta" · torna al prompt
+```
 
-### 5.1 Risoluzione della cartella (unica regola per tutti i binari)
+Il REPL è **bloccato** durante il turno, come per qualunque comando: PSReadLine non legge finché il
+comando non è finito. La host resta reattiva ai messaggi WS perché il client WS gira su un thread
+proprio — ma vedi §4.4.
+
+### 4.3 Gate di conferma
+
+`ToolConfirmRequest` → la host mostra il batch di comandi e chiede `[Y/n]` nel terminale (lettura
+tasto diretta, non PSReadLine). Timeout lato orchestratore come v1 (nega). Nessun `ExecInShell`
+arriva senza risposta affermativa. Con `capture: false` (§4.5) il prompt dichiara "interattivo".
+
+### 4.4 Vincoli di esecuzione nella host
+
+- **Runspace a thread singolo.** Una runspace esegue una pipeline alla volta. `ExecInShell` e il
+  prompt `[Y/n]` vengono **marshalizzati sul thread del REPL** (che sta aspettando `Done` del
+  comando `/…`), mai invocati dal thread del socket. Il thread WS accoda; il REPL consuma.
+- **Ctrl+C.** Durante l'attesa del turno: la host manda `CancelCommand{id}` (v1), stampa una riga,
+  torna al prompt; l'orchestratore cancella il turno e la finestra mostra "annullato". Durante un
+  `ExecInShell`: la host ferma la pipeline (`PowerShell.Stop()`) **e** cancella il turno — stessa
+  semantica della v1 (Ctrl+C = stop di tutto), non un `ExecResult` parziale.
+- **Programmi esterni.** `NotifyBeginApplication`/`NotifyEndApplication` salvano/ripristinano le
+  modalità console (output e input) come `ConsoleHost.cs:1227-1270` (lezione spike 1).
+- **Profilo.** La host carica `$PROFILE.CurrentUserAllHosts` (`profile.ps1`) e il proprio
+  `LareShell_profile.ps1`; carica **anche** `Microsoft.PowerShell_profile.ps1` (quello di pwsh) —
+  raccomandazione, così alias, oh-my-posh e moduli dell'utente appaiono in Lare come in pwsh. Da
+  confermare.
+- **Execution policy.** Lo spike la forzava a `RemoteSigned` in-process (senza, PSReadLine `.psm1`
+  non si carica). Il prodotto la risolve come `ConsoleHost` (scope di registro/utente): voce di
+  verifica del piano, §13.
+- **stdin rediretto**: PSReadLine saltato (fallback `Console.ReadLine`), come `ConsoleHost`.
+
+### 4.5 `ExecInShell.capture` — quando l'output torna all'AI
+
+Lezione dello spike 1: un comando nativo eredita la console **solo** se nella pipeline non c'è
+nulla fra lui e `Out-Default`. Quindi:
+- `capture: true` (default): pipeline `<cmd> | <cmdlet di cattura> | Out-Default` — l'output
+  (stdout+stderr fusi, cap 200 KB testa+coda) torna nell'`ExecResult`; i programmi che pretendono un
+  terminale (editor, REPL, pager) si comportano male, come in v1.
+- `capture: false`: pipeline `<cmd> | Out-Default` pura, console attaccata: editor/REPL/wizard
+  funzionano; `output` torna vuoto, restano `exit_code` e `cwd`. L'AI lo chiede con l'input
+  opzionale `interactive: true` del tool `run_in_session` (esposto solo dal
+  `ShellSessionToolClient`).
+- **Bonus gratuito**: l'output dei **cmdlet** passa comunque dai `Write*` della
+  `PSHostUserInterface` della host, quindi è catturabile senza pipe qualunque sia il flag; solo
+  l'output dei **programmi nativi** dipende dal flag.
+
+### 4.6 cwd e history per sessione (D17)
+
+`Command.cwd` = `$PWD` del runspace al momento dell'invio; ogni `ExecResult.cwd` la aggiorna.
+L'orchestratore la tiene **per connessione shell** e non tocca mai il `cwd_state` globale v1 (che
+resta la cwd della shell posseduta, usata da Telegram/AI Chat). Prompt di sistema AI, `/find`,
+plugin (`Activate.args`) e pytools ricevono quella. La history della conversazione AI è già per
+connessione in v1 (`ws.rs:298`): una per sessione shell, gratis (D15).
+
+### 4.7 Canale diretto host → emulatore (OSC 9001)
+
+Indipendente dal WS: la host emette `ESC ] 9001 ; lare ; <evento> ; <dato> ESC \` sulla console
+(ESC costruito da `(char)0x1B`, mai `"\x1b…"` — lezione spike 1); xterm.js lo cattura con
+`registerOscHandler(9001, …)`; ConPTY lo lascia passare (verificato, spike 2). Nell'MVP: evento
+`intercept` (ultimo `/comando`). Il segnalino "AI al lavoro" arriva invece dal WS
+(`ActivityIndicator` → `ui`), perché lo sa l'orchestratore.
+
+## 5. Finestra terminale e finestre (`ui`)
+
+- **Finestra "Lare Terminal"**: griglia a tre righe — riga segnalini (nome, sessione, orologio,
+  `ultimo: /comando`, pallino "AI al lavoro") · area xterm.js · barra con i comandi cliccabili
+  `/help /library /aichat /config /ai` (click = scrive il comando nella shell, come digitato).
+  Tema Campbell (pwsh in WT), font Cascadia Mono; alpha/colore/font da `config.json` (v1). **Una
+  finestra, una sessione** nell'MVP; schede/più finestre in §12.
+- **xterm.js** (6.x, vendored come marked/DOMPurify in v1) + addon-fit; `write(Uint8Array)` dai
+  chunk base64 della pty; `onData` → `pty_write`; `ResizeObserver` → fit (debounce) → `pty_resize`.
+- **Rust (`ui`)**: `portable-pty` 0.9 (ConPTY su Windows, forkpty su unix); comandi Tauri
+  `pty_spawn`/`pty_write`/`pty_resize`; thread lettore + *exit watcher*; spawn della host con
+  `--config-dir` e `--session`.
+- **Finestra Markdown di output** (§3.2): sanificata (marked+DOMPurify v1), segnaposto poi
+  contenuto, `💾` Library come v1.
+- **Singleton (D15)**: AI Chat, Library, `/config`, `/help` — una finestra per macchina; richiesta a
+  finestra aperta → focus. Registro per etichetta nel crate `ui`.
+- **Rimosso (D2)**: `index.html`/`app.js` dell'overlay, line-editor, tab-completion, global-shortcut,
+  idle-duck, gestione F2. Il crate `ui` non ha più un "cursore".
+
+## 6. Configurazione
+
+### 6.1 Risoluzione della cartella (unica regola per tutti i binari)
 
 1. `--config-dir <path>` sulla riga di comando, se presente.
-2. Altrimenti `<cartella dell'eseguibile>\Configuration\`.
+2. Altrimenti `<cartella dell'eseguibile>\Configuration\` (per `lare-shell.exe`, che vive in
+   `shell\`: `..\Configuration\`).
 
-Vale per `orchestrator.exe`, `ui.exe`, `mcp-server.exe`, `mcp-nmap.exe`, `lare.exe`, i plugin e i
-server Python. **Nessun binario legge variabili d'ambiente `LARE_*`** (la v1 ne aveva 5 residue
-senza equivalente in `startup.json`: `LARE_TOKEN`, `LARE_MCP_SERVER`, `LARE_MCP_NMAP`,
-`LARE_PYTOOLS_DIR`, `LARE_AI_MODEL`). I processi figli ricevono `--config-dir` esplicito dal padre
-(la v1 lo faceva ereditare come env var, con tre lettori indipendenti — orchestrator, ui, Python —
-e divergenze silenziose documentate in `CLAUDE.md` v1). Il crate `startup-config` v1 resta e
-perde il livello env: `resolve(file_value, default)`.
+Vale per `orchestrator.exe`, `ui.exe`, `lare-shell.exe`, `mcp-server.exe`, `mcp-nmap.exe`, plugin,
+server Python. **Nessun binario legge variabili d'ambiente `LARE_*`**. I figli ricevono
+`--config-dir` esplicito dal padre. Il crate `startup-config` v1 perde il livello env; la host C#
+legge lo stesso `startup.json` con lo stesso schema.
 
-### 5.2 Contenuto di `Configuration\`
+### 6.2 Contenuto di `Configuration\`
 
-| File 2.0 | Da v1 | Contenuto / note |
+| File 2.0 | Da v1 | Note |
 |---|---|---|
-| `startup.json` | `startup.json` accanto all'exe + le 5 env residue | Vedi §5.3. **Nessun segreto** → committato come template |
-| `token` | `Local\token` | Token WS, auto-generato al primo avvio (256 bit, come v1). Gitignored |
-| `llms.json` | `Local` | Provider AI + API key. Gitignored |
-| `config.json` | `Roaming` | Impostazioni UI (tasto azione, colore, font, posizione, alpha, ricerca web…) |
-| `network.json`, `search-paths.json`, `search-content.json`, `market_data.json`, `notes.json` | `Local` | Invariati |
-| `telegramsettings.json`, `telegram-state.json`, `memory-*.md` | accanto all'exe / `Local` | Gitignored |
-| `routines\`, `plugin-storage\` | `Local` | Invariati |
-| `library\` | `Roaming` | `documents\`, `find\` — invariata |
+| `startup.json` | `startup.json` + le 5 env residue | §6.3; nessun segreto → committato come template |
+| `token` | `Local\token` | auto-generato (256 bit, v1); gitignored |
+| `llms.json` | `Local` | provider AI + API key; gitignored |
+| `config.json` | `Roaming` | UI: colore, font, alpha, ricerca web… (senza `action_key`: niente hotkey) |
+| `network.json`, `search-paths.json`, `search-content.json`, `market_data.json`, `notes.json` | `Local` | invariati |
+| `telegramsettings.json`, `telegram-state.json`, `memory-*.md` | accanto all'exe / `Local` | gitignored |
+| `routines\`, `plugin-storage\`, `library\` | `Local` / `Roaming` | invariati |
+| `logs\` | — | `orchestrator.log`, `ui.log`, `lare-shell.log`, `mcp-server.log`; rotazione giornaliera, 7 file |
 
-### 5.3 `startup.json`
+### 6.3 `startup.json`
 
 ```jsonc
 {
   "ws_port": 7331,
-  "paths": {                         // relativi alla cartella dell'exe, oppure assoluti
+  "paths": {                         // relativi alla cartella di startup.json, oppure assoluti
+    "shell":        "shell/lare-shell.exe",
     "mcp_server":   "mcp-server.exe",
     "mcp_nmap":     "mcp-nmap.exe",
     "plugins_dir":  "plugins",
     "pytools_dir":  "pytools",
     "routines_dir": "Configuration/routines"
   },
-  "ai_model": "claude-sonnet-4-6",   // override del modello del provider attivo in llms.json
+  "ai_model": "claude-sonnet-4-6",
   "autostart": { "orchestrator": true, "ui": true },
-  "resume_timeout_min": 30,
-  "log": { "level": "info", "dir": "Configuration/logs" }   // orchestrator.log, ui.log, mcp-server.log
+  "log": { "level": "info", "dir": "Configuration/logs" }
 }
 ```
 
-I log vanno **su file** in `log.dir` (rotazione giornaliera, 7 file), mai sulla console: un
-orchestratore avviato in autostart da `lare.exe` non deve sporcare il terminale dell'utente.
-`init_*.ps1` (avvio manuale) aggiunge anche l'output su console.
+Tutti i campi opzionali con questi default; file assente = default. Percorsi relativi risolti
+rispetto alla **cartella radice del deploy** (quella che contiene `Configuration\`), così
+`Test Run\` copiata altrove funziona senza modifiche. I log vanno **solo su file**: un
+orchestratore avviato in autostart non deve sporcare il terminale; `init_*.ps1` aggiungono la console.
 
-Tutti i campi opzionali con default uguali ai valori sopra; file assente = tutti i default. I
-percorsi relativi sono risolti rispetto alla **cartella dell'eseguibile**, non alla cwd né alla
-cartella di configurazione — così `Test Run\` copiata altrove funziona senza modifiche (la v1
-aveva percorsi assoluti `C:/Lare Terminal/...`).
+### 6.4 Avvio e self-heal
 
-### 5.4 Avvio e self-heal
+- `ui.exe` (modalità A) o `lare-shell.exe` (modalità B) non raggiungono il WS → se
+  `autostart.orchestrator`, avviano `orchestrator.exe` e ritentano per **5 s**; altrimenti errore.
+- L'orchestratore senza connessione `ui` entro **3 s** (o quando deve instradare un messaggio
+  "finestra") → se `autostart.ui`, avvia `ui.exe`.
+- **Processi staccati**: `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP` su Windows (nessuna console
+  ereditata, un Ctrl+C nella shell non abbatte il daemon), stdio chiusi; `setsid` su unix.
+- Servizio Windows, autorun al login, tray: fuori MVP (§12).
 
-- `lare.exe` non raggiunge il WS → se `autostart.orchestrator`, avvia `orchestrator.exe` (stessa
-  cartella) e ritenta per **5 s**; altrimenti errore, exit 2.
-- L'orchestratore senza connessione `ui` entro **3 s** dall'avvio (o quando serve instradare un
-  messaggio `Ui`) → se `autostart.ui`, avvia `ui.exe` (stessa cartella).
-- **Processo staccato** in entrambi i casi: su Windows `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP`
-  (nessuna console ereditata, un Ctrl+C nella shell dell'utente non abbatte il daemon), stdio
-  chiusi — l'output va solo sui file di log (§5.3). Su unix `setsid`, stessa regola.
-- Servizio Windows, autorun al login, tray: fuori MVP (§11). Gli script `init_*.ps1` restano per
-  l'avvio manuale.
+## 7. `Test Run\` — layout di deploy dentro il repo
 
-## 6. `Test Run\` — layout di deploy dentro il repo
-
-Specchio di `C:\Lare Terminal` (D7). Committata la **struttura** (cartelle, manifest, script,
-template di configurazione); mai binari, segreti, venv, dati generati dall'uso (`.gitignore`).
+Specchio del layout di deploy (D7). Committata la **struttura** (cartelle, manifest, script,
+template di configurazione); mai binari, DLL, segreti, venv, dati d'uso (`.gitignore`).
 
 ```
 Test Run\
-├── orchestrator.exe  mcp-server.exe  mcp-nmap.exe  ui.exe  lare.exe   ← gitignored, da deploy_test_run.ps1
-├── lare.ps1               ← Invoke-Lare + hook (§4.1-4.2); `.\lare.ps1 -Install` scrive
-│                             `. "<percorso assoluto>\lare.ps1"` in $PROFILE (lo crea se manca —
-│                             sulla macchina di sviluppo oggi non esiste)
-├── init_orchestrator.ps1  ← & "$PSScriptRoot\orchestrator.exe" — nessuna env var
-├── init_tauri.ps1         ← & "$PSScriptRoot\ui.exe"
-├── Configuration\         ← §5.2
-├── plugins\
-│   ├── ping\plugin.json   (+ ping.exe gitignored)
-│   └── calc\plugin.json   (+ calc.exe gitignored)
-└── pytools\               ← script + requirements committati, venv no (come v1)
+├── orchestrator.exe  mcp-server.exe  mcp-nmap.exe  ui.exe     ← gitignored, da deploy_test_run.ps1
+├── shell\                                                    ← lare-shell.exe + DLL (~100 MB: il
+│                                                                NuGet Microsoft.PowerShell.SDK porta
+│                                                                l'intero motore); gitignored
+├── install-wt-profile.ps1 / uninstall-wt-profile.ps1         ← modalità B (profilo Windows Terminal)
+├── init_orchestrator.ps1  init_tauri.ps1                     ← avvio manuale, zero env var
+├── Configuration\                                            ← §6.2
+├── plugins\ping\plugin.json  plugins\calc\plugin.json        (+ exe gitignored)
+└── pytools\                                                  ← script sì, venv no (v1)
 ```
 
-`deploy_test_run.ps1` (root del repo): copia da `target\<debug|release>\` in `Test Run\` gli exe e
-gli exe dei plugin. Non tocca `Configuration\`. Sviluppo: `cargo run -p orchestrator --
---config-dir "Test Run\Configuration"` — la stessa configurazione del deploy, nessun doppione.
-Copiando `Test Run\` in `C:\Lare Terminal 2.0` basta rieseguire `lare.ps1 -Install` da lì (il
-percorso in `$PROFILE` è assoluto).
+**Prerequisiti sulla macchina di destinazione** (da scrivere nel `DEPLOY.md` 2.0): Windows 10/11
+x64, WebView2 Runtime, **pwsh 7.6+ installato** (la host carica PSReadLine dai moduli di pwsh:
+`C:\Program Files\PowerShell\7\Modules`; il NuGet non lo include), **.NET 10 runtime** se
+`lare-shell` è pubblicata *framework-dependent* (raccomandato: ~100 MB invece di ~200 MB
+self-contained; da confermare).
 
-## 7. Sicurezza
+`deploy_test_run.ps1` (root repo): `cargo build` → exe Rust; `dotnet publish -c Release` →
+`Test Run\shell\`; plugin. Non tocca `Configuration\`. Sviluppo: `cargo run -p ui -- --config-dir
+"Test Run\Configuration"`.
 
-- WS solo su `127.0.0.1` + token su file: invariato dalla v1.
-- Il gate di conferma ADR-007 resta l'unico punto in cui un comando proposto dall'AI viene
-  autorizzato: `lare.exe` mostra il batch e chiede `[Y/n]` **prima** di qualunque `ExecInShell`.
-  Nessun comando arriva al wrapper senza risposta affermativa.
-- Il wrapper esegue **solo** ciò che legge da `<prefisso>.exec.json` scritto da `lare.exe` nello
-  stesso loop (file nella cartella temporanea dell'utente, nome legato al PID della shell,
-  cancellato a fine loop). Non esegue mai testo ricevuto per altre vie.
-- Il comando gira coi privilegi dell'utente nella sua sessione: nessuna escalation, stessa
+## 8. Sicurezza
+
+- WS solo su `127.0.0.1` + token su file: invariato.
+- Il gate ADR-007 resta l'unico punto di autorizzazione di un comando proposto dall'AI: `[Y/n]`
+  nel terminale **prima** di qualunque `ExecInShell`.
+- La host esegue **solo** ciò che arriva come `ExecInShell` sulla connessione WS autenticata, dopo
+  il gate; mai testo da altre vie (l'OSC 9001 è solo in uscita).
+- I comandi girano coi privilegi dell'utente nel suo runspace: nessuna escalation, stessa
   superficie di un comando digitato a mano.
-- L'hook Enter modifica il buffer solo per righe che iniziano con `/`; ogni altra riga passa ad
-  `AcceptLine()` inalterata.
+- Le finestre Markdown sanificano tutto (marked+DOMPurify, v1).
 
-## 8. Gestione errori
+## 9. Gestione errori
 
 | Situazione | Comportamento |
 |---|---|
-| WS non raggiungibile, autostart off o fallito entro 5 s | `lare.exe` stampa l'errore, exit 2 |
-| Token errato | Rifiuto della connessione, come v1; `lare.exe` stampa l'errore, exit 1 |
-| Nessuna connessione `ui` per un messaggio `Ui` | Autostart `ui.exe`, attesa 10 s, poi scarto + `Chunk` di avviso al `cli` |
-| Slash ignoto da `cli` | `Done` muta; log `info` nell'orchestratore |
+| WS non raggiungibile, autostart off o fallito entro 5 s | `ui.exe`/host: errore nel terminale, la shell **resta usabile** (i `/comandi` rispondono "orchestratore non raggiungibile") |
+| WS cade durante un turno | Host: riga d'errore, torna al prompt; turno cancellato lato orchestratore (disconnessione = cancel, v1); riconnessione automatica con backoff |
+| Token errato | Rifiuto, come v1; riga d'errore nel terminale |
+| Nessuna connessione `ui` per un messaggio "finestra" | Autostart `ui.exe`, attesa 10 s, poi `Error` al mittente ("finestra non disponibile") |
+| Slash ignoto da shell | `Done` muta; log `info` |
 | `/ai` o `/` senza virgolette | `Error` con la sintassi corretta, stampato |
-| `Resume` con `turn_id` sconosciuto o scaduto | `Error`, exit 1 |
-| `Detach` senza `Resume` entro `resume_timeout_min` | Turno cancellato, log `warn` |
-| Disconnessione `cli` senza `Detach` | Turno cancellato (v1) |
-| Ctrl+C durante l'exec nella shell | `finally` del wrapper → `lare.exe abort --turn` best-effort; altrimenti scade il timeout |
-| `Invoke-Expression` solleva eccezione | Messaggio nell'`output`, `exit_code` 1, il turno continua (l'AI vede l'errore) |
-| Comando che richiede un terminale eseguito con `capture: true` | Si blocca come in v1; l'utente lo chiude (Ctrl+C → riga sopra); l'AI vede l'esito e può ripetere con `interactive: true` |
-| Exit code di un comando PowerShell puro (nessun `$LASTEXITCODE`) | Il wrapper usa `$?` come fallback (0/1) |
-| Output dell'exec > 200 KB | Troncato testa+coda dal wrapper con marcatore |
+| Ctrl+C in attesa del turno / durante `ExecInShell` | `CancelCommand`; pipeline fermata; turno cancellato; finestra "annullato" |
+| Comando che richiede un terminale con `capture: true` | Si blocca come in v1; Ctrl+C (riga sopra); l'AI può ripetere con `interactive: true` |
+| Pipeline in errore in `ExecInShell` | Testo dell'errore nell'`output`, `exit_code` 1 (o `$LASTEXITCODE` / `$?`), il turno continua |
+| Output dell'exec > 200 KB | Troncato testa+coda con marcatore |
 | `startup.json` malformato | Log + default, mai panic (v1) |
-| `--config-dir` inesistente | Creata al primo avvio (come le cartelle app-data v1) |
+| `--config-dir` inesistente | Creata al primo avvio |
+| La host esce (crash/`exit`) in modalità A | Exit watcher → la finestra mostra "shell terminata" e un pulsante "riavvia" |
 
-## 9. Test
+## 10. Test
 
-Convenzioni v1 non derogabili: TDD con RED reale prima del codice; i test come specifica leggibile
-(l'utente impara Rust leggendoli); trait come confini, fake ai seam.
+Convenzioni v1 non derogabili: TDD con RED reale; test come specifica leggibile; trait come
+confini; fake ai seam. Si estendono a C# (xUnit) e JS (`node:test`).
 
-**Rust**
-- `protocol`: `ServerMsg::surface()` testata su **tutte** le varianti (un test che fallisce se ne
-  viene aggiunta una senza classificazione); serde round-trip dei messaggi nuovi; `Hello` senza
-  `role` → `ui`.
-- `orchestrator`: registro turni (attach/detach/resume; messaggi bufferizzati mentre staccato e
-  consegnati in ordine al resume; timeout → cancel; disconnessione senza `Detach` → cancel);
-  `ShellProxyToolClient` con canale finto (`ExecInShell` emesso, `ExecResult` → `CommandResult`;
-  delega a `McpToolClient` finto per `open_target`/routine); routing di superficie (messaggio `Ui`
-  → connessione `ui`; `Origin` → mittente; nessuna `ui` → hook autostart invocato, poi avviso);
-  router (`/ai "x"` ≡ `/ "x"`; senza virgolette → `Error`; ignoto da `cli` → discard+log; ignoto
-  da `ui` → `Error` v1); `/ping` aggrega le righe e degrada per strato assente.
-- `cli`: parsing argomenti e codici di uscita; scrittura/lettura dei file di scambio; sequenza
-  completa contro un server WS finto in-process (`Hello→Command→…→ExecInShell→Detach→exit 10`,
-  poi `Resume→ExecResult→…→Done→exit 0`); autostart chiamato quando il WS è chiuso.
-- `startup-config`: nessun livello env; `--config-dir` > `exe_dir\Configuration`; percorsi
-  relativi risolti su exe_dir; default completi con file assente.
-- `ui`: lettura `startup.json`/`--config-dir`; `UiPing` → `UiPong`; `OpenUiLocal` — logica pura
-  estratta in `.mjs` e testata con `node:test`, convenzione v1.
+**C# — `lare-shell` (xUnit)**: riconoscimento riga `/…` (spazi iniziali, `/` solo, `/ "x"`);
+costruzione pipeline per `capture` true/false (un cmdlet in mezzo vs `Out-Default` puro);
+cattura via `PSHostUserInterface.Write*`; client WS contro un server finto in-process: sequenza
+`Hello→Command→ToolConfirmRequest→ToolConfirmResponse→ExecInShell→ExecResult→Done`; marshaling
+sul thread REPL (un `ExecInShell` arrivato dal thread socket viene eseguito dal thread REPL);
+`CancelCommand` su Ctrl+C; `NotifyBegin/EndApplication` salva/ripristina; `startup.json` e
+`--config-dir`; OSC 9001 costruito senza `\x` (test che fallisce se ricompare un `"\x1b"`).
 
-**PowerShell** — Pester su `Invoke-Lare` con un `lare.exe` finto (script che esce 10 una volta con
-un `.exec.json` noto, poi 0): verifica il `.result.json` (exit code, output, `cwd`), che un `cd`
-nel comando sopravviva al loop, `capture: false` → output vuoto e comando eseguito senza pipe, la
-pulizia dei file, e `abort` chiamato su interruzione. Se Pester non è disponibile sulla macchina:
-gli stessi casi nella checklist manuale.
+**Rust**: `protocol` — `ServerMsg::surface()` su tutte le varianti, serde dei messaggi nuovi,
+`Hello` senza `role` → `ui`; `orchestrator` — `ShellSessionToolClient` con canale finto; cwd per
+connessione shell (non tocca il globale); routing di superficie; router (`/ai "x"` ≡ `/ "x"`,
+senza virgolette → `Error`, ignoto da shell → discard+log, da Telegram → v1); `/ping` degrada per
+strato; apertura finestra Markdown a inizio comando e contenuto a `Done`; `startup-config` senza
+env; `ui` — pty plumbing con una shell finta (`cmd /c echo`), base64 dei chunk, exit watcher,
+singleton, `OpenUiLocal`, `UiPing`.
 
-**Verifiche da spike, prima del codice (task dedicato del piano, esito scritto nel piano stesso):**
-- `AddToHistory($line)` nel handler Enter aggiunge davvero la riga anche con
-  `AddToHistoryHandler` che rifiuta `Invoke-Lare *` (o l'ordine va invertito).
-- Il handler Enter sostitutivo conserva il comportamento di `AcceptLine()` su input incompleto
-  (riga di continuazione con `>>`), che non deve mai passare da `Invoke-Lare`.
-- `[Console]::OutputEncoding` nella pipe di cattura: l'output di comandi nativi (es. `ipconfig`)
-  può riproporre il KNOWN-ISSUE codepage della v1; misurare e, se serve, forzare UTF-8 nel wrapper.
-- Un comando che si blocca per assenza di TTY con `capture: true` è interrompibile con Ctrl+C e il
-  `finally` del wrapper parte davvero.
+**JS (`node:test`)**: logica pura estratta in `.mjs` (stato segnalini, parsing OSC 9001, base64 →
+`Uint8Array`, debounce del fit, registro singleton).
 
-**E2E manuale** (`Docs/TESTING-e2e.md`, da compilare a mano prima di ogni release):
-`/ping` con tutti gli strati · `/calc` apre la finestra · `/config`, `/library`, `/help` ·
-`/open`, `/web` · `/ai "elenca i 3 file più grandi qui"` → `[Y/n]` → esegue nella shell, cwd
-invariata · `/ai "vai in Documents"` → il `cd` persiste dopo il turno · rifiuto al gate ·
-Ctrl+C sul CLI e Ctrl+C durante l'exec · `/nonesiste` muto · overlay F2 in parallelo alla shell
-· copia di `Test Run\` in un'altra cartella e riavvio senza modifiche.
+**E2E manuale** (`Docs/i18n/ita/TESTING-e2e.md`): apertura `ui.exe` → finestra terminale con pwsh
+dentro · `/ping` · `/calc` · `/config` `/library` `/help` · `/open` `/web` · `/ai "elenca i 3
+file più grandi qui"` → `[Y/n]` → esegue nel terminale → finestra Markdown col risultato ·
+`/ai "vai in Documents"` → `cd` persiste · rifiuto al gate · Ctrl+C nei due momenti ·
+`/nonesiste` muto · `python` via `/ai` con `interactive` · `/aichat` due volte → una finestra ·
+chiusura finestra → nessun processo residuo · modalità B in WT · copia di `Test Run\` altrove.
 
-## 10. Convenzioni di progetto (ereditate dalla v1, non derogabili)
+## 11. Convenzioni di progetto (ereditate dalla v1, non derogabili)
 
-TDD genuino · OOP+SOLID (trait come confini, composizione preferita a ereditarietà; mappare i
-costrutti Rust su concetti OOP noti nelle spiegazioni) · commenti prodighi e didattici (l'utente
-impara Rust leggendo il codice) · `CHANGELOG.md` + `IMPLEMENTATION.md` per crate aggiornati nello
-stesso commit · `Docs/HANDOFF.md` aggiornato a ogni release (hook `commit-msg` v1 da riportare) ·
-commit con trailer `Co-Authored-By` + `Claude-Session` · il codice lo costruiscono subagenti su
-modelli meno costosi (D11), il supervisore rivede, riesegue i test, fa l'e2e, decide le
-architetture. Il `CLAUDE.md` del repo 2.0 le riporta (primo task del piano).
+TDD genuino · OOP+SOLID (trait/interfacce come confini, composizione) · commenti prodighi e
+didattici (l'utente impara Rust; in C# lo stesso stile) · `CHANGELOG.md` + `IMPLEMENTATION.md` per
+crate/progetto nello stesso commit · `Docs/i18n/ita/HANDOFF.md` a ogni release (hook `commit-msg`
+v1 da riportare) · commit con trailer `Co-Authored-By` + `Claude-Session` · codice scritto da
+subagenti Sonnet/Haiku (D11), report **sempre riverificati**, il supervisore decide le architetture.
+Tre linguaggi: Rust (orchestratore, protocollo, ui, plugin), C# (host), JS (webview, vanilla). Il
+`CLAUDE.md` del repo 2.0 le riporta (Task 0 del piano).
 
-## 11. Fuori MVP (esplicito)
+## 12. Fuori MVP (esplicito)
 
-- Hook bash/zsh e `lare.sh` (§4.5): design pronto, non costruito.
-- Output testuale dei plugin nel terminale (`/calc 5*20 → 840`), namespace gerarchici
-  (`/markets quote NVDA`): feature nuove, da brainstormare a parte.
-- Verifica dal vivo di Telegram, AI Chat, `/find`, `/markets`, nmap, routine, `/lc`, `/crypto`,
-  `/counter`: codice copiato e compilante (D10), ciascuno con slice dedicata.
-- **Routine dal canale shell** (`run_routine` via `ShellProxyToolClient`): nell'MVP il tool non è
-  esposto su quel canale. Slice futura: l'orchestratore legge il corpo con `get_routine_content`
-  (delegato a `mcp-server`, sola lettura) e lo esegue con `ExecInShell` nella shell dell'utente —
-  coerente con D1, niente doppia shell.
-- Servizio Windows, autorun al login, tray icon, supervisione/restart (Fase 5 v1).
-- Port macOS/Linux (Fase 6 v1), voce (Fase 3 v1).
-- Backlog v1 (`Docs/STATO-ATTUALE.md` §16): `/towin`, Library broadcast, `find_files` AI,
-  codepage output nativi, reconnect infinito su canale esterno rotto, strumenti dinamici, AI↔AI
-  slice 3+.
-- Estrazione di `archive.rs` (Library) dal crate `ui` (§20.4 STATO-ATTUALE v1): non necessaria
-  finché `ui.exe` resta l'unico host delle finestre; `OpenUiLocal{library}` la raggiunge com'è.
+- **Streaming nella finestra Markdown** (token per token, con re-render throttled): l'MVP mostra
+  segnaposto → contenuto a `Done` (§3.2).
+- **Schede / più finestre terminale** in `ui.exe`; **modalità B con segnalini nel titolo** (OSC 2).
+- **bash/zsh**: con la host custom, Linux/macOS ricevono Lare *pwsh-flavored* (pwsh gira lì, la
+  host è cross-platform). Un Lare per bash/zsh cambia forma: widget zle/`bind -x` + client sottile
+  che parla lo stesso protocollo di §4, oppure la finestra terminale che lancia bash **senza**
+  intercettazione. Non progettato qui — conseguenza di D9/D12 da confermare.
+- Output testuale dei plugin nel terminale, namespace gerarchici (`/markets quote NVDA`).
+- Verifica dal vivo di Telegram, AI Chat, `/find`, `/markets`, nmap, `/lc`, `/crypto`, `/counter`
+  (D10). **Routine dal canale shell**: ora banale (corpo via `get_routine_content`, esecuzione via
+  `ExecInShell`) ma fuori MVP per D10.
+- Servizio Windows, autorun, tray, supervisione (Fase 5 v1); port macOS/Linux (Fase 6); voce
+  (Fase 3); backlog v1 (`STATO-ATTUALE.md` §16); estrazione di `archive.rs` da `ui` (non serve
+  finché `ui.exe` è l'unico host delle finestre).
+
+## 13. Verifiche per il piano (da spike, prima del codice relativo)
+
+- **Execution policy** nella host: risolverla come `ConsoleHost` (scope), non forzarla.
+- **Profili**: ordine e set di file caricati (§4.4); verificare che oh-my-posh/PSReadLine
+  configurati dall'utente in `Microsoft.PowerShell_profile.ps1` funzionino nella host.
+- **`generate_context!`** di Tauri incorpora `frontendDist` a compile time: `rerun-if-changed`
+  in `build.rs` o `cargo clean -p ui` documentato (spike 2).
+- **Flicker al resize**: debounce del fit e/o renderer WebGL di xterm.js.
+- **Codepage** dell'output nativo catturato con `capture: true` (KNOWN-ISSUE v1): misurare;
+  eventualmente `[Console]::OutputEncoding` UTF-8 nel runspace.
+- **Publish** della host: framework-dependent vs self-contained; dimensione e prerequisiti (§7).
+- **Protocollo host↔orchestratore**: **mai spikato** (i due spike stampavano in locale). Primo task
+  di implementazione con test contro server finto, non ultimo.
