@@ -1,0 +1,24 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/protocol",
+    "crates/startup-config",
+    "crates/mcp-server",
+    "crates/mcp-nmap",
+    "crates/orchestrator",
+    "crates/plugin-protocol",
+    "crates/plugin-ping",
+    "crates/plugin-counter",
+    "crates/plugin-calc",
+    "crates/plugin-lc",
+    "crates/plugin-crypto",
+    # Il crate Tauri: membro del workspace così `cargo build -p ui` funziona dalla root.
+    "crates/ui/src-tauri",
+]
+# `cargo build`/`cargo test` senza -p NON toccano la UI (Tauri = ~400 crate):
+# la UI si compila solo su richiesta esplicita (`cargo build -p ui`).
+default-members = [
+    "crates/protocol", "crates/startup-config", "crates/mcp-server", "crates/mcp-nmap",
+    "crates/orchestrator", "crates/plugin-protocol", "crates/plugin-ping",
+    "crates/plugin-counter", "crates/plugin-calc", "crates/plugin-lc", "crates/plugin-crypto",
+]
