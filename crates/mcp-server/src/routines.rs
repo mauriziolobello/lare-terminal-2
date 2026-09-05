@@ -5,12 +5,13 @@
 //! riga di invocazione per `Session::run`. `main.rs` resta thin glue: chiama
 //! queste funzioni e basta, esattamente come fa oggi con `session.rs`.
 //!
-//! Root di default: `%LOCALAPPDATA%\dev.lare.terminal\routines\` — stessa
-//! cartella (Local AppData) dove l'orchestrator già persiste `aichat.json`,
-//! `llms.json`, gli appunti e i file di memoria AI. Non `%APPDATA%\...\
-//! library\`: quella cartella è di proprietà esclusiva del crate `ui`
-//! (Tauri `app_config_dir`), né `orchestrator` né `mcp-server` la conoscono
-//! oggi (vedi design doc `2026-08-03-routines-repository-design.md` §2).
+//! Root di default (2.0, decisione D6 dello spec): `Configuration/routines`,
+//! percorso relativo dentro `startup.json` (`paths.routines_dir`), risolto
+//! rispetto alla RADICE DEL DEPLOY tramite `startup_config::StartupConfig::
+//! resolve_path` (vedi `crates/startup-config`). Nessuna variabile
+//! d'ambiente: nella v1 `LARE_ROUTINES_DIR`/`LARE_LOCAL_DIR` erano lette qui
+//! e in altri punti, e potevano divergere in silenzio — nella 2.0 l'unica
+//! fonte è `--config-dir`/`<exe_dir>\Configuration\` + `startup.json`.
 
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
@@ -32,18 +33,10 @@ pub struct RoutineIndex {
     pub scripts: Vec<RoutineEntry>,
 }
 
-/// Risolve la root di `routines/`. Precedenza a 3 livelli via
-/// `startup_config::resolve`: `LARE_ROUTINES_DIR` (env, se impostata e non
-/// vuota dopo trim) > campo `routines_dir` di `startup.json` (se presente) >
-/// `<local_dir>/routines`. `local_dir` è già stato risolto una volta in
-/// `main()` (vedi `startup_config::default_local_dir`) — questa funzione
-/// non ri-deriva più `%LOCALAPPDATA%\dev.lare.terminal\` per conto proprio.
-pub fn resolve_root(
-    env_value: Option<&str>,
-    file_value: Option<&str>,
-    local_dir: &Path,
-) -> PathBuf {
-    startup_config::resolve(env_value, file_value, || local_dir.join("routines"))
+/// Cartella delle routine: `paths.routines_dir` di startup.json, relativa alla
+/// radice del deploy (default `Configuration/routines`). Nessuna env var.
+pub fn resolve_root(config_dir: &Path, cfg: &startup_config::StartupConfig) -> PathBuf {
+    startup_config::StartupConfig::resolve_path(config_dir, &cfg.paths.routines_dir)
 }
 
 /// Carica `index.json` dalla root indicata.
@@ -276,35 +269,20 @@ mod tests {
     // ── resolve_root ─────────────────────────────────────────────────────
 
     #[test]
-    fn resolve_root_env_value_wins() {
-        let p = resolve_root(
-            Some("D:/custom/routines"),
-            None,
-            Path::new("/local"),
+    fn resolve_root_uses_startup_routines_dir_relative_to_deploy_root() {
+        let cfg = startup_config::StartupConfig::default(); // routines_dir = "Configuration/routines"
+        let root = resolve_root(std::path::Path::new("C:/Lare/Configuration"), &cfg);
+        assert_eq!(
+            root,
+            std::path::Path::new("C:/Lare").join("Configuration/routines")
         );
-        assert_eq!(p, PathBuf::from("D:/custom/routines"));
     }
-
     #[test]
-    fn resolve_root_file_value_wins_when_env_absent() {
-        let p = resolve_root(
-            None,
-            Some("D:/from-startup-json/routines"),
-            Path::new("/local"),
-        );
-        assert_eq!(p, PathBuf::from("D:/from-startup-json/routines"));
-    }
-
-    #[test]
-    fn resolve_root_falls_back_to_local_dir_join_routines() {
-        let p = resolve_root(None, None, Path::new("/local"));
-        assert_eq!(p, Path::new("/local").join("routines"));
-    }
-
-    #[test]
-    fn resolve_root_ignores_empty_env_value() {
-        let p = resolve_root(Some(""), None, Path::new("/local"));
-        assert_eq!(p, Path::new("/local").join("routines"));
+    fn resolve_root_absolute_routines_dir_is_kept() {
+        let mut cfg = startup_config::StartupConfig::default();
+        cfg.paths.routines_dir = "D:/routines".into();
+        let root = resolve_root(std::path::Path::new("C:/Lare/Configuration"), &cfg);
+        assert_eq!(root, std::path::PathBuf::from("D:/routines"));
     }
 
     // ── load_index ───────────────────────────────────────────────────────
@@ -500,21 +478,36 @@ mod tests {
 
     #[test]
     fn validate_name_rejects_uppercase() {
-        assert!(matches!(validate_name("List-Big-Files"), Err(SaveError::InvalidName(_))));
+        assert!(matches!(
+            validate_name("List-Big-Files"),
+            Err(SaveError::InvalidName(_))
+        ));
     }
 
     #[test]
     fn validate_name_rejects_slash_and_backslash() {
-        assert!(matches!(validate_name("a/b"), Err(SaveError::InvalidName(_))));
-        assert!(matches!(validate_name("a\\b"), Err(SaveError::InvalidName(_))));
+        assert!(matches!(
+            validate_name("a/b"),
+            Err(SaveError::InvalidName(_))
+        ));
+        assert!(matches!(
+            validate_name("a\\b"),
+            Err(SaveError::InvalidName(_))
+        ));
     }
 
     #[test]
     fn validate_name_rejects_dot_dot_and_spaces() {
         // Il charset non contiene '.' o ' ': ".." e i nomi con spazi sono
         // strutturalmente esclusi, non serve un caso ad-hoc per path traversal.
-        assert!(matches!(validate_name(".."), Err(SaveError::InvalidName(_))));
-        assert!(matches!(validate_name("a b"), Err(SaveError::InvalidName(_))));
+        assert!(matches!(
+            validate_name(".."),
+            Err(SaveError::InvalidName(_))
+        ));
+        assert!(matches!(
+            validate_name("a b"),
+            Err(SaveError::InvalidName(_))
+        ));
     }
 
     // ── format_date_from_unix_secs ──────────────────────────────────────
@@ -574,16 +567,47 @@ mod tests {
     #[test]
     fn save_entry_rejects_invalid_name_before_touching_disk() {
         let dir = tempfile::tempdir().unwrap();
-        let result = save_entry(dir.path(), "Not Valid!", "d", vec![], "c", "content", "2026-08-05", None);
+        let result = save_entry(
+            dir.path(),
+            "Not Valid!",
+            "d",
+            vec![],
+            "c",
+            "content",
+            "2026-08-05",
+            None,
+        );
         assert!(matches!(result, Err(SaveError::InvalidName(_))));
-        assert!(load_index(dir.path()).scripts.is_empty(), "nessuna entry deve essere stata scritta");
+        assert!(
+            load_index(dir.path()).scripts.is_empty(),
+            "nessuna entry deve essere stata scritta"
+        );
     }
 
     #[test]
     fn save_entry_collision_without_replace_is_rejected() {
         let dir = tempfile::tempdir().unwrap();
-        save_entry(dir.path(), "existing", "d", vec![], "c", "content", "2026-08-05", None).unwrap();
-        let result = save_entry(dir.path(), "existing", "d2", vec![], "c", "content2", "2026-08-05", None);
+        save_entry(
+            dir.path(),
+            "existing",
+            "d",
+            vec![],
+            "c",
+            "content",
+            "2026-08-05",
+            None,
+        )
+        .unwrap();
+        let result = save_entry(
+            dir.path(),
+            "existing",
+            "d2",
+            vec![],
+            "c",
+            "content2",
+            "2026-08-05",
+            None,
+        );
         assert_eq!(result, Err(SaveError::NameCollision));
         // La entry originale non deve essere stata toccata.
         let idx = load_index(dir.path());
@@ -594,13 +618,36 @@ mod tests {
     #[test]
     fn save_entry_replace_in_place_same_name_overwrites_content() {
         let dir = tempfile::tempdir().unwrap();
-        save_entry(dir.path(), "r", "old desc", vec![], "c", "old content", "2026-08-01", None).unwrap();
+        save_entry(
+            dir.path(),
+            "r",
+            "old desc",
+            vec![],
+            "c",
+            "old content",
+            "2026-08-01",
+            None,
+        )
+        .unwrap();
 
-        let result = save_entry(dir.path(), "r", "new desc", vec!["t".to_string()], "c2", "new content", "2026-08-05", Some("r"));
+        let result = save_entry(
+            dir.path(),
+            "r",
+            "new desc",
+            vec!["t".to_string()],
+            "c2",
+            "new content",
+            "2026-08-05",
+            Some("r"),
+        );
         assert!(result.is_ok(), "{result:?}");
 
         let idx = load_index(dir.path());
-        assert_eq!(idx.scripts.len(), 1, "nessuna entry duplicata dopo l'update in-place");
+        assert_eq!(
+            idx.scripts.len(),
+            1,
+            "nessuna entry duplicata dopo l'update in-place"
+        );
         assert_eq!(idx.scripts[0].description, "new desc");
         assert_eq!(idx.scripts[0].created, "2026-08-05");
         let script = std::fs::read_to_string(dir.path().join("r.ps1")).unwrap();
@@ -610,12 +657,34 @@ mod tests {
     #[test]
     fn save_entry_replace_with_rename_removes_old_file_and_entry() {
         let dir = tempfile::tempdir().unwrap();
-        save_entry(dir.path(), "old-name", "d", vec![], "c", "content", "2026-08-01", None).unwrap();
+        save_entry(
+            dir.path(),
+            "old-name",
+            "d",
+            vec![],
+            "c",
+            "content",
+            "2026-08-01",
+            None,
+        )
+        .unwrap();
 
-        let result = save_entry(dir.path(), "new-name", "d2", vec![], "c", "content2", "2026-08-05", Some("old-name"));
+        let result = save_entry(
+            dir.path(),
+            "new-name",
+            "d2",
+            vec![],
+            "c",
+            "content2",
+            "2026-08-05",
+            Some("old-name"),
+        );
         assert!(result.is_ok(), "{result:?}");
 
-        assert!(!dir.path().join("old-name.ps1").exists(), "il vecchio file deve essere rimosso");
+        assert!(
+            !dir.path().join("old-name.ps1").exists(),
+            "il vecchio file deve essere rimosso"
+        );
         assert!(dir.path().join("new-name.ps1").exists());
 
         let idx = load_index(dir.path());
@@ -627,8 +696,22 @@ mod tests {
     #[test]
     fn save_entry_replace_target_not_found_is_rejected() {
         let dir = tempfile::tempdir().unwrap();
-        let result = save_entry(dir.path(), "new-name", "d", vec![], "c", "content", "2026-08-05", Some("does-not-exist"));
-        assert_eq!(result, Err(SaveError::ReplaceTargetNotFound("does-not-exist".to_string())));
+        let result = save_entry(
+            dir.path(),
+            "new-name",
+            "d",
+            vec![],
+            "c",
+            "content",
+            "2026-08-05",
+            Some("does-not-exist"),
+        );
+        assert_eq!(
+            result,
+            Err(SaveError::ReplaceTargetNotFound(
+                "does-not-exist".to_string()
+            ))
+        );
         assert!(load_index(dir.path()).scripts.is_empty());
     }
 
@@ -640,7 +723,16 @@ mod tests {
 
         // Rinominare "a" in "b" (già esistente, non è quella che stiamo
         // sostituendo) deve fallire.
-        let result = save_entry(dir.path(), "b", "d2", vec![], "c", "cb2", "2026-08-05", Some("a"));
+        let result = save_entry(
+            dir.path(),
+            "b",
+            "d2",
+            vec![],
+            "c",
+            "cb2",
+            "2026-08-05",
+            Some("a"),
+        );
         assert_eq!(result, Err(SaveError::NameCollision));
 
         // Nessuno dei due file/entry originali deve essere stato toccato.
@@ -654,7 +746,17 @@ mod tests {
     #[test]
     fn get_content_found_returns_entry_and_body() {
         let dir = tempfile::tempdir().unwrap();
-        save_entry(dir.path(), "r", "d", vec!["t".to_string()], "c", "Write-Host x", "2026-08-05", None).unwrap();
+        save_entry(
+            dir.path(),
+            "r",
+            "d",
+            vec!["t".to_string()],
+            "c",
+            "Write-Host x",
+            "2026-08-05",
+            None,
+        )
+        .unwrap();
         let idx = load_index(dir.path());
 
         let result = get_content(dir.path(), &idx, "r");

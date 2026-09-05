@@ -350,7 +350,13 @@ async fn run_command_in_shell(
     // Read stdout in a plain loop until the marker is found.
     // stderr is drained concurrently by the background task spawned in
     // `spawn_shell`; we collect whatever arrived after the marker.
-    read_until_marker(&mut handles.stdout, &mut handles.stderr_rx, marker, progress_tx).await
+    read_until_marker(
+        &mut handles.stdout,
+        &mut handles.stderr_rx,
+        marker,
+        progress_tx,
+    )
+    .await
 }
 
 /// Write the command + marker-extraction line to the shell's stdin.
@@ -373,8 +379,7 @@ async fn write_command(
         );
         stdin.write_all(exit_marker_cmd.as_bytes()).await?;
         // cwd line (SECOND — Get-Location does not affect $?/$LASTEXITCODE).
-        let cwd_marker_cmd =
-            format!("Write-Output (\"{marker}D\" + (Get-Location).Path)\n");
+        let cwd_marker_cmd = format!("Write-Output (\"{marker}D\" + (Get-Location).Path)\n");
         stdin.write_all(cwd_marker_cmd.as_bytes()).await?;
     }
     #[cfg(unix)]
@@ -675,8 +680,7 @@ mod tests {
         let marker = "__LARE_test__";
         // b"out\xFFput\n" — the 0xFF byte (invalid UTF-8) must NOT kill the session.
         // Two-line marker: exit-code line first, then cwd line as terminator.
-        let input: &[u8] =
-            b"out\xFFput\n__LARE_test__0\n__LARE_test__D/home/u\n";
+        let input: &[u8] = b"out\xFFput\n__LARE_test__0\n__LARE_test__D/home/u\n";
         let mut reader = tokio::io::BufReader::new(input);
 
         let (lines, exit_code, cwd, shell_died) =
@@ -771,7 +775,10 @@ mod tests {
         let (lines, exit_code, cwd, shell_died) =
             read_lines_lossy_until_marker(&mut reader, marker, None).await;
 
-        assert!(shell_died, "shell_died must be true when EOF before cwd line");
+        assert!(
+            shell_died,
+            "shell_died must be true when EOF before cwd line"
+        );
         assert_eq!(exit_code, 0, "exit_code captured before EOF");
         assert_eq!(cwd, "", "cwd must be empty string on EOF");
         assert_eq!(lines.len(), 1);
@@ -871,7 +878,9 @@ mod tests {
         let session = Session::new();
 
         #[cfg(windows)]
-        let result = session.run("Get-LareCommandThatDoesNotExist 2>&1", None).await;
+        let result = session
+            .run("Get-LareCommandThatDoesNotExist 2>&1", None)
+            .await;
         #[cfg(unix)]
         let result = session
             .run("lare_command_that_does_not_exist 2>&1", None)
@@ -895,8 +904,7 @@ mod tests {
     async fn streaming_progress_tx_receives_lines() {
         let marker = "__LARE_test__";
         // Two non-marker lines, then exit-code line, then cwd line.
-        let input: &[u8] =
-            b"line-one\nline-two\n__LARE_test__0\n__LARE_test__D/tmp\n";
+        let input: &[u8] = b"line-one\nline-two\n__LARE_test__0\n__LARE_test__D/tmp\n";
         let mut reader = tokio::io::BufReader::new(input);
 
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
@@ -916,9 +924,21 @@ mod tests {
         while let Ok(line) = rx.try_recv() {
             received.push(line);
         }
-        assert_eq!(received.len(), 2, "expected 2 lines on channel, got: {received:?}");
-        assert!(received[0].contains("line-one"), "first line: {:?}", received[0]);
-        assert!(received[1].contains("line-two"), "second line: {:?}", received[1]);
+        assert_eq!(
+            received.len(),
+            2,
+            "expected 2 lines on channel, got: {received:?}"
+        );
+        assert!(
+            received[0].contains("line-one"),
+            "first line: {:?}",
+            received[0]
+        );
+        assert!(
+            received[1].contains("line-two"),
+            "second line: {:?}",
+            received[1]
+        );
     }
 
     /// When `progress_tx` is `None`, behaviour is identical to before (no-op).

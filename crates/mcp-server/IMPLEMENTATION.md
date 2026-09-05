@@ -1,36 +1,36 @@
-# Implementation — `mcp-server` v0.7.1
+# Implementation — `mcp-server` v2.0.1
 
-## `routines_root` da `startup.json` (v0.7.1)
+## Configurazione: `--config-dir`, niente env var (v2.0.1)
 
-`routines::resolve_root` non ri-deriva più `%LOCALAPPDATA%\dev.lare.terminal\`
-per conto proprio (funzione `default_root` eliminata) — riceve `local_dir`
-già risolto da `main()`. Nuova firma:
-`resolve_root(env_value: Option<&str>, file_value: Option<&str>, local_dir: &Path) -> PathBuf`,
-thin wrapper su `startup_config::resolve(env_value, file_value, || local_dir.join("routines"))`.
+Il crate `startup-config` è stato riscritto per la 2.0 (decisione D6 dello spec: un'unica
+cartella di configurazione per ogni binario Lare, niente env var — nella v1 tre lettori
+indipendenti di `LARE_LOCAL_DIR`/`LARE_ROUTINES_DIR` potevano divergere in silenzio).
+`main()` risolve la cartella di configurazione con `startup_config::config_dir_from_process()`
+(argv reali + `current_exe()`): `--config-dir <path>` se presente sulla riga di comando,
+altrimenti `<cartella dell'eseguibile>\Configuration\`. Da lì, `StartupConfig::load(&config_dir)`
+legge `startup.json` (file assente → default silenzioso; presente ma illeggibile/malformato →
+default + avviso, loggato via `tracing::warn!` — mai un crash, mai un bug-fantasma "il file c'è
+ma non succede niente").
 
-`SessionServer::new` prende ora `routines_root: PathBuf` già risolto invece
-di rileggere `LARE_ROUTINES_DIR` internamente — `main()` fa la risoluzione
-una sola volta (`exe_dir()` → `load_from_dir()` → `resolve()` per
-`local_dir` → `resolve_root()` per la root finale) e la passa giù.
+`routines::resolve_root` non prende più `(env_value, file_value, local_dir)`: la nuova firma è
+`resolve_root(config_dir: &Path, cfg: &StartupConfig) -> PathBuf`, thin wrapper su
+`StartupConfig::resolve_path(config_dir, &cfg.paths.routines_dir)` — legge il campo
+`paths.routines_dir` di `startup.json` (default `Configuration/routines`) e lo risolve: assoluto
+→ com'è; relativo → rispetto alla RADICE DEL DEPLOY (cartella padre di `config_dir`, non la cwd
+né la cartella dell'eseguibile — vedi doc-comment di `crates/startup-config/src/lib.rs`).
 
-I 6 test `resolve_root_explicit_override_wins`/`default_root_*` sono stati
-sostituiti da 4 nuovi test sulla nuova firma a 3 argomenti — copertura
-equivalente su ciò che questo crate può testare senza toccare l'ambiente
-reale (env vince, file vince su default, default = `local_dir.join
-("routines")`, env vuoto ignorato). La logica `%LOCALAPPDATA%`/`.lare-data`
-non è più testata QUI: si è spostata in `startup-config::default_local_dir`
-(crate `startup-config`, v0.1.0), che però — come `exe_dir()` — è
-intenzionalmente SENZA unit test diretti (wrapper sottile sul confine col
-sistema operativo, stesso pattern già in uso nel progetto per
-`McpToolClient::resolve()`/`NmapToolClient::resolve()`; vedi
-`startup-config/IMPLEMENTATION.md`). `resolve()` (il dispatcher a 3 livelli
-usato da `resolve_root`) resta invece pienamente testato in
-`startup-config` stesso.
+`SessionServer::new` prende sempre `routines_root: PathBuf` già risolto — nessun cambiamento
+qui, `main()` continua a fare la risoluzione una sola volta e a passarla giù.
 
-`main()` non scarta più in silenzio un `startup.json` illeggibile o JSON
-malformato: `load_from_dir` restituisce `Err`, e `main()` lo logga
-(`tracing::warn!`) prima di cadere ai default — nessun bug-fantasma "il
-file c'è ma non succede niente".
+I 4 test di `resolve_root` sulla vecchia firma a 3 argomenti (precedenza env/file/default, env
+vuoto ignorato) sono sostituiti da 2 nuovi test sulla nuova firma
+(`resolve_root_uses_startup_routines_dir_relative_to_deploy_root`,
+`resolve_root_absolute_routines_dir_is_kept`) — la logica di risoluzione env/file/default non
+esiste più in questo crate, è sostituita dalla precedenza `--config-dir` >
+`<exe_dir>/Configuration` interamente dentro `startup-config` (pienamente testata lì).
+
+La riga di log d'avvio non hardcoda più il numero di versione (era rimasta a `v0.7.1` anche
+dopo il fork a `2.0.0`): usa `env!("CARGO_PKG_VERSION")`, letto da `Cargo.toml` a compile-time.
 
 ## Scope
 
@@ -123,7 +123,7 @@ invocazione. Nessuna dipendenza da MCP/rmcp (testabile in isolamento con `tempdi
 
 | Funzione | Comportamento |
 |---|---|
-| `resolve_root(env_override)` | Catena di precedenza: `LARE_ROUTINES_DIR` (override di questo solo path) → `LARE_LOCAL_DIR` (override dell'intera base `dev.lare.terminal`, v0.6.2, path completo verbatim) → `%LOCALAPPDATA%\dev.lare.terminal\routines`, fallback `.lare-data\routines` |
+| `resolve_root(config_dir, cfg)` | `cfg.paths.routines_dir` (default `Configuration/routines`) risolto rispetto alla radice del deploy — assoluto invariato, relativo unito a `deploy_root(config_dir)` (v2.0.1, vedi sezione "Configurazione" sopra) |
 | `load_index(root)` | Legge `index.json`; file assente O malformato → indice vuoto, mai errore |
 | `find_by_name(idx, name)` | Match esatto sul nome |
 | `search(idx, query)` | `query` assente/vuota → tutte le entry; altrimenti tokenizzata per spazi, match OR-per-parola su name/description/tags (v0.6.3 — prima l'intera query doveva essere UNA sottostringa contigua, falliva su query multi-parola naturali) |

@@ -1,4 +1,4 @@
-//! # mcp-server — stdio entry point (v0.7.1)
+//! # mcp-server — stdio entry point (v2.0.1)
 //!
 //! Thin MCP glue layer.  All business logic lives in [`mcp_server::session`]
 //! and [`mcp_server::open_target`].
@@ -38,10 +38,11 @@ use anyhow::Result;
 use mcp_server::open_target;
 use mcp_server::session::Session;
 use rmcp::{
-    Peer, RoleServer,
     handler::server::wrapper::Parameters,
     model::{NumberOrString, ProgressNotificationParam, ProgressToken},
-    schemars, tool, tool_router, transport::stdio, ServiceExt,
+    schemars, tool, tool_router,
+    transport::stdio,
+    Peer, RoleServer, ServiceExt,
 };
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
@@ -191,15 +192,16 @@ struct SaveRoutineOutput {
 #[derive(Clone)]
 struct SessionServer {
     session: Arc<Mutex<Session>>,
-    /// Root del repository routine, risolta una volta all'avvio
-    /// (`mcp_server::routines::resolve_root`, override `LARE_ROUTINES_DIR`).
+    /// Root del repository routine, risolta una volta all'avvio da
+    /// `mcp_server::routines::resolve_root` (`--config-dir` + `startup.json`,
+    /// nessuna env var).
     routines_root: std::path::PathBuf,
 }
 
 impl SessionServer {
     /// `routines_root` arriva già risolto da `main()` (vedi
-    /// `startup_config::resolve`) — questo costruttore non legge più
-    /// l'ambiente per conto proprio.
+    /// `startup_config::StartupConfig::resolve_path`) — questo costruttore
+    /// non legge l'ambiente né il filesystem per conto proprio.
     fn new(routines_root: std::path::PathBuf) -> Self {
         Self {
             session: Arc::new(Mutex::new(Session::new())),
@@ -226,7 +228,10 @@ impl SessionServer {
     async fn run_in_session(
         &self,
         peer: Peer<RoleServer>,
-        Parameters(RunInSessionParams { command, progress_token }): Parameters<RunInSessionParams>,
+        Parameters(RunInSessionParams {
+            command,
+            progress_token,
+        }): Parameters<RunInSessionParams>,
     ) -> String {
         let session = self.session.lock().await;
 
@@ -241,8 +246,7 @@ impl SessionServer {
             //    sends each non-marker line to the channel.
             // 4. After run() returns, drop drain_tx (already moved) so drain_task
             //    exits when the channel is drained.
-            let (drain_tx, mut drain_rx) =
-                tokio::sync::mpsc::unbounded_channel::<String>();
+            let (drain_tx, mut drain_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
 
             // Build the ProgressToken from the string.
             let progress_token = ProgressToken(NumberOrString::String(token_str.into()));
@@ -258,7 +262,9 @@ impl SessionServer {
                     // Ignore send errors: if the client disconnected, we just stop
                     // sending notifications and let the command finish normally.
                     if let Err(e) = peer_clone.notify_progress(param).await {
-                        tracing::debug!("notify_progress failed (client may have disconnected): {e}");
+                        tracing::debug!(
+                            "notify_progress failed (client may have disconnected): {e}"
+                        );
                         break;
                     }
                 }
@@ -455,8 +461,14 @@ impl SessionServer {
     )]
     async fn save_routine(
         &self,
-        Parameters(SaveRoutineParams { name, description, tags, category, content, replace }):
-            Parameters<SaveRoutineParams>,
+        Parameters(SaveRoutineParams {
+            name,
+            description,
+            tags,
+            category,
+            content,
+            replace,
+        }): Parameters<SaveRoutineParams>,
     ) -> String {
         let created = mcp_server::routines::format_date_from_unix_secs(
             std::time::SystemTime::now()
@@ -475,11 +487,16 @@ impl SessionServer {
             replace.as_deref(),
         );
         let out = match result {
-            Ok(()) => SaveRoutineOutput { ok: true, message: String::new() },
+            Ok(()) => SaveRoutineOutput {
+                ok: true,
+                message: String::new(),
+            },
             Err(e) => {
                 use mcp_server::routines::SaveError;
                 let message = match e {
-                    SaveError::NameCollision => format!("Esiste già una routine chiamata '{name}'."),
+                    SaveError::NameCollision => {
+                        format!("Esiste già una routine chiamata '{name}'.")
+                    }
                     SaveError::InvalidName(n) => {
                         format!("Nome routine non valido: '{n}' (solo lettere minuscole, cifre, trattini).")
                     }
@@ -506,39 +523,33 @@ async fn main() -> Result<()> {
         .with_ansi(false)
         .init();
 
-    tracing::info!("Lare Terminal mcp-server v0.7.1 starting (transport: stdio)");
+    // `env!("CARGO_PKG_VERSION")` legge la versione da `Cargo.toml` a
+    // compile-time: la riga di log non va più aggiornata a mano a ogni
+    // bump di versione (prima era una stringa hardcoded, rimasta ferma a
+    // v0.7.1 anche dopo il fork 2.0.0).
+    tracing::info!(
+        "Lare Terminal mcp-server v{} starting (transport: stdio)",
+        env!("CARGO_PKG_VERSION")
+    );
 
-    // ── Configurazione da startup.json (fase 1) ───────────────────────────
-    // `exe_dir` = cartella di mcp-server.exe (o del binario di debug in
-    // sviluppo). `startup_cfg` = None se il file non c'è (caso normale) o
-    // se illeggibile/malformato (loggato, mai un crash).
-    let exe_dir = startup_config::exe_dir().ok();
-    // `load_from_dir` distingue "file assente" (`Ok(None)`, caso normale) da
-    // "file presente ma illeggibile/malformato" (`Err`, da loggare — il
-    // contratto del crate `startup-config` dice esplicitamente "il chiamante
-    // logga e cade al default, MAI un panic"). Un `.ok()` qui scarterebbe
-    // l'errore in silenzio: un `startup.json` con una virgola di troppo
-    // farebbe cadere ai default senza NESSUN segnale in log, esattamente la
-    // classe di bug-fantasma ("perché non fa nulla?") che questo progetto
-    // ha già incontrato più volte con env var sbagliate.
-    let startup_cfg = match exe_dir.as_deref().map(startup_config::load_from_dir) {
-        Some(Ok(cfg)) => cfg,
-        Some(Err(e)) => {
-            tracing::warn!("{e} — uso i default");
-            None
-        }
-        None => None,
-    };
-    let local_dir = startup_config::resolve(
-        std::env::var("LARE_LOCAL_DIR").ok().as_deref(),
-        startup_cfg.as_ref().and_then(|c| c.local_dir.as_deref()),
-        startup_config::default_local_dir,
-    );
-    let routines_root = mcp_server::routines::resolve_root(
-        std::env::var("LARE_ROUTINES_DIR").ok().as_deref(),
-        startup_cfg.as_ref().and_then(|c| c.routines_dir.as_deref()),
-        &local_dir,
-    );
+    // ── Configurazione (2.0): --config-dir oppure <exe_dir>/Configuration ─
+    // Unica fonte della cartella di configurazione (decisione D6 dello spec
+    // 2.0): niente più env var lette qui o altrove in questo crate — nella
+    // v1 `LARE_LOCAL_DIR`/`LARE_ROUTINES_DIR` erano lette in punti diversi
+    // e potevano divergere in silenzio fra i binari.
+    let config_dir = startup_config::config_dir_from_process();
+    // `StartupConfig::load` distingue "file assente" (default, nessun
+    // avviso: caso normale al primo avvio) da "file presente ma
+    // illeggibile/malformato" (default + avviso da loggare) — un
+    // `startup.json` con una virgola di troppo non deve cadere ai default
+    // in silenzio, esattamente la classe di bug-fantasma ("perché non fa
+    // nulla?") già incontrata più volte con le env var della v1.
+    let (startup_cfg, warn) = startup_config::StartupConfig::load(&config_dir);
+    if let Some(w) = warn {
+        tracing::warn!("{w}");
+    }
+    tracing::info!("config dir: {}", config_dir.display());
+    let routines_root = mcp_server::routines::resolve_root(&config_dir, &startup_cfg);
 
     let service = SessionServer::new(routines_root).serve(stdio()).await?;
     service.waiting().await?;

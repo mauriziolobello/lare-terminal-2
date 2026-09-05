@@ -4,6 +4,26 @@ All notable changes to this crate are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Versioning: `major.minor.update` (SemVer).
 
+## 2.0.1 — 2026-09-05 — `--config-dir` al posto di `LARE_LOCAL_DIR`/`LARE_ROUTINES_DIR`
+
+Il crate `startup-config` è stato riscritto (Task 2 del piano "fondamenta") con l'API 2.0:
+niente più `load_from_dir`/`resolve`/`default_local_dir`, né il campo `local_dir` su
+`StartupConfig` — l'API v1 non esiste più, e questo crate non compilava più contro di essa.
+Migrazione a riga di comando: `main()` non legge più `LARE_LOCAL_DIR`/`LARE_ROUTINES_DIR`
+dall'ambiente (decisione D6 dello spec 2.0: un'unica fonte della cartella di configurazione
+per ogni binario Lare, niente env var che nella v1 divergevano in silenzio fra i binari).
+La cartella di configurazione è ora `--config-dir <path>` se passato sulla riga di comando,
+altrimenti `<cartella dell'eseguibile>\Configuration\` (`startup_config::config_dir_from_process`).
+`routines::resolve_root` cambia firma: da `(env_value, file_value, local_dir) -> PathBuf` a
+`(config_dir: &Path, cfg: &StartupConfig) -> PathBuf` — legge `cfg.paths.routines_dir`
+(default `Configuration/routines`) e lo risolve rispetto alla radice del deploy via
+`StartupConfig::resolve_path` (assoluto → invariato; relativo → `deploy_root(config_dir)/valore`).
+I 4 vecchi test di `resolve_root` (precedenza env/file/default, env vuoto ignorato) sono
+sostituiti da 2 nuovi test sulla nuova firma (`resolve_root_uses_startup_routines_dir_relative_to_deploy_root`,
+`resolve_root_absolute_routines_dir_is_kept`). La riga di log d'avvio non hardcoda più la
+versione (era rimasta ferma a `v0.7.1` anche dopo il fork 2.0.0): ora usa
+`env!("CARGO_PKG_VERSION")`, quindi non richiede più un aggiornamento manuale a ogni bump.
+
 ## 2.0.0 — 2026-09-05 — fork da v1 0.7.1
 
 Copia del crate dalla v1 (`mauriziolobello/lare-terminal`) nel repo 2.0. Nessuna modifica
