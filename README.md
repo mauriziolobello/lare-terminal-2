@@ -12,12 +12,14 @@ AI Chat), cambiando solo il punto d'ingresso e ciò che vi è accoppiato.
 
 ## Stato
 
-**Brainstorming concluso, spec in revisione** (2026-09-05). Nessun codice di prodotto ancora:
-solo due spike usa-e-getta in `spikes/` (host PowerShell custom in C#; finestra Tauri + xterm.js +
-ConPTY), entrambi riusciti — esiti in `Docs/i18n/ita/spikes/`. Spec di design riscritto sulla forma
-finale in `Docs/i18n/ita/superpowers/specs/`; prossimo passo il piano di implementazione in
-`Docs/i18n/ita/superpowers/plans/`. Tutta la documentazione sta sotto `Docs/i18n/<lingua>/`
-(italiano come riferimento).
+**Piano 1 ("fondamenta") completato** (2026-09-05): workspace con tutti i crate della v1 copiati e
+versionati `2.0.x`, regola unica di configurazione (`--config-dir`/`startup.json`, nessuna
+variabile d'ambiente `LARE_*`), `ui.exe` ridotto a puro host di finestre (overlay F2 rimosso), e
+`Test Run\` come layout di deploy verificato dal vivo dentro il repo. Dettagli, versioni correnti
+e debiti noti in `Docs/i18n/ita/HANDOFF.md`; checklist e2e in `Docs/i18n/ita/TESTING-e2e.md`.
+**`shell\lare-shell.exe` non esiste ancora** — prossimo passo il **piano 2** (protocollo
+host↔orchestratore + host C# del motore PowerShell), seguito dal piano 3 (finestra terminale
+Tauri). Tutta la documentazione sta sotto `Docs/i18n/<lingua>/` (italiano come riferimento).
 
 ## Punti di partenza
 
