@@ -1,0 +1,54 @@
+[package]
+name = "mcp-nmap"
+version = "2.0.0"
+edition = "2021"
+
+# The crate exposes:
+#   lib  — pure core (report.rs: XML parsing + data model; markdown.rs: formatting;
+#          scan.rs: process invocation behind a mockable trait; elevate.rs: Windows
+#          elevation, isolated). No MCP/rmcp dependency in the lib target.
+#   bin  — `mcp-nmap` (thin MCP stdio glue using rmcp, mirrors mcp-server/src/main.rs)
+
+[[bin]]
+name = "mcp-nmap"
+path = "src/main.rs"
+
+[dependencies]
+# roxmltree: read-only XML DOM parser. nmap's -oX schema is attribute-heavy
+# and nested (<host><status/><address/><ports><port><state/><service/></port>
+# </ports><os><osmatch/></os></host>) — manual DOM extraction is more direct
+# here than serde-derive over that shape.
+roxmltree = "0.21"
+
+# tempfile: reserves the -oX output path (NamedTempFile::new()?.into_temp_path()
+# closes the Rust-side handle before nmap writes, avoiding lock conflicts; the
+# TempPath deletes the file on drop after we've read it). NORMAL dependency
+# here (used at runtime for every scan), unlike mcp-server where it is dev-only.
+tempfile = "3"
+
+rmcp = { version = "=1.7.0", features = ["server", "transport-io", "macros", "schemars"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "process"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# windows: official Microsoft Rust bindings, for ShellExecuteExW (elevation,
+# nmap_os_detect only) + WaitForSingleObject/GetExitCodeProcess. Windows-only
+# (#[cfg(windows)] gated throughout elevate.rs) — no impact on the macOS/Linux
+# gemellaggio requirement (elevation there is future, out of scope — design
+# spec §9).
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+    "Win32_UI_Shell",
+    "Win32_Foundation",
+    "Win32_System_Threading",
+    # SHELLEXECUTEINFOW carries an `hkeyClass: HKEY` field (unused by this
+    # crate — always left at its zeroed Default — but still part of the
+    # struct's definition), which windows-rs 0.62.2 gates SHELLEXECUTEINFOW
+    # and ShellExecuteExW themselves behind. Discovered as a real cargo build
+    # error during Task 4 (not something either "verified against docs" list
+    # covered — see this crate's IMPLEMENTATION.md).
+    "Win32_System_Registry",
+] }

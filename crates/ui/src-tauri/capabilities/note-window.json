@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "note-window",
+  "description": "Capability per la finestra 'Nuova nota'/'Modifica nota' del Blocco note (label: 'note-compose'). core:default per l'IPC Tauri (take_window_content/close_self + event API per note-window:* in/out) e core:window:allow-start-dragging per la titlebar chromeless.",
+  "platforms": ["linux", "macOS", "windows"],
+  "windows": ["note-compose"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging"
+  ]
+}

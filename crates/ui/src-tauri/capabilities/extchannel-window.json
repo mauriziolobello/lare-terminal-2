@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "extchannel-window",
+  "description": "Capability per le finestre di canale tool esterno (label: 'extchannel-*', es. /nmap). core:default per l'IPC Tauri (get_lare_token/close_self) — la connessione WS propria della finestra usa l'API WebSocket nativa del browser, non IPC Tauri, quindi non richiede permessi aggiuntivi qui. core:window:allow-start-dragging per la titlebar chromeless. Global-shortcut e clipboard NON inclusi.",
+  "platforms": ["linux", "macOS", "windows"],
+  "windows": ["extchannel-*"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging"
+  ]
+}

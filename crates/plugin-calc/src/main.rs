@@ -1,0 +1,896 @@
+//! plugin-calc — la calcolatrice. Stato = buffer di input; i tasti lo costruiscono;
+//! `=` valuta (engine → format). Il display rende il buffer come HTML 2D (render) se
+//! parserizza, altrimenti lineare.
+//!
+//! Struttura:
+//!   - `CalcState`     — stato mutabile (buffer + flag "ultimo evento = risultato").
+//!   - `handle_key`    — logica pura testabile: traduce un `data-evt` in una modifica di stato.
+//!   - `render_window` — genera l'HTML completo: display 2D (o lineare) + griglia tasti.
+//!   - `main`          — loop stdin riga-per-riga, modellato su `plugin-counter`.
+
+mod engine;
+mod format;
+mod render;
+
+use engine::{evaluate, parse, AngleMode};
+use format::format_number;
+use plugin_protocol::{HostToPlugin, PluginToHost};
+use std::io::{BufRead, Write};
+
+/// Stato del plugin: il buffer che l'utente sta costruendo tasto per tasto.
+///
+/// `last_was_result`: flag per distinguere se l'ultimo evento era `=` (risultato).
+/// Serve a implementare la regola "cifra dopo risultato → ricomincia; operatore → continua".
+///
+/// `last_expr`: espressione catturata all'ultimo `=`, mostrata nell'eco a due righe
+/// (display = risultato sopra, eco = espressione grezza sotto).
+/// Esempio: dopo "7 × 8 =", `buf` = "56" e `last_expr` = "7×8".
+///
+/// `shift`: flag "Shift / 2nd function" sticky — vero quando l'utente ha premuto il tasto
+/// Shift; il successivo tasto scientifico usa la sua variante (es. sin→asin).
+/// Si azzera automaticamente dopo ogni tasto non-shift (Task 3).
+///
+/// `angle_mode`: modalità angolare per le funzioni trig (Deg = default, Rad).
+/// Cambiata dal tasto DEG/RAD (`data-evt="mode"`).
+///
+/// In OOP sarebbe un oggetto con campi privati; in Rust un semplice struct con `Default`.
+/// `#[derive(Default)]` genera automaticamente tutti i campi col loro valore di default
+/// (`String::new()` per `String`, `false` per `bool`, `AngleMode::Deg` via `impl Default`).
+#[derive(Default)]
+struct CalcState {
+    buf: String,
+    last_was_result: bool,
+    /// Espressione catturata all'ultimo "=", mostrata nell'eco a due righe
+    /// (display = risultato sopra, eco = espressione grezza sotto).
+    last_expr: String,
+    /// Flag "Shift / 2nd": se true, il prossimo tasto scientifico usa la variante shiftata.
+    /// Sticky: si azzera automaticamente dopo il primo tasto non-shift.
+    shift: bool,
+    /// Modalità angolare per le funzioni trigonometriche (default: Deg).
+    angle_mode: AngleMode,
+}
+
+/// Helper per appendere una stringa al buffer con la semantica "chiaro-dopo-risultato".
+///
+/// `is_fresh = true`  → si comporta come una cifra/funzione prefissa: se il buffer contiene
+///   un risultato precedente (`last_was_result`) o "Error", lo cancella prima di appendere.
+///   Usato da: fn_sin/cos/tan, fn_log, fn_ln, fn_sqrt (entrambe le varianti, normale e ∛),
+///   const_pi, const_e.
+///   Nota v2: `fn_sqrt` con shift appende "∛(" (funzione, apre parentesi) → is_fresh=true.
+///
+/// `is_fresh = false` → si comporta come un operatore/postfisso: continua dal risultato
+///   corrente senza cancellarlo (eccetto se il buffer è "Error").
+///   Usato da: op_pow (^ e ^(1/), fn_recip (^-1), fn_square (^2 / ^3),
+///   fn_factorial (!), fn_mod (%).
+///
+/// Centralizzare questa logica in un helper evita la duplicazione nei rami dei
+/// tasti scientifici (SOLID Single Responsibility, DRY).
+fn append_str(state: &mut CalcState, text: &str, is_fresh: bool) {
+    if state.last_was_result {
+        if is_fresh || state.buf == "Error" {
+            state.buf.clear();
+        }
+        state.last_was_result = false;
+    }
+    state.buf.push_str(text);
+}
+
+/// Traduce un `data-evt` nel carattere/azione corrispondente e aggiorna lo stato.
+///
+/// Mappa `data-evt` → azione:
+///   d0..d9  → cifre ASCII,  dot → '.', op_add → '+',
+///   op_sub  → '−' (U+2212), op_mul → '×' (U+00D7), op_div → '÷' (U+00F7),
+///   paren_open → '(', paren_close → ')'
+///   back    → rimuove l'ultimo carattere Unicode dal buffer
+///   clear   → svuota il buffer
+///   eq      → valuta l'espressione e sostituisce il buffer con il risultato
+///
+///   Tasti scientifici (Task 3 v1 + Refinements v2 Task vB):
+///   shift          → alterna `state.shift` (flag sticky 2nd, non soggetto a sticky-off)
+///   mode           → alterna `state.angle_mode` Deg ↔ Rad
+///   fn_sin/cos/tan → append "sin("/… o "asin("/… se shift (is_fresh=true)
+///   fn_log/ln      → append "log("/… o "10^("/… se shift (is_fresh=true)
+///   fn_sqrt        → append "√(" (normale) o "∛(" (shift, v2) — entrambi is_fresh=true
+///   fn_square      → append "^2" (normale) o "^3" (shift, v2) — entrambi is_fresh=false
+///   op_pow         → append "^" (normale) o "^(1/" (shift, v2) — entrambi is_fresh=false
+///   fn_recip       → append "^-1" (operatore, is_fresh=false)
+///   fn_factorial   → append "!" (postfisso, is_fresh=false, v2)
+///   fn_mod         → append "%" (operatore moltiplicativo, is_fresh=false, v2)
+///   const_pi       → append "π" (is_fresh=true; nessuna 2ª funzione in v2)
+///   const_e        → append "e" (is_fresh=true, v2; tasto separato da const_pi)
+///
+///   **Sticky Shift**: dopo ogni tasto NON-shift, se `state.shift` era attivo
+///   viene azzerato automaticamente (comportamento "2nd" delle calcolatrici fisiche).
+///
+/// I simboli Unicode vengono spinti nel buffer perché il tokenizer dell'engine li accetta.
+/// In questo modo il buffer è leggibile dall'utente E valutabile senza conversione.
+fn handle_key(state: &mut CalcState, key: &str) {
+    // Il tasto "shift" (2nd) è speciale: toglie/attiva il flag e torna subito,
+    // senza applicare la regola sticky-off (non si può "shift-off" da sé stesso).
+    if key == "shift" {
+        state.shift = !state.shift;
+        return;
+    }
+
+    // Cattura lo stato shift PRIMA di processare il tasto: serve per determinare quale
+    // variante (normale o shiftata) usare. Dopo il match verrà azzerato (sticky).
+    let was_shifted = state.shift;
+
+    // Mappa cifra/operatore/parentesi → carattere del buffer.
+    // Usiamo Option<char>: None per i tasti speciali (eq, back, clear, scientifici).
+    let ch: Option<char> = match key {
+        "d0" => Some('0'),
+        "d1" => Some('1'),
+        "d2" => Some('2'),
+        "d3" => Some('3'),
+        "d4" => Some('4'),
+        "d5" => Some('5'),
+        "d6" => Some('6'),
+        "d7" => Some('7'),
+        "d8" => Some('8'),
+        "d9" => Some('9'),
+        "dot"          => Some('.'),
+        "op_add"       => Some('+'),
+        "op_sub"       => Some('−'),   // U+2212 — display minus sign (accettato dall'engine)
+        "op_mul"       => Some('×'),   // U+00D7 — multiplication sign
+        "op_div"       => Some('÷'),   // U+00F7 — division sign
+        "paren_open"   => Some('('),
+        "paren_close"  => Some(')'),
+        _ => None,
+    };
+
+    match key {
+        // C (clear): azzera il buffer, il flag risultato, e l'eco.
+        "clear" => {
+            state.buf.clear();
+            state.last_was_result = false;
+            state.last_expr.clear();
+        }
+
+        // ⌫ (backspace): rimuove l'ultimo codepoint Unicode.
+        // `String::pop()` è sicuro anche per caratteri multi-byte (es. '×' = 2 byte in UTF-8).
+        "back" => {
+            state.buf.pop();
+            state.last_was_result = false;
+        }
+
+        // = (uguale): valuta l'espressione corrente.
+        // Se il parse o la valutazione falliscono → mostra "Error".
+        "eq" => {
+            // Cattura l'espressione digitata PRIMA di sostituire il buffer col risultato,
+            // così la riga eco può continuare a mostrarla (calcolatrice a due righe).
+            // Esempio: dopo "7×8=", last_expr = "7×8", buf = "56".
+            state.last_expr = state.buf.clone();
+            // Usa la modalità angolare corrente (state.angle_mode) — Task 3 fix.
+            let result = parse(&state.buf).and_then(|e| evaluate(&e, state.angle_mode));
+            state.buf = match result {
+                Ok(v)  => format_number(v),
+                Err(_) => "Error".to_string(),
+            };
+            state.last_was_result = true;
+        }
+
+        // DEG ↔ RAD: alterna la modalità angolare senza toccare il buffer.
+        "mode" => {
+            state.angle_mode = match state.angle_mode {
+                AngleMode::Deg => AngleMode::Rad,
+                AngleMode::Rad => AngleMode::Deg,
+            };
+        }
+
+        // ── Funzioni trigonometriche dirette e inverse ─────────────────────────
+        // is_fresh=true: aprono un nuovo input (cancellano il risultato precedente).
+        // La variante inversa (asin/acos/atan) è attivata dallo Shift.
+        "fn_sin" => append_str(state, if was_shifted { "asin(" } else { "sin(" }, true),
+        "fn_cos" => append_str(state, if was_shifted { "acos(" } else { "cos(" }, true),
+        "fn_tan" => append_str(state, if was_shifted { "atan(" } else { "tan(" }, true),
+
+        // ── Logaritmi ──────────────────────────────────────────────────────────
+        // log (base 10) / 10^( ; ln (naturale) / e^(
+        "fn_log" => append_str(state, if was_shifted { "10^(" } else { "log(" }, true),
+        "fn_ln"  => append_str(state, if was_shifted { "e^("  } else { "ln("  }, true),
+
+        // ── Radici (v2) ────────────────────────────────────────────────────────
+        // fn_sqrt: entrambe le varianti aprono una funzione con parentesi → is_fresh=true.
+        //   Normale: √( (radice quadrata).
+        //   Shift:   ∛( (radice cubica, U+221B; l'engine riconosce ∛ come FuncId::Cbrt).
+        // Nota: in v1, shift produceva "^2" (operatore, is_fresh=false).
+        //       In v2, "^2"/"^3" si spostano sul tasto fn_square.
+        "fn_sqrt" => {
+            if was_shifted {
+                append_str(state, "∛(", true);
+            } else {
+                append_str(state, "√(", true);
+            }
+        }
+
+        // fn_square (v2, nuovo tasto): elevazione a potenza fissa — operatore, is_fresh=false.
+        //   Normale: ^2 (al quadrato); Shift: ^3 (al cubo).
+        //   is_fresh=false: "5 = 5" poi fn_square → "5^2", non "^2" su buffer vuoto.
+        "fn_square" => {
+            if was_shifted {
+                append_str(state, "^3", false);
+            } else {
+                append_str(state, "^2", false);
+            }
+        }
+
+        // ── Operatori potenza ──────────────────────────────────────────────────
+        // op_pow (v2 aggiunge Shift): entrambe le varianti continuano dal risultato (is_fresh=false).
+        //   Normale: ^ (potenza generica).
+        //   Shift:   ^(1/ (y-esima radice: "x^(1/y)" calcola la y-esima radice di x).
+        // fn_recip: 1/x come "^-1", operatore.
+        "op_pow"   => append_str(state, if was_shifted { "^(1/" } else { "^" }, false),
+        "fn_recip" => append_str(state, "^-1", false),
+
+        // ── Fattoriale e modulo (v2, nuovi tasti) ─────────────────────────────
+        // Entrambi sono operatori/postfissi che continuano dal risultato (is_fresh=false).
+        //   fn_factorial: appende "!" — postfisso (engine: lega più stretto di ^).
+        //   fn_mod:       appende "%" — operatore binario livello moltiplicativo.
+        "fn_factorial" => append_str(state, "!", false),
+        "fn_mod"       => append_str(state, "%", false),
+
+        // ── Costanti ───────────────────────────────────────────────────────────
+        // v2: π ed e sono tasti separati — nessuna 2ª funzione via Shift.
+        // Entrambe iniziano un nuovo input (is_fresh=true).
+        "const_pi" => append_str(state, "π", true),
+        "const_e"  => append_str(state, "e", true),
+
+        // Tasto con carattere associato (cifre, operatori base, parentesi).
+        _ => {
+            if let Some(c) = ch {
+                // Regola "smart clear after result":
+                //   - Se l'ultimo evento era `=` e l'utente preme una cifra / '.' / '(' → nuovo input.
+                //   - Se l'ultimo evento era `=` e l'utente preme un operatore → concatena al risultato.
+                //   - Se il buffer è "Error" (risultato di errore) → qualsiasi nuovo tasto lo cancella.
+                if state.last_was_result {
+                    let is_digit_or_open = c.is_ascii_digit() || c == '.' || c == '(';
+                    if is_digit_or_open || state.buf == "Error" {
+                        state.buf.clear();
+                    }
+                    state.last_was_result = false;
+                }
+                state.buf.push(c);
+            }
+            // Tasto sconosciuto (es. data-evt non gestito): ignorato silenziosamente.
+        }
+    }
+
+    // ── Sticky Shift ───────────────────────────────────────────────────────────
+    // Dopo qualsiasi tasto che NON sia "shift" stesso, se il flag era attivo va azzerato.
+    // Questo implementa il comportamento "2nd" delle calcolatrici Casio/TI: un solo
+    // tasto shiftato, poi torna allo stato normale.
+    if was_shifted {
+        state.shift = false;
+    }
+}
+
+/// Genera l'HTML della finestra: display + riga eco + griglia tasti.
+///
+/// **Display** (prima riga): il buffer corrente reso come HTML 2D (frazioni impilate)
+///   se il buffer parserizza, oppure come testo lineare HTML-escaped se è incompleto.
+///   La funzione `parse` dell'engine tenta l'interpretazione:
+///   - SUCCESS → `render::render(&ast)` (HTML 2D, es. frazione `÷`).
+///   - FAILURE → `html_escape(&state.buf)` (lineare; si vede mentre si digita).
+///
+///   Il display mostra "0" se il buffer è vuoto.
+///
+/// **Eco** (seconda riga, `.lare-expr`): l'input grezzo verbatim, senza render 2D.
+///   - Dopo `=` (`last_was_result == true`): mostra `last_expr` — l'espressione che ha
+///     prodotto il risultato. Questo realizza il comportamento "calcolatrice a due righe":
+///     display = "56", eco = "7×8".
+///   - Mentre si digita (`last_was_result == false`): mostra `buf` direttamente.
+fn render_window(state: &CalcState) -> String {
+    let display = match parse(&state.buf) {
+        Ok(ast) => render::render(&ast),
+        // Buffer incompleto o errore → mostra il testo lineare escaped.
+        // `html_escape` garantisce che eventuali `<`, `>`, `&` nel buffer non rompano il markup.
+        Err(_)  => html_escape(&state.buf),
+    };
+    // Buffer vuoto → mostra "0" (display da calcolatrice a riposo).
+    let display = if display.is_empty() { "0".to_string() } else { display };
+
+    // Eco dell'input grezzo (verbatim, no render 2D):
+    //   - dopo "=" mostra l'espressione che ha prodotto il risultato (last_expr);
+    //   - mentre si digita mostra il buffer corrente.
+    let echo_src = if state.last_was_result { &state.last_expr } else { &state.buf };
+    let echo = html_escape(echo_src);
+
+    // La classe `lare-calc` marca questa come la finestra calcolatrice: la UI ci aggancia
+    // il display grow-only (min-height high-water) senza toccare gli altri plugin.
+    //
+    // v2: l'indicatore DEG/RAD si sposta dal `.lare-expr` al `.lare-status` separato.
+    // Struttura: display → expr(eco) → status(DEG|RAD) → key_grid.
+    // `.lare-status` è tra l'eco e la griglia: sempre visibile, non scorre col testo.
+    let mode_label = match state.angle_mode {
+        AngleMode::Deg => "DEG",
+        AngleMode::Rad => "RAD",
+    };
+    let grid = key_grid(state);
+    format!(
+        "<div class=\"lare-window lare-calc\">\
+           <div class=\"lare-display\">{display}</div>\
+           <div class=\"lare-expr\">{echo}</div>\
+           <div class=\"lare-status\">{mode_label}</div>\
+           {grid}\
+         </div>"
+    )
+}
+
+/// Escape HTML minimale per il testo lineare del display.
+/// Anche se il buffer proviene dall'input utente (tasti del plugin), è buona pratica
+/// non iniettare HTML raw — garantisce che '<', '>' e '&' non rompano il markup.
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+     .replace('<', "&lt;")
+     .replace('>', "&gt;")
+}
+
+/// Genera la griglia HTML dei tasti in base allo stato corrente (v2: layout 7×5, 35 tasti).
+///
+/// v2 porta il layout da 5+4-colonne-miste a **35 tasti singoli** (7 righe × 5 colonne,
+/// nessun `lare-key--wide`). Gli operatori ÷ × − + tornano a cella singola:
+/// con 35 celle divisibili esattamente per 5, l'auto-flow CSS non produce salti di riga.
+///
+/// Layout 7×5 (riga per riga):
+///   Riga 1: 2nd | DEG/RAD | sin/asin | cos/acos | tan/atan
+///   Riga 2: x²/x³ | √/∛ | x^y/ʸ√x | log/10^x | ln/e^x
+///   Riga 3: 1/x | n! | mod | π | e
+///   Riga 4: 7 | 8 | 9 | C | ÷
+///   Riga 5: 4 | 5 | 6 | ⌫ | ×
+///   Riga 6: 1 | 2 | 3 | ( | −
+///   Riga 7: 0 | . | = | ) | +
+///
+/// Etichette shift-aware: quando `state.shift` è true, i tasti scientifici mostrano la
+/// loro 2ª funzione. Il tasto DEG/RAD ha etichetta fissa "DEG/RAD" (il tasto è il *toggle*;
+/// la modalità corrente è in `.lare-status`, non nell'etichetta del tasto).
+///
+/// Ogni pulsante ha:
+///   `data-evt`  — evento semantico che la UI cattura → `handle_key`.
+///   `data-key`  — lista di `KeyboardEvent.key` separati da spazio che attivano questo tasto
+///                 dalla tastiera fisica (letto dal listener keydown in `plugin-window.js`).
+fn key_grid(state: &CalcState) -> String {
+    // Classe aggiuntiva sul tasto "2nd/Shift" quando il flag shift è attivo.
+    // `lare-key--shift-on` serve al CSS per evidenziare il tasto premuto.
+    let shift_extra = if state.shift { " lare-key--shift-on" } else { "" };
+
+    // Etichette shift-aware: quando shift è attivo mostriamo la 2ª funzione.
+    let sin_label    = if state.shift { "asin" } else { "sin" };
+    let cos_label    = if state.shift { "acos" } else { "cos" };
+    let tan_label    = if state.shift { "atan" } else { "tan" };
+    let log_label    = if state.shift { "10^x" } else { "log" };
+    let ln_label     = if state.shift { "e^x"  } else { "ln"  };
+    // fn_sqrt: √ (radice quadrata) ↔ ∛ (radice cubica) con Shift.
+    let sqrt_label   = if state.shift { "\u{221B}" } else { "\u{221A}" }; // ∛ / √
+    // fn_square: x² ↔ x³ con Shift.
+    let square_label = if state.shift { "x\u{00B3}" } else { "x\u{00B2}" }; // x³ / x²
+    // op_pow: x^y ↔ ʸ√x (y-esima radice) con Shift.
+    // "ʸ√x" = indice ad apice (U+02B8 MODIFIER LETTER SMALL Y) + simbolo radice + x.
+    let pow_label    = if state.shift { "\u{02B8}\u{221A}x" } else { "x^y" }; // ʸ√x / x^y
+
+    format!(
+        // ── Riga 1: 2nd + DEG/RAD (etichetta fissa toggle) + trig ────────
+        "<div class=\"lare-key-grid\">\
+          <button class=\"lare-key{shift_extra}\" data-evt=\"shift\">2nd</button>\
+          <button class=\"lare-key\" data-evt=\"mode\">DEG/RAD</button>\
+          <button class=\"lare-key\" data-evt=\"fn_sin\">{sin_label}</button>\
+          <button class=\"lare-key\" data-evt=\"fn_cos\">{cos_label}</button>\
+          <button class=\"lare-key\" data-evt=\"fn_tan\">{tan_label}</button>\
+          \
+          <button class=\"lare-key\" data-evt=\"fn_square\">{square_label}</button>\
+          <button class=\"lare-key\" data-evt=\"fn_sqrt\">{sqrt_label}</button>\
+          <button class=\"lare-key\" data-evt=\"op_pow\">{pow_label}</button>\
+          <button class=\"lare-key\" data-evt=\"fn_log\">{log_label}</button>\
+          <button class=\"lare-key\" data-evt=\"fn_ln\">{ln_label}</button>\
+          \
+          <button class=\"lare-key\" data-evt=\"fn_recip\">1/x</button>\
+          <button class=\"lare-key\" data-evt=\"fn_factorial\">n!</button>\
+          <button class=\"lare-key\" data-evt=\"fn_mod\">mod</button>\
+          <button class=\"lare-key\" data-evt=\"const_pi\">\u{03C0}</button>\
+          <button class=\"lare-key\" data-evt=\"const_e\">e</button>\
+          \
+          <button class=\"lare-key\" data-evt=\"d7\" data-key=\"7\">7</button>\
+          <button class=\"lare-key\" data-evt=\"d8\" data-key=\"8\">8</button>\
+          <button class=\"lare-key\" data-evt=\"d9\" data-key=\"9\">9</button>\
+          <button class=\"lare-key\" data-evt=\"clear\" data-key=\"Escape Delete\">C</button>\
+          <button class=\"lare-key\" data-evt=\"op_div\" data-key=\"/\">\u{00F7}</button>\
+          \
+          <button class=\"lare-key\" data-evt=\"d4\" data-key=\"4\">4</button>\
+          <button class=\"lare-key\" data-evt=\"d5\" data-key=\"5\">5</button>\
+          <button class=\"lare-key\" data-evt=\"d6\" data-key=\"6\">6</button>\
+          <button class=\"lare-key\" data-evt=\"back\" data-key=\"Backspace\">\u{232B}</button>\
+          <button class=\"lare-key\" data-evt=\"op_mul\" data-key=\"* x\">\u{00D7}</button>\
+          \
+          <button class=\"lare-key\" data-evt=\"d1\" data-key=\"1\">1</button>\
+          <button class=\"lare-key\" data-evt=\"d2\" data-key=\"2\">2</button>\
+          <button class=\"lare-key\" data-evt=\"d3\" data-key=\"3\">3</button>\
+          <button class=\"lare-key\" data-evt=\"paren_open\" data-key=\"(\">(</button>\
+          <button class=\"lare-key\" data-evt=\"op_sub\" data-key=\"-\">\u{2212}</button>\
+          \
+          <button class=\"lare-key\" data-evt=\"d0\" data-key=\"0\">0</button>\
+          <button class=\"lare-key\" data-evt=\"dot\" data-key=\". ,\">.</button>\
+          <button class=\"lare-key\" data-evt=\"eq\" data-key=\"= Enter\">=</button>\
+          <button class=\"lare-key\" data-evt=\"paren_close\" data-key=\")\">)</button>\
+          <button class=\"lare-key\" data-evt=\"op_add\" data-key=\"+\">+</button>\
+        </div>"
+    )
+}
+
+/// Loop principale: legge messaggi JSON dal host (stdin) riga per riga, risponde su stdout.
+///
+/// Protocollo (Contract P):
+///   Init        → Ready { name: "calc", protocol_version: 1 }
+///   Activate    → resetta lo stato + ShowWindow (HTML iniziale della calcolatrice)
+///   UiEvent     → handle_key + UpdateWindow (HTML aggiornato)
+///   Deinit      → break (terminazione pulita del processo)
+///
+/// Modello: identico a `plugin-counter` (single-task, niente tokio: i plugin stdio
+/// sono sequenziali per design — un solo utente alla volta interagisce con la finestra).
+fn main() {
+    let stdin = std::io::stdin();
+    let mut stdout = std::io::stdout();
+    let mut state = CalcState::default();
+
+    // `window_id` viene ricevuto in Activate e NON viene salvato perché in Slice 2
+    // c'è una sola finestra e ogni UiEvent porta il proprio `wid` nel pattern.
+    // La variabile è dichiarata comunque per future estensioni (es. Slice 3 multi-window).
+    let mut window_id: u64 = 0;
+
+    for line in stdin.lock().lines() {
+        let Ok(line) = line else { break };
+        if line.trim().is_empty() { continue; }
+        let Ok(msg) = serde_json::from_str::<HostToPlugin>(&line) else { continue };
+
+        let replies: Vec<PluginToHost> = match msg {
+            // Init → solo negozio il protocollo e mi presento con il nome.
+            // "calc" è il nome interno; "Calcolatrice" è il titolo della finestra (in Activate).
+            HostToPlugin::Init { .. } => {
+                vec![PluginToHost::Ready { name: "calc".into(), protocol_version: 1 }]
+            }
+
+            // Activate → resetto lo stato (nuova sessione calcolatrice) e apro la finestra.
+            HostToPlugin::Activate { window_id: wid, .. } => {
+                window_id = wid;
+                state = CalcState::default();
+                vec![PluginToHost::ShowWindow {
+                    window_id: wid,
+                    title: "Calcolatrice".into(),
+                    html: render_window(&state),
+                }]
+            }
+
+            // UiEvent → gestisco il tasto e aggiorno la finestra.
+            HostToPlugin::UiEvent { window_id: wid, element_id, .. } => {
+                handle_key(&mut state, &element_id);
+                vec![PluginToHost::UpdateWindow { window_id: wid, html: render_window(&state) }]
+            }
+
+            // Deinit → uscita pulita (break dal loop → il processo termina).
+            HostToPlugin::Deinit {} => break,
+        };
+
+        // Serializzo e invio ogni risposta su stdout (una per riga, come da Contract P).
+        for reply in replies {
+            let mut out = serde_json::to_string(&reply).unwrap();
+            out.push('\n');
+            if stdout.write_all(out.as_bytes()).is_err() {
+                return; // pipe rotta → uscita silenziosa
+            }
+            let _ = stdout.flush();
+        }
+    }
+
+    // Sopprime il warning "window_id assigned but never read" per il caso Deinit
+    // (Activate scrive, Deinit esce prima di qualunque lettura).
+    // In Slice 3 (multi-window) questa variabile sarà effettivamente usata.
+    let _ = window_id;
+}
+
+// ─── Tests ────────────────────────────────────────────────────────────────────
+// La suite testifica il comportamento di CalcState, handle_key, render_window.
+// I test sono stati scritti PRIMA dell'implementazione (TDD: RED → GREEN).
+// Ogni test è una specifica leggibile; l'utente può capire il comportamento
+// del plugin solo leggendo i test, senza aprire l'app.
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Helper: parte da uno stato default e applica una sequenza di tasti.
+    /// Equivalente a "l'utente ha premuto questi tasti dall'inizio".
+    fn keys(seq: &[&str]) -> CalcState {
+        let mut s = CalcState::default();
+        for k in seq { handle_key(&mut s, k); }
+        s
+    }
+
+    #[test]
+    fn typing_builds_buffer() {
+        // d7 op_mul d8 → buffer "7×8" (simbolo display U+00D7).
+        assert_eq!(keys(&["d7", "op_mul", "d8"]).buf, "7×8");
+    }
+
+    #[test]
+    fn equals_computes_and_formats() {
+        // 7 × 8 = 56 (intero → nessun decimale, come da smart formatter).
+        assert_eq!(keys(&["d7", "op_mul", "d8", "eq"]).buf, "56");
+    }
+
+    #[test]
+    fn equals_div_by_zero_is_error() {
+        // 1 ÷ 0 → "Error" (engine ritorna DivByZero → gestito come "Error").
+        assert_eq!(keys(&["d1", "op_div", "d0", "eq"]).buf, "Error");
+    }
+
+    #[test]
+    fn backspace_and_clear() {
+        // back toglie l'ultimo carattere; clear svuota completamente.
+        assert_eq!(keys(&["d1", "d2", "back"]).buf, "1");
+        assert_eq!(keys(&["d1", "d2", "clear"]).buf, "");
+    }
+
+    #[test]
+    fn digit_after_result_starts_fresh() {
+        // Dopo `=`, una cifra inizia un nuovo input (cancella il risultato precedente).
+        assert_eq!(keys(&["d2", "eq", "d5"]).buf, "5");
+    }
+
+    #[test]
+    fn op_after_result_continues() {
+        // Dopo `=`, un operatore continua dal risultato (2 + 3 = 5).
+        assert_eq!(keys(&["d2", "eq", "op_add", "d3", "eq"]).buf, "5");
+    }
+
+    #[test]
+    fn window_has_display_and_keys() {
+        // La finestra contiene il display e la griglia tasti; 6÷3 è valido → frazione 2D.
+        let h = render_window(&keys(&["d6", "op_div", "d3"]));
+        assert!(h.contains("lare-display") && h.contains("lare-key-grid"));
+        assert!(h.contains("lare-frac"));         // 6÷3 parserizza → render 2D
+        assert!(h.contains("data-evt=\"eq\""));   // il tasto = è presente
+    }
+
+    #[test]
+    fn incomplete_shows_linear() {
+        // "6÷" è incompleto → parse fallisce → display lineare (nessuna frazione).
+        let h = render_window(&keys(&["d6", "op_div"]));
+        assert!(!h.contains("lare-frac")); // lineare finché non parserizza
+    }
+
+    #[test]
+    fn window_is_marked_calc() {
+        // La finestra calcolatrice porta la classe `lare-calc`: la UI ci aggancia il
+        // display grow-only (min-height high-water) senza toccare gli altri plugin.
+        let h = render_window(&CalcState::default());
+        assert!(h.contains("class=\"lare-window lare-calc\""));
+    }
+
+    // ── Nuovi test TDD per C-1 (esponenziale via handle_key) ──────────────────
+
+    #[test]
+    fn continue_from_exponential_result_does_not_error() {
+        // Bug C-1 via handle_key: dopo 1000000 × 1000000 = il buffer diventa "1e12"
+        // (o simile notazione esponenziale). Premere "+ 3 =" deve dare un risultato
+        // numerico valido, NON "Error".
+        //
+        // La sequenza di tasti per "1000000":
+        let million = ["d1","d0","d0","d0","d0","d0","d0"];
+        let mut s = CalcState::default();
+        for k in &million { handle_key(&mut s, k); }   // digita 1000000
+        handle_key(&mut s, "op_mul");
+        for k in &million { handle_key(&mut s, k); }   // digita 1000000
+        handle_key(&mut s, "eq");   // = → buf diventa es. "1e12"
+
+        // A questo punto handle_key ha messo nel buf il risultato esponenziale.
+        // Ora l'utente continua: preme + 3 =
+        handle_key(&mut s, "op_add");   // operatore → non resetta il buf, lo continua
+        handle_key(&mut s, "d3");
+        handle_key(&mut s, "eq");       // ricalcola "1e12+3" → dovrebbe dare ~1000000000003
+
+        // Il buf NON deve essere "Error" (era il bug C-1).
+        assert_ne!(s.buf, "Error",
+            "continuare da un risultato esponenziale non deve dare Error, buf={:?}", s.buf);
+        // Il buf deve essere ri-parsabile: se il formatter produce "1.000000000003e12"
+        // o simile, l'engine deve poterlo leggere per un calcolo successivo.
+        assert!(parse(&s.buf).is_ok(),
+            "il buffer risultante deve essere ri-parsabile dall'engine, buf={:?}", s.buf);
+    }
+
+    // ── Nuovi test TDD per Task 1 Slice 2a — riga eco "espressione digitata" ────
+
+    #[test]
+    fn eq_captures_last_expr() {
+        // "=" cattura l'espressione digitata PRIMA di sovrascrivere il buffer col risultato.
+        assert_eq!(keys(&["d7", "op_mul", "d8", "eq"]).last_expr, "7×8");
+    }
+
+    #[test]
+    fn equals_keeps_expression_in_echo() {
+        // Due righe: dopo "=" il display mostra il risultato (56), l'eco l'espressione grezza (7×8).
+        let h = render_window(&keys(&["d7", "op_mul", "d8", "eq"]));
+        assert!(h.contains("7×8"), "eco deve mostrare l'espressione grezza");
+        assert!(h.contains("56"), "display deve mostrare il risultato");
+    }
+
+    #[test]
+    fn echo_shows_raw_buffer_while_typing() {
+        // Mentre si digita, l'eco mostra il buffer corrente verbatim (no render 2D).
+        let h = render_window(&keys(&["d6", "op_div", "d4"]));
+        assert!(h.contains("6÷4"), "eco deve mostrare l'input grezzo mentre si digita");
+    }
+
+    #[test]
+    fn digit_after_result_resets_echo() {
+        // Dopo "=", una cifra inizia un nuovo input → l'eco non mostra più la vecchia espressione.
+        let s = keys(&["d7", "op_mul", "d8", "eq", "d3"]);
+        assert_eq!(s.buf, "3");
+        assert!(!s.last_was_result);
+        let h = render_window(&s);
+        assert!(!h.contains("7×8"), "la vecchia espressione non deve restare come eco");
+    }
+
+    #[test]
+    fn clear_resets_last_expr() {
+        // C azzera anche last_expr.
+        assert_eq!(keys(&["d7", "op_mul", "d8", "eq", "clear"]).last_expr, "");
+    }
+
+    // ── Task 2 Slice 2b — data-key sui pulsanti (input da tastiera) ───────────
+
+    #[test]
+    fn key_grid_has_data_keys() {
+        // KEY_GRID è ora una funzione; chiamiamo con stato default per il test di baseline.
+        // Il contratto: tutti i pulsanti numerici/operatori devono dichiarare il tasto fisico
+        // che li attiva (attributo `data-key`) per il listener `keydown` in plugin-window.js.
+        let g = key_grid(&CalcState::default());
+        assert!(g.contains("data-key=\"7\""));
+        assert!(g.contains("data-key=\"= Enter\""));   // = e Invio
+        assert!(g.contains("data-key=\"Backspace\""));
+        assert!(g.contains("data-key=\"Escape Delete\""));
+        assert!(g.contains("data-key=\"* x\""));       // * e x → moltiplicazione
+        assert!(g.contains("data-key=\". ,\""));       // . e , → punto decimale
+    }
+
+    // ══ Task 3 — Shift sticky + DEG/RAD + tasti scientifici (RED prima, GREEN dopo) ══
+
+    #[test]
+    fn shift_toggle() {
+        // "shift" attiva il flag; "shift" di nuovo lo spegne (toggle).
+        assert!(keys(&["shift"]).shift,
+            "dopo 'shift' lo stato .shift deve essere true");
+        assert!(!keys(&["shift", "shift"]).shift,
+            "due 'shift' → .shift deve tornare false");
+    }
+
+    #[test]
+    fn shift_fn_sin_appends_asin_and_turns_off() {
+        // Con shift attivo, fn_sin → "asin(" e il flag shift si azzera (sticky).
+        let s = keys(&["shift", "fn_sin"]);
+        assert_eq!(s.buf, "asin(",
+            "shift+fn_sin deve appendere 'asin(', got {:?}", s.buf);
+        assert!(!s.shift,
+            "shift deve spegnersi (sticky) dopo il tasto scientifico");
+    }
+
+    #[test]
+    fn fn_sin_no_shift_appends_sin() {
+        // Senza shift, fn_sin → "sin(".
+        assert_eq!(keys(&["fn_sin"]).buf, "sin(",
+            "fn_sin senza shift deve appendere 'sin('");
+    }
+
+    #[test]
+    fn mode_toggle() {
+        // "mode" alterna la modalità angolare: Deg → Rad → Deg.
+        assert_eq!(keys(&["mode"]).angle_mode, AngleMode::Rad,
+            "il primo 'mode' da Deg (default) deve passare a Rad");
+        assert_eq!(keys(&["mode", "mode"]).angle_mode, AngleMode::Deg,
+            "due 'mode' → torna a Deg");
+    }
+
+    #[test]
+    fn shift_fn_sqrt_appends_cbrt_or_sqrt() {
+        // v2: shift + fn_sqrt → "∛(" (radice cubica, funzione prefissa, nuovo input);
+        // fn_sqrt normale → "√(" (funzione radice quadrata, nuovo input).
+        // Entrambe le varianti aprono una parentesi → is_fresh=true.
+        // Il vecchio comportamento shift → "^2" si sposta sul nuovo tasto fn_square (v2).
+        assert_eq!(keys(&["shift", "fn_sqrt"]).buf, "∛(",
+            "shift+fn_sqrt deve appendere '∛(' (radice cubica)");
+        assert_eq!(keys(&["fn_sqrt"]).buf, "√(",
+            "fn_sqrt senza shift deve appendere '√('");
+    }
+
+    #[test]
+    fn const_pi_appends_pi_no_shift() {
+        // v2: π ed e sono tasti separati — const_pi non ha più una 2ª funzione via Shift.
+        // Premere const_pi produce sempre "π", anche con shift attivo (lo Shift è consumato
+        // ma ignorato dal ramo const_pi). La costante e è sul tasto separato const_e.
+        assert_eq!(keys(&["const_pi"]).buf, "π",
+            "const_pi deve appendere 'π'");
+        // Con shift attivo, const_pi deve comunque appendere "π" (nessuna 2ª funzione in v2).
+        // (In v1 produceva "e"; ora il tasto separato const_e gestisce la costante di Eulero.)
+        assert_eq!(keys(&["shift", "const_pi"]).buf, "π",
+            "shift+const_pi deve appendere 'π' — nessuna 2ª funzione in v2");
+    }
+
+    #[test]
+    fn op_pow_appends_caret_and_fn_recip_appends_inv() {
+        // op_pow → "^" (operatore potenza, continua dal risultato);
+        // fn_recip → "^-1" (operatore reciproco).
+        assert_eq!(keys(&["op_pow"]).buf, "^",
+            "op_pow deve appendere '^'");
+        assert_eq!(keys(&["fn_recip"]).buf, "^-1",
+            "fn_recip deve appendere '^-1'");
+    }
+
+    #[test]
+    fn fn_cos_and_fn_tan_append_correctly() {
+        // Copertura: fn_cos e fn_tan condividono la struttura di fn_sin ma
+        // producono stringhe *diverse* — un typo sarebbe silenzioso senza test dedicati.
+        assert_eq!(keys(&["fn_cos"]).buf, "cos(");
+        assert_eq!(keys(&["shift", "fn_cos"]).buf, "acos(");
+        assert_eq!(keys(&["fn_tan"]).buf, "tan(");
+        assert_eq!(keys(&["shift", "fn_tan"]).buf, "atan(");
+    }
+
+    #[test]
+    fn fn_log_and_fn_ln_append_correctly() {
+        // Copertura: fn_log e fn_ln e le loro varianti shift ("10^(" e "e^(").
+        // Analogo a fn_cos/fn_tan: le stringhe shiftate sono diverse e non coperte da fn_sin.
+        assert_eq!(keys(&["fn_log"]).buf, "log(");
+        assert_eq!(keys(&["shift", "fn_log"]).buf, "10^(");
+        assert_eq!(keys(&["fn_ln"]).buf, "ln(");
+        assert_eq!(keys(&["shift", "fn_ln"]).buf, "e^(");
+    }
+
+    #[test]
+    fn sin30_deg_evaluates_to_half() {
+        // sin(30) in modalità Deg = 0.5 (esatto all'arrotondamento IEEE 754 / 10 dp).
+        // Sequenza: fn_sin → buf "sin("; d3 → "sin(3"; d0 → "sin(30";
+        //           paren_close → "sin(30)"; eq → evaluta con AngleMode::Deg.
+        // FAIL finché handle_key non gestisce fn_sin e finché eq non usa state.angle_mode.
+        let s = keys(&["fn_sin", "d3", "d0", "paren_close", "eq"]);
+        assert_eq!(s.buf, "0.5",
+            "sin(30) in DEG deve valere 0.5, got {:?}", s.buf);
+    }
+
+    #[test]
+    fn render_shows_deg_by_default_and_shift_on_class() {
+        // render_window con stato default deve contenere "DEG" come indicatore modalità angolare.
+        let h = render_window(&CalcState::default());
+        assert!(h.contains("DEG"),
+            "la finestra deve mostrare 'DEG' (modalità default), html={h:?}");
+        assert!(h.contains("lare-key-grid"),
+            "la finestra deve contenere la griglia tasti");
+
+        // Con shift attivo, il tasto "2nd" deve avere la classe lare-key--shift-on.
+        // Usiamo struct-update syntax per evitare il warning `field_reassign_with_default`.
+        let s = CalcState { shift: true, ..Default::default() };
+        let h2 = render_window(&s);
+        assert!(h2.contains("lare-key--shift-on"),
+            "con shift attivo la griglia deve includere 'lare-key--shift-on'");
+    }
+
+    #[test]
+    fn engine_round_trips_its_own_formatter_output() {
+        // Invariante fondamentale: per ogni valore x che format_number produce,
+        // l'engine deve poter ri-parsare e ri-valutare la stringa ottenendo x.
+        //
+        // Questo è il contratto tra format.rs e engine.rs:
+        //   engine::evaluate(engine::parse(format::format_number(x))) ≈ x
+        //
+        // Usiamo tolleranza relativa per coprire errori di arrotondamento f64:
+        //   |back - x| <= |x| * 1e-9 + 1e-12
+        let values: &[f64] = &[1e12, 4.5e-9, 1.23e15, 1_000_000_000_003.0, 42.0, 0.5];
+        for &x in values {
+            let formatted = format_number(x);
+            let parsed = parse(&formatted)
+                .unwrap_or_else(|e| panic!("parse fallito per format_number({x}) = {formatted:?}: {e:?}"));
+            let back = evaluate(&parsed, AngleMode::Rad)
+                .unwrap_or_else(|e| panic!("evaluate fallito per {formatted:?}: {e:?}"));
+            let rel_tol = x.abs() * 1e-9 + 1e-12;
+            assert!(
+                (back - x).abs() <= rel_tol,
+                "round-trip fallito per x={x}: format=\"{formatted}\", back={back}, diff={}",
+                (back - x).abs()
+            );
+        }
+    }
+
+    // ══ Task vB — layout 7×5, nuovi tasti, Shift v2 (RED prima, GREEN dopo) ══
+
+    #[test]
+    fn fn_square_appends_pow2_or_pow3() {
+        // fn_square (nuovo tasto v2): elevazione a potenza fissa, operatore (is_fresh=false).
+        //   Normale: ^2 (al quadrato); Shift: ^3 (al cubo).
+        // is_fresh=false significa che continua dal risultato precedente senza cancellarlo.
+        assert_eq!(keys(&["fn_square"]).buf, "^2",
+            "fn_square senza shift deve appendere '^2'");
+        assert_eq!(keys(&["shift", "fn_square"]).buf, "^3",
+            "shift+fn_square deve appendere '^3' (cubo)");
+    }
+
+    #[test]
+    fn shift_op_pow_appends_yroot() {
+        // op_pow v2: la 2ª funzione via Shift è y√x = "x^(1/y)".
+        // Premendo shift+op_pow si appende "^(1/" (l'utente digita poi l'indice radice e ")").
+        // Entrambe le varianti continuano dal risultato (is_fresh=false — operatori).
+        assert_eq!(keys(&["op_pow"]).buf, "^",
+            "op_pow senza shift deve appendere '^'");
+        assert_eq!(keys(&["shift", "op_pow"]).buf, "^(1/",
+            "shift+op_pow deve appendere '^(1/' (y-esima radice)");
+    }
+
+    #[test]
+    fn const_e_appends_e() {
+        // const_e (nuovo tasto v2): appende la costante di Eulero "e" (is_fresh=true).
+        // Prima di v2 era la 2ª funzione di const_pi; ora è un tasto autonomo.
+        assert_eq!(keys(&["const_e"]).buf, "e",
+            "const_e deve appendere 'e' (costante di Eulero)");
+    }
+
+    #[test]
+    fn fn_factorial_appends_bang() {
+        // fn_factorial (nuovo tasto v2): appende "!" (fattoriale postfisso, is_fresh=false).
+        // L'engine riconosce il token "!" come operatore postfisso più stretto di "^".
+        // is_fresh=false: su "5" produce "5!", non "!" standalone.
+        assert_eq!(keys(&["fn_factorial"]).buf, "!",
+            "fn_factorial deve appendere '!'");
+    }
+
+    #[test]
+    fn fn_mod_appends_percent() {
+        // fn_mod (nuovo tasto v2): appende "%" (modulo, operatore binario, is_fresh=false).
+        // L'engine tratta "%" come operatore moltiplicativo (stessa precedenza di × e ÷).
+        assert_eq!(keys(&["fn_mod"]).buf, "%",
+            "fn_mod deve appendere '%'");
+    }
+
+    #[test]
+    fn factorial_five_equals_120() {
+        // End-to-end: 5! = 120. Sequenza: d5 → buf "5"; fn_factorial → "5!"; eq → "120".
+        // Verifica che fn_factorial sia cablato correttamente e che l'engine valuti il fattoriale.
+        let s = keys(&["d5", "fn_factorial", "eq"]);
+        assert_eq!(s.buf, "120",
+            "5! deve essere 120, buf={:?}", s.buf);
+    }
+
+    #[test]
+    fn modulo_seven_mod_three_equals_one() {
+        // End-to-end: 7 % 3 = 1. Sequenza: d7 → "7"; fn_mod → "7%"; d3 → "7%3"; eq → "1".
+        // Verifica che fn_mod sia cablato e che l'engine valuti l'operatore modulo.
+        let s = keys(&["d7", "fn_mod", "d3", "eq"]);
+        assert_eq!(s.buf, "1",
+            "7%%3 deve essere 1, buf={:?}", s.buf);
+    }
+
+    #[test]
+    fn cbrt_twenty_seven_equals_three() {
+        // End-to-end: ∛(27) = 3. Sequenza: shift+fn_sqrt → "∛("; d2 d7 → "∛(27";
+        // paren_close → "∛(27)"; eq → "3".
+        // Verifica shift di fn_sqrt (→ "∛(") + engine FuncId::Cbrt + format.
+        let s = keys(&["shift", "fn_sqrt", "d2", "d7", "paren_close", "eq"]);
+        assert_eq!(s.buf, "3",
+            "∛(27) deve essere 3, buf={:?}", s.buf);
+    }
+
+    #[test]
+    fn render_has_lare_status_with_mode_indicator() {
+        // v2: la riga stato `.lare-status` sta TRA `.lare-expr` e la griglia tasti.
+        // Il tasto DEG/RAD ha etichetta fissa "DEG/RAD" (non la modalità corrente).
+        // La modalità corrente (DEG default) è nell'indicatore `.lare-status`.
+        // Il vecchio `<span class="lare-mode">` è rimosso da `.lare-expr`.
+        let h = render_window(&CalcState::default());
+        // 1. Esiste la riga stato con la classe lare-status.
+        assert!(h.contains("lare-status"),
+            "render_window deve contenere 'lare-status', html={h:?}");
+        // 2. Il tasto DEG/RAD ha l'etichetta fissa "DEG/RAD".
+        assert!(h.contains("DEG/RAD"),
+            "il tasto mode deve avere etichetta fissa 'DEG/RAD', html={h:?}");
+        // 3. L'indicatore di modalità DEG è nella riga stato.
+        assert!(h.contains("lare-status"),
+            "DEG deve apparire nella riga stato, html={h:?}");
+        // 4. Il vecchio span lare-mode è rimosso (l'indicatore non è più nell'eco).
+        assert!(!h.contains("lare-mode"),
+            "la classe 'lare-mode' non deve più comparire nell'eco, html={h:?}");
+    }
+}

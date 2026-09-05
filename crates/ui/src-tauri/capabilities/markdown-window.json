@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "markdown-window",
+  "description": "Capability for Lare Terminal Markdown output windows (ADR-013). Grants core:default so window.js can invoke take_window_content and close_self via Tauri IPC. Grants core:window:allow-start-dragging to enable the data-tauri-drag-region titlebar on the chromeless, transparent window. Scoped to md-* labels (all runtime Markdown windows). Global-shortcut permissions are intentionally NOT included here — they are only needed by the main overlay window.",
+  "platforms": ["linux", "macOS", "windows"],
+  "windows": ["md-*"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging"
+  ]
+}

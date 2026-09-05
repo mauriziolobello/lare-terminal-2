@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lare — Ricerca</title>
+  <style>
+    /* ── Reset ─────────────────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    /* ── Root / project palette (come window.html) ──────────────────────── */
+    :root {
+      --bg:          rgba(15, 15, 22, var(--window-alpha, 0.87));
+      --text:        rgba(220, 235, 255, 0.92);
+      --text-muted:  rgba(160, 185, 220, 0.7);
+      --border:      rgba(80, 160, 240, 0.55);
+      --accent:      rgba(80, 160, 240, 0.8);
+      --row-hover:   rgba(40, 80, 150, 0.45);
+    }
+
+    html { background: transparent; width: 100%; height: 100%; }
+
+    body {
+      width: 100%; height: 100%;
+      background: var(--bg);
+      border: 1.5px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      color: var(--text);
+      font-family: 'Cascadia Mono Light', 'Cascadia Mono', 'Consolas', 'Courier New', monospace;
+      font-size: 13px;
+      line-height: 1.55;
+      display: flex;
+      flex-direction: column;
+      -webkit-app-region: no-drag;
+    }
+
+    /* ── Title bar (drag region + status + close) ───────────────────────── */
+    #titlebar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 8px 12px 6px 16px;
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      color: rgba(130, 190, 255, 0.6);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    #titlebar-label {
+      pointer-events: none;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      flex: 1;
+    }
+    #status {
+      pointer-events: none;
+      color: var(--text-muted);
+      white-space: nowrap;
+      font-size: 11px;
+    }
+    #close-btn {
+      background: transparent;
+      border: none;
+      color: rgba(130, 190, 255, 0.5);
+      font-size: 15px;
+      line-height: 1;
+      cursor: pointer;
+      padding: 0 4px;
+      -webkit-app-region: no-drag;
+    }
+    #close-btn:hover { color: rgba(220, 100, 80, 0.9); }
+
+    /* ── Stop button (mette in pausa la ricerca, lascia la finestra aperta) ── */
+    #stop-btn {
+      background: transparent;
+      border: none;
+      color: rgba(130, 190, 255, 0.5);
+      font-size: 14px;
+      line-height: 1;
+      cursor: pointer;
+      padding: 0 4px;
+      -webkit-app-region: no-drag;
+    }
+    #stop-btn:hover { color: rgba(130, 190, 255, 0.95); }
+
+    /* ── Resume button (riprende la ricerca dalla pausa) ─────────────────── */
+    #resume-btn {
+      background: transparent;
+      border: none;
+      color: rgba(130, 190, 255, 0.5);
+      font-size: 14px;
+      line-height: 1;
+      cursor: pointer;
+      padding: 0 4px;
+      -webkit-app-region: no-drag;
+    }
+    #resume-btn:hover { color: rgba(130, 220, 130, 0.95); }
+
+    .hidden { display: none !important; }
+
+    /* ── Save button (💾 — live mode only) ──────────────────────────────── */
+    #save-btn {
+      background: transparent;
+      border: none;
+      color: rgba(130, 190, 255, 0.5);
+      font-size: 14px;
+      line-height: 1;
+      cursor: pointer;
+      padding: 0 4px;
+      -webkit-app-region: no-drag;
+    }
+    #save-btn:hover:not(:disabled) { color: rgba(130, 220, 130, 0.9); }
+    #save-btn:disabled { opacity: 0.55; cursor: default; }
+
+    /* ── Scrollable results area ────────────────────────────────────────── */
+    #results {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px 12px 16px 12px;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(80, 140, 220, 0.35) transparent;
+    }
+    #results::-webkit-scrollbar { width: 5px; }
+    #results::-webkit-scrollbar-thumb {
+      background: rgba(80, 140, 220, 0.35);
+      border-radius: 3px;
+    }
+
+    /* ── Source group ───────────────────────────────────────────────────── */
+    .group-header {
+      color: rgba(140, 200, 255, 0.92);
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      margin: 10px 4px 4px 4px;
+      border-bottom: 1px solid rgba(80, 160, 240, 0.25);
+      padding-bottom: 2px;
+    }
+    .group-header:first-child { margin-top: 0; }
+
+    /* ── Result row (clickable → open) ──────────────────────────────────── */
+    .result-row {
+      padding: 3px 8px;
+      border-radius: 4px;
+      cursor: pointer;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      min-width: 0;
+    }
+    .result-row:hover { background: var(--row-hover); }
+    .result-row .dim { color: var(--text-muted); }
+
+    /* Contenitore verticale: path + eventuale riga snippet sotto. */
+    .row-main {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 1px;
+    }
+
+    /* Path label inside the row: truncates with ellipsis, fills available space */
+    .result-row .row-path {
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+
+    /* Snippet di contenuto (solo hit di ricerca CONTENUTO) — muted, monospace, troncato. */
+    .row-snippet {
+      color: var(--text-muted);
+      font-size: 11px;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+
+    /* Folder button: transparent, dim, reveals fully on row hover */
+    .row-folder-btn {
+      flex-shrink: 0;
+      background: transparent;
+      border: none;
+      color: rgba(130, 190, 255, 0.35);
+      font-size: 13px;
+      line-height: 1;
+      cursor: pointer;
+      padding: 0 2px;
+      border-radius: 3px;
+      opacity: 0;
+      transition: opacity 0.1s, color 0.1s;
+    }
+    .result-row:hover .row-folder-btn { opacity: 1; }
+    .row-folder-btn:hover { color: rgba(130, 190, 255, 0.95); }
+
+    /* ── Empty / hint ───────────────────────────────────────────────────── */
+    #empty {
+      color: var(--text-muted);
+      font-size: 11px;
+      padding: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div id="titlebar" data-tauri-drag-region>
+    <span id="titlebar-label">Lare — Ricerca</span>
+    <span id="status">⏳ ricerca…</span>
+    <button id="stop-btn" title="Pausa la ricerca (la finestra resta aperta)" aria-label="Pausa">&#x23F9;</button>
+    <button id="resume-btn" class="hidden" title="Riprendi la ricerca" aria-label="Riprendi">&#x25B6;</button>
+    <button id="save-btn" class="hidden" title="Salva i risultati nella Library" aria-label="Salva">&#x1F4BE;</button>
+    <button id="close-btn" title="Chiudi (annulla la ricerca)" aria-label="Chiudi">&#x00D7;</button>
+  </div>
+  <div id="results"><div id="empty">Nessun risultato ancora…</div></div>
+
+  <!-- Tauri v2: withGlobalTauri = true → window.__TAURI__ (core + event) disponibile. -->
+  <script type="module" src="window-search.js"></script>
+</body>
+</html>

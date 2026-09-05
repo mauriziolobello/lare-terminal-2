@@ -1,0 +1,16 @@
+[package]
+name = "plugin-crypto"
+version = "2.0.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "crypto"
+path = "src/main.rs"
+
+[dependencies]
+plugin-protocol = { path = "../plugin-protocol" }
+serde_json = "1"
+num-bigint = { version = "0.4", features = ["rand"] }
+num-traits = "0.2"
+rand = "0.8"

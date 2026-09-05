@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<nmaprun scanner="nmap" args="nmap -sT -oX - 192.168.1.10">
+  <host>
+    <status state="up" reason="syn-ack"/>
+    <address addr="192.168.1.10" addrtype="ipv4"/>
+    <ports>
+      <port protocol="tcp" portid="22">
+        <state state="open" reason="syn-ack"/>
+        <service name="ssh"/>
+      </port>
+      <port protocol="tcp" portid="80">
+        <state state="closed" reason="reset"/>
+      </port>
+    </ports>
+  </host>
+  <runstats>
+    <finished time="1721140000" timestr="Thu Jul 16 06:00:00 2026" elapsed="1.23"/>
+  </runstats>
+</nmaprun>

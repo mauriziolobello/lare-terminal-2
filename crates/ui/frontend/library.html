@@ -1,0 +1,837 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lare — Archivio</title>
+  <style>
+    /* ── Reset ─────────────────────────────────────────────────────────── */
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    /* ── Root / project palette (matches window.html) ───────────────────── */
+    :root {
+      --bg:         rgba(15, 15, 22, var(--window-alpha, 0.87));
+      --text:       rgba(220, 235, 255, 0.92);
+      --text-muted: rgba(160, 185, 220, 0.7);
+      --border:     rgba(80, 160, 240, 0.55);
+      --accent:     rgba(80, 160, 240, 0.8);
+      --item-hover: rgba(80, 160, 240, 0.12);
+      --item-focus: rgba(80, 160, 240, 0.22);
+    }
+
+    /* ── html: transparent so the OS sees through the rounded-corner gap ── */
+    html {
+      background: transparent;
+      width:  100%;
+      height: 100%;
+    }
+
+    /* ── body IS the panel — same look as .overlay-panel / window.html ──── */
+    body {
+      width:  100%;
+      height: 100%;
+      background: var(--bg);
+      border: 1.5px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      color:      var(--text);
+      font-family: 'Cascadia Mono Light', 'Cascadia Mono', 'Consolas', 'Courier New', monospace;
+      font-size:   13px;
+      line-height: 1.6;
+      display: flex;
+      flex-direction: column;
+      -webkit-app-region: no-drag;
+    }
+
+    /* ── Custom title bar ───────────────────────────────────────────────── */
+    #titlebar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px 6px 16px;
+      font-size: 11px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: rgba(130, 190, 255, 0.6);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    #titlebar-label {
+      pointer-events: none;
+    }
+
+    /* ── Header action buttons (open-dir + close) ───────────────────────── */
+    #open-dir-btn,
+    #close-btn {
+      background: transparent;
+      border: none;
+      color: rgba(130, 190, 255, 0.5);
+      font-size: 15px;
+      line-height: 1;
+      cursor: pointer;
+      padding: 0 4px;
+      -webkit-app-region: no-drag;
+    }
+    #open-dir-btn:hover {
+      color: rgba(130, 200, 255, 0.9);
+    }
+    #close-btn:hover {
+      color: rgba(220, 100, 80, 0.9);
+    }
+
+    /* Action buttons grouped together on the right of the title bar. */
+    .titlebar-actions {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+    }
+
+    /* ── Tab bar (Markdown | Find) ──────────────────────────────────────── */
+    /*
+     * The tab bar sits between the title bar and the toolbar.
+     * Each .lib-tab is a button; the active one gets .lib-tab--active.
+     * Focus ring uses box-shadow to match the panel's style.
+     */
+    #tab-bar {
+      display: flex;
+      flex-shrink: 0;
+      border-bottom: 1px solid var(--border);
+      background: rgba(15, 15, 22, var(--window-alpha, 0.87));
+    }
+
+    .lib-tab {
+      flex: 1 1 auto;
+      background: transparent;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: var(--text-muted);
+      font-family: inherit;
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 6px 12px;
+      cursor: pointer;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-app-region: no-drag;
+      transition: color 0.15s, border-bottom-color 0.15s;
+      outline: none;
+    }
+
+    .lib-tab:hover {
+      color: var(--text);
+    }
+
+    /* Active tab: accent underline + brighter text */
+    .lib-tab--active {
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+    }
+
+    /* Keyboard focus ring for tabs */
+    .lib-tab:focus {
+      box-shadow: inset 0 0 0 1px rgba(80, 160, 240, 0.5);
+    }
+
+    /* ── Toolbar Explorer (visibile solo sul tab Markdown) ─────────────── */
+    /*
+     * La toolbar si trova tra il tab-bar e la lista.
+     * A sinistra: breadcrumb di navigazione (🏠 / Cartella / Sottocartella).
+     * A destra: pulsanti "+ Cartella" e "🔄 Ricarica".
+     * Viene nascosta (display:none) dal JS quando si passa al tab Find.
+     */
+    #lib-toolbar {
+      display: flex;
+      align-items: center;
+      padding: 4px 10px 4px 12px;
+      border-bottom: 1px solid rgba(80, 160, 240, 0.18);
+      background: rgba(15, 15, 22, var(--window-alpha, 0.87));
+      gap: 6px;
+      flex-shrink: 0;
+    }
+
+    /* ── Breadcrumb ─────────────────────────────────────────────────────── */
+    #lib-breadcrumb {
+      flex: 1 1 auto;
+      display: flex;
+      align-items: center;
+      min-width: 0;
+      overflow: hidden;
+    }
+
+    /*
+     * Ogni segmento del breadcrumb è un <button> per accessibilità.
+     * Aspetto minimal: testo accentato, nessun bordo, hover leggero.
+     * max-width + text-overflow: nasconde nomi troppo lunghi.
+     */
+    .lib-crumb {
+      background: transparent;
+      border: none;
+      color: var(--accent);
+      font-family: inherit;
+      font-size: 11px;
+      cursor: pointer;
+      padding: 2px 3px;
+      border-radius: 3px;
+      -webkit-app-region: no-drag;
+      white-space: nowrap;
+      max-width: 110px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      outline: none;
+    }
+
+    .lib-crumb:hover {
+      background: var(--item-hover);
+    }
+
+    .lib-crumb:focus {
+      box-shadow: inset 0 0 0 1px rgba(80, 160, 240, 0.5);
+    }
+
+    /* Separatore "/" tra i segmenti del breadcrumb */
+    .lib-crumb-sep {
+      color: var(--text-muted);
+      font-size: 11px;
+      padding: 0 1px;
+      user-select: none;
+      flex-shrink: 0;
+    }
+
+    /* ── Pulsanti toolbar: "+ Cartella", "🔄", "Nuova" (Note) ────────────── */
+    .lib-toolbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      flex-shrink: 0;
+    }
+
+    #new-folder-btn,
+    #reload-btn,
+    #new-note-btn {
+      background: transparent;
+      border: 1px solid rgba(80, 160, 240, 0.30);
+      color: rgba(130, 190, 255, 0.70);
+      font-family: inherit;
+      font-size: 10px;
+      letter-spacing: 0.04em;
+      cursor: pointer;
+      padding: 2px 7px;
+      border-radius: 3px;
+      -webkit-app-region: no-drag;
+      transition: background 0.12s, color 0.12s, border-color 0.12s;
+      outline: none;
+    }
+
+    #new-folder-btn:hover,
+    #reload-btn:hover,
+    #new-note-btn:hover {
+      background: var(--item-hover);
+      color: var(--text);
+      border-color: var(--accent);
+    }
+
+    #new-folder-btn:focus,
+    #reload-btn:focus,
+    #new-note-btn:focus {
+      box-shadow: inset 0 0 0 1px rgba(80, 160, 240, 0.5);
+    }
+
+    /* ── Toolbar Note: stessa forma di #lib-toolbar (Task 17 non l'aveva
+       stilizzata — bug di stile trovato nello smoke test dal vivo) ──────── */
+    #note-toolbar {
+      display: flex;
+      align-items: center;
+      padding: 4px 10px 4px 12px;
+      border-bottom: 1px solid rgba(80, 160, 240, 0.18);
+      background: rgba(15, 15, 22, var(--window-alpha, 0.87));
+      gap: 6px;
+      flex-shrink: 0;
+    }
+
+    /* ── Scrollable list area ────────────────────────────────────────────── */
+    #list-area {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px 0;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(80, 140, 220, 0.35) transparent;
+    }
+
+    #list-area::-webkit-scrollbar { width: 5px; }
+    #list-area::-webkit-scrollbar-thumb {
+      background: rgba(80, 140, 220, 0.35);
+      border-radius: 3px;
+    }
+
+    /* ── Empty / error state ─────────────────────────────────────────────── */
+    #list-area.empty,
+    #list-area.error {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-muted);
+      font-size: 11px;
+      padding: 24px;
+      /* text-align + line-height: alcuni messaggi di stato sono lunghi e vanno
+         a capo (es. "Rete peer disabilitata…" del tab Note) — senza questi, le
+         righe successive alla prima restano allineate a sinistra dentro un
+         blocco centrato, con un effetto sciatto. */
+      text-align: center;
+      line-height: 1.5;
+    }
+    #list-area.error {
+      color: rgba(255, 140, 120, 0.9);
+    }
+
+    /* ── Archive entry row (documenti .md) ───────────────────────────────── */
+    .archive-item {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      padding: 7px 16px;
+      cursor: pointer;
+      outline: none;        /* we draw focus ring manually */
+      border-bottom: 1px solid rgba(80, 160, 240, 0.08);
+      gap: 12px;
+    }
+
+    .archive-item:hover {
+      background: var(--item-hover);
+    }
+
+    /*
+     * Focus ring: keyboard-navigable via Tab/arrows.  Using box-shadow instead
+     * of `outline` to match the panel's rounded look without needing a container.
+     */
+    .archive-item:focus {
+      background: var(--item-focus);
+      box-shadow: inset 2px 0 0 var(--accent);
+    }
+
+    .archive-item:last-child {
+      border-bottom: none;
+    }
+
+    /*
+     * Per-row error flash: applied transiently by flashRowError() when
+     * a command fails for that specific entry.
+     * Duration is controlled by the 1.5 s timeout in library.js.
+     */
+    .archive-item--error {
+      background: rgba(200, 60, 50, 0.18);
+      box-shadow: inset 2px 0 0 rgba(220, 90, 70, 0.8);
+    }
+
+    /* Title column — grows to fill available width */
+    .archive-item-title {
+      flex: 1 1 auto;
+      min-width: 0;
+      overflow: hidden;
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      color: var(--text);
+      font-size: 12px;
+    }
+
+    /* Date column — fixed, muted, right-aligned */
+    .archive-item-date {
+      flex: 0 0 auto;
+      color: var(--text-muted);
+      font-size: 10px;
+      letter-spacing: 0.04em;
+      white-space: nowrap;
+    }
+
+    /* Count badge for Find entries (results count) */
+    .archive-item-count {
+      flex: 0 0 auto;
+      color: rgba(130, 190, 255, 0.6);
+      font-size: 10px;
+      letter-spacing: 0.03em;
+      white-space: nowrap;
+    }
+
+    /* ── Delete button per row (documenti .md e Find entries) ──────────── */
+    /*
+     * The delete button sits inside each .archive-item.
+     * It must NOT trigger the row's dblclick→open action (stopPropagation on
+     * both click and dblclick events in library.js).
+     */
+    .archive-item-delete {
+      flex: 0 0 auto;
+      background: transparent;
+      border: none;
+      color: rgba(160, 185, 220, 0.35);
+      font-size: 13px;
+      line-height: 1;
+      cursor: pointer;
+      padding: 0 2px 0 6px;
+      -webkit-app-region: no-drag; /* must not be a drag target */
+      transition: color 0.15s;
+    }
+    .archive-item-delete:hover {
+      color: rgba(220, 90, 70, 0.75);
+    }
+    /* Pulsante Sposta ↗ nei documenti: stessa geometria del delete ma hover blu */
+    .archive-item-move {
+      flex: 0 0 auto;
+      background: transparent;
+      border: none;
+      color: rgba(160, 185, 220, 0.35);
+      font-size: 13px;
+      line-height: 1;
+      cursor: pointer;
+      padding: 0 2px 0 6px;
+      -webkit-app-region: no-drag;
+      transition: color 0.15s;
+    }
+    .archive-item-move:hover {
+      color: rgba(130, 200, 255, 0.90);
+    }
+    /* Confirm state: button turns red to signal the destructive action */
+    .archive-item-delete--confirm {
+      color: rgba(220, 60, 50, 0.9) !important;
+      font-weight: bold;
+      font-size: 10px;
+      letter-spacing: 0.03em;
+    }
+
+    /* ── Plugin manifest inline viewer (tab Plugins) ────────────────────── */
+    .plugin-manifest {
+      margin: 0 16px 8px 16px;
+      padding: 8px 10px;
+      background: rgba(8, 8, 14, 0.55);
+      border: 1px solid rgba(80, 160, 240, 0.18);
+      border-radius: 4px;
+      color: var(--text-muted);
+      font-family: 'Cascadia Mono Light', 'Cascadia Mono', 'Consolas', 'Courier New', monospace;
+      font-size: 11px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
+      max-height: 260px;
+      overflow-y: auto;
+    }
+
+    /* ── Riga cartella (estende .archive-item) ───────────────────────────── */
+    /*
+     * Le cartelle riusano .archive-item per la navigazione da tastiera unificata
+     * (ArrowUp/Down, Enter). La classe aggiuntiva .lib-folder-row sovrascrive
+     * solo l'align-items (da baseline a center) per allineare l'icona 📁.
+     */
+    .lib-folder-row {
+      align-items: center;
+    }
+
+    /* Icona 📁 a sinistra del nome */
+    .lib-folder-icon {
+      flex: 0 0 auto;
+      margin-right: 6px;
+      font-size: 13px;
+      line-height: 1;
+      user-select: none;
+    }
+
+    /* Pulsanti azione per-riga delle cartelle (✏️ rinomina, 🗑 elimina) */
+    .lib-folder-btn {
+      flex: 0 0 auto;
+      background: transparent;
+      border: none;
+      color: rgba(160, 185, 220, 0.35);
+      font-size: 13px;
+      line-height: 1;
+      cursor: pointer;
+      padding: 0 2px 0 4px;
+      -webkit-app-region: no-drag;
+      transition: color 0.15s;
+      outline: none;
+    }
+
+    .lib-folder-btn--rename:hover {
+      color: rgba(130, 200, 255, 0.90);
+    }
+
+    /* Pulsante sposta ↗: hover blu-chiaro (azione non distruttiva) */
+    .lib-folder-btn--move:hover {
+      color: rgba(130, 200, 255, 0.90);
+    }
+
+    .lib-folder-btn--delete:hover {
+      color: rgba(220, 90, 70, 0.75);
+    }
+
+    /* Stato conferma eliminazione cartella */
+    .lib-folder-btn--confirm {
+      color: rgba(220, 60, 50, 0.90) !important;
+      font-weight: bold;
+      font-size: 10px;
+      letter-spacing: 0.03em;
+    }
+
+    /* ── Input rinomina inline ───────────────────────────────────────────── */
+    /*
+     * Sostituisce lo span del nome durante la rinomina inline.
+     * Si espande (flex: 1) per occupare lo spazio dello span nascosto.
+     * Esc annulla senza propagare (non chiude la finestra).
+     * Invio / blur → commit (se nome valido).
+     */
+    .lib-rename-input {
+      flex: 1 1 auto;
+      background: rgba(15, 15, 30, 0.85);
+      border: 1px solid var(--accent);
+      border-radius: 3px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 12px;
+      padding: 1px 5px;
+      outline: none;
+      min-width: 60px;
+    }
+
+    /* Stato errore: bordo rosso per feedback immediato su nome invalido */
+    .lib-rename-input--error {
+      border-color: rgba(220, 90, 70, 0.90);
+      background: rgba(180, 40, 30, 0.15);
+    }
+
+    /* ── Modale "Sposta" (<dialog>) ─────────────────────────────────────── */
+    /*
+     * La <dialog> nativa usa showModal() che crea un velo backdrop automatico.
+     * Usiamo dialog::backdrop per colorare il velo con la palette del progetto.
+     *
+     * Struttura interna:
+     *   .move-dialog-box  — contenitore principale (coerente con .config-dialog-box)
+     *   #move-dialog-title — titolo dinamico (es. 'Sposta "doc.md" in…')
+     *   #move-targets      — lista scrollabile delle destinazioni
+     *   #move-error        — riga di errore, nascosta di default
+     *   .move-dialog-footer — pulsanti Annulla / Sposta qui
+     */
+    dialog#move-dialog {
+      /* Resetta gli stili del browser per il tag <dialog> */
+      background: transparent;
+      border: none;
+      padding: 0;
+      outline: none;
+      /* Centra la modale nello schermo */
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      max-width: 340px;
+      width: 90%;
+      max-height: 80vh;
+    }
+
+    /* Velo scuro semitrasparente dietro il dialog */
+    dialog#move-dialog::backdrop {
+      background: rgba(0, 0, 0, 0.50);
+    }
+
+    /* Box interno: stile coerente con il pannello (bordo accent, sfondo scuro) */
+    .move-dialog-box {
+      background: rgba(15, 15, 26, var(--window-alpha, 0.87));
+      border: 1.5px solid var(--border);
+      border-radius: 8px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* Intestazione della modale */
+    .move-dialog-header {
+      padding: 10px 14px 6px 14px;
+      border-bottom: 1px solid rgba(80, 160, 240, 0.20);
+    }
+
+    #move-dialog-title {
+      font-size: 11px;
+      color: var(--accent);
+      letter-spacing: 0.06em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: block;
+    }
+
+    /* Lista scrollabile delle destinazioni */
+    #move-targets {
+      flex: 1 1 auto;
+      overflow-y: auto;
+      max-height: 220px;
+      padding: 6px 0;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(80, 140, 220, 0.35) transparent;
+    }
+
+    #move-targets::-webkit-scrollbar { width: 4px; }
+    #move-targets::-webkit-scrollbar-thumb {
+      background: rgba(80, 140, 220, 0.35);
+      border-radius: 2px;
+    }
+
+    /* Riga destinazione: indentata per depth (il padding-left viene impostato inline da JS) */
+    .move-target {
+      padding: 5px 14px;
+      cursor: pointer;
+      font-size: 11px;
+      color: var(--text);
+      user-select: none;
+      -webkit-user-select: none;
+      transition: background 0.10s;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .move-target:hover {
+      background: var(--item-hover);
+    }
+
+    /* Riga selezionata: evidenziata con colore accent */
+    .move-target--selected {
+      background: rgba(80, 160, 240, 0.20);
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    /* Riga disabled: il parent corrente dell'elemento da spostare — resta
+       visibile come ancora dell'albero (v. moveTargets in library-nav.mjs)
+       ma non è cliccabile: pointer-events:none è difesa in profondità,
+       il listener click non viene proprio attaccato lato JS. */
+    .move-target--disabled {
+      color: var(--text-muted);
+      cursor: default;
+      pointer-events: none;
+    }
+
+    .move-target--disabled:hover {
+      background: transparent;
+    }
+
+    /* Riga errore: nascosta di default, mostrata se archive_move_* fallisce */
+    #move-error {
+      display: none;
+      padding: 6px 14px;
+      font-size: 10px;
+      color: rgba(255, 140, 120, 0.9);
+      border-top: 1px solid rgba(200, 60, 50, 0.20);
+    }
+
+    /* Footer con i pulsanti Annulla e Sposta qui */
+    .move-dialog-footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 6px;
+      padding: 8px 14px;
+      border-top: 1px solid rgba(80, 160, 240, 0.18);
+    }
+
+    /* Pulsanti del dialog: stile coerente con i pulsanti toolbar */
+    .move-dialog-footer button {
+      background: transparent;
+      border: 1px solid rgba(80, 160, 240, 0.30);
+      color: rgba(130, 190, 255, 0.70);
+      font-family: inherit;
+      font-size: 10px;
+      letter-spacing: 0.04em;
+      cursor: pointer;
+      padding: 3px 10px;
+      border-radius: 3px;
+      transition: background 0.12s, color 0.12s, border-color 0.12s;
+      outline: none;
+    }
+
+    .move-dialog-footer button:hover:not(:disabled) {
+      background: var(--item-hover);
+      color: var(--text);
+      border-color: var(--accent);
+    }
+
+    .move-dialog-footer button:disabled {
+      opacity: 0.35;
+      cursor: not-allowed;
+    }
+
+    /* Pulsante "Sposta qui": accent più marcato quando abilitato */
+    #move-confirm:not(:disabled) {
+      border-color: var(--accent);
+      color: var(--accent);
+    }
+
+    /* Dialog "Condividi" — stessa struttura visiva del dialog "Sposta" sopra
+       (stesse classi .move-dialog-box/.move-target/.move-dialog-footer), solo
+       id diversi per un elemento <dialog> separato. */
+    dialog#share-dialog {
+      background: transparent; border: none; padding: 0; outline: none;
+      position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      max-width: 340px; width: 90%; max-height: 80vh;
+    }
+    dialog#share-dialog::backdrop { background: rgba(0, 0, 0, 0.50); }
+
+    /* ── Riga nota (tab "Note") — contenitore titolo+meta ────────────────── */
+    /*
+     * .archive-item (la riga) è flex ORIZZONTALE con justify-content:space-between,
+     * per separare [testo] da [pulsanti]. Titolo e meta vanno però impilati
+     * VERTICALMENTE tra loro: .note-item-body è il sotto-contenitore che li
+     * avvolge con flex-direction:column, così la riga resta [blocco testo] vs
+     * [pulsanti] mentre il blocco testo stesso impila titolo sopra, meta sotto.
+     * flex:1 1 auto + min-width:0: si espande per occupare lo spazio disponibile
+     * e permette l'ellissi/overflow del titolo lungo, come .archive-item-title.
+     */
+    .note-item-body {
+      flex: 1 1 auto;
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+
+    /* ── Corpo della nota nella riga (tab "Note") ───────────────────────── */
+    /*
+     * Il corpo arriva GIÀ renderizzato dall'orchestrator (`render_body` in
+     * notes/digest.rs): testo puro, con righe di intestazione `— macchina —`
+     * quando più macchine hanno contribuito. È quindi testo SIGNIFICATIVO A
+     * RIGHE: `white-space: pre-wrap` preserva sia gli a-capo (senza i quali le
+     * intestazioni collasserebbero sulla riga precedente, rendendo il corpo
+     * fuso illeggibile) sia il ritorno a capo automatico sulle righe lunghe.
+     * `overflow-wrap: anywhere` evita che una singola parola lunghissima
+     * (un URL incollato) sfondi la larghezza della finestra.
+     *
+     * `max-height` + `overflow-y: auto`: una nota lunga scorre nel suo
+     * riquadro invece di allungare la riga a dismisura — le note sono
+     * "appunti brevi" per design, ma nulla lo impedisce tecnicamente (il cap
+     * è 256 KB).
+     */
+    .note-item-text {
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      max-height: 12em;
+      overflow-y: auto;
+      margin-top: 2px;
+    }
+  </style>
+</head>
+<body>
+  <!--
+    #titlebar carries data-tauri-drag-region so the OS handles window drag.
+    #close-btn does NOT carry data-tauri-drag-region.
+  -->
+  <div id="titlebar" data-tauri-drag-region>
+    <span id="titlebar-label">Lare — Archivio</span>
+    <span class="titlebar-actions">
+      <button id="open-dir-btn" title="Apri la cartella nel file manager" aria-label="Apri cartella archivio">&#x1F4C2;</button>
+      <button id="close-btn" title="Chiudi" aria-label="Chiudi finestra">&#x00D7;</button>
+    </span>
+  </div>
+
+  <!--
+    Tab bar: Markdown | Find.
+    The active tab is highlighted with .lib-tab--active (set by library.js).
+    Switching tab triggers a reload of the appropriate list.
+  -->
+  <div id="tab-bar" role="tablist" aria-label="Tipo di archivio">
+    <button id="tab-markdown" class="lib-tab lib-tab--active" role="tab" aria-selected="true"  aria-controls="list-area" data-tab="markdown">Markdown</button>
+    <button id="tab-find"     class="lib-tab"                 role="tab" aria-selected="false" aria-controls="list-area" data-tab="find">Find</button>
+    <button id="tab-plugins"  class="lib-tab"                 role="tab" aria-selected="false" aria-controls="list-area" data-tab="plugins">Plugins</button>
+    <button id="tab-note"     class="lib-tab"                 role="tab" aria-selected="false" aria-controls="list-area" data-tab="note">Note</button>
+  </div>
+
+  <!--
+    Toolbar Explorer: visibile solo sul tab Markdown (nascosta da JS sul tab Find).
+    Breadcrumb a sinistra: 🏠 / Cartella / Sottocartella (segmenti cliccabili).
+    Pulsanti a destra: "+ Cartella" e "🔄 Ricarica".
+    Popolata dinamicamente da library.js (renderBreadcrumb).
+  -->
+  <div id="lib-toolbar">
+    <nav id="lib-breadcrumb" aria-label="Percorso corrente nella Library"></nav>
+    <div class="lib-toolbar-actions">
+      <button id="new-folder-btn" title="Crea nuova cartella nella posizione corrente">+ Cartella</button>
+      <button id="reload-btn" title="Ricarica la lista">&#x1F504;</button>
+    </div>
+  </div>
+
+  <!--
+    Toolbar Note: visibile solo sul tab Note.
+    Pulsante "+ Nuova" per creare una nuova nota.
+  -->
+  <div id="note-toolbar" style="display:none">
+    <button id="new-note-btn">Nuova</button>
+  </div>
+
+  <!-- Populated by library.js — folder rows + document rows -->
+  <div id="list-area" role="listbox" aria-label="Contenuto Library"></div>
+
+  <!--
+    Modale "Sposta" — aperta via showModal() da openMoveDialog() in library.js.
+    Struttura:
+      - #move-dialog-title: titolo dinamico (es. 'Sposta "doc.md" in…')
+      - #move-targets:      lista delle destinazioni valide (popolata da JS)
+      - #move-error:        messaggio di errore dal backend (nascosto di default)
+      - #move-confirm:      disabilitato finché non si seleziona una destinazione
+      - #move-cancel:       chiude il dialog senza fare nulla
+
+    GOTCHA Esc: library.js aggiunge un listener keydown sul dialog per
+    stopPropagation su Escape, così l'Esc che chiude il dialog non bubbla
+    all'handler globale che chiuderebbe l'intera finestra Library.
+  -->
+  <dialog id="move-dialog" aria-modal="true" aria-labelledby="move-dialog-title">
+    <div class="move-dialog-box">
+      <div class="move-dialog-header">
+        <span id="move-dialog-title">Sposta in…</span>
+      </div>
+      <div id="move-targets" role="listbox" aria-label="Destinazione spostamento"></div>
+      <div id="move-error"></div>
+      <div class="move-dialog-footer">
+        <button id="move-cancel" type="button">Annulla</button>
+        <button id="move-confirm" type="button" disabled>Sposta qui</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!--
+    Modale "Condividi" — aperta via showModal() da openShareDialog() in library.js.
+    Stessa struttura del dialog "Sposta" (riusa .move-dialog-box/.move-target/
+    .move-dialog-footer), solo id diversi:
+      - #share-dialog-title: titolo dinamico (es. 'Condividi "doc.md" con…')
+      - #share-targets:      elenco macchine dal roster AI Chat (popolato da JS)
+      - #share-confirm:      disabilitato finché non si sceglie una macchina
+      - #share-cancel:       chiude il dialog senza fare nulla
+  -->
+  <dialog id="share-dialog" aria-modal="true" aria-labelledby="share-dialog-title">
+    <div class="move-dialog-box">
+      <div class="move-dialog-header">
+        <span id="share-dialog-title">Condividi con…</span>
+      </div>
+      <div id="share-targets" role="listbox" aria-label="Macchina destinataria"></div>
+      <div class="move-dialog-footer">
+        <button id="share-cancel" type="button">Annulla</button>
+        <button id="share-confirm" type="button" disabled>Condividi</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!--
+    "Nuova nota" / "Modifica nota" (Blocco note): NON più un <dialog> qui —
+    dal 2026-07-31 (finding #3 del primo smoke test dal vivo, spostabilità/
+    ridimensionamento) è una vera WebviewWindow separata (note-window.html,
+    aperta via main.rs open_note_window). Il pulsante "Nuova" e ✏️ nella
+    riga di ogni nota emettono "library:note-window-open" verso il main
+    (v. library.js) invece di aprire un dialog locale.
+  -->
+
+  <!--
+    Tauri v2: withGlobalTauri = true → window.__TAURI__ is available.
+    No vendor libs needed here — we render a list, not Markdown.
+    library-nav.mjs è importato da library.js come modulo puro.
+  -->
+  <script type="module" src="library.js"></script>
+</body>
+</html>

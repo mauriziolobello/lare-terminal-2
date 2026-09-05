@@ -1,0 +1,51 @@
+[package]
+name = "mcp-server"
+version = "2.0.0"
+edition = "2021"
+
+# The crate exposes:
+#   lib  — `system` module (pure core, no MCP dep)
+#   bin  — `mcp-server` (thin MCP stdio glue using rmcp)
+
+[[bin]]
+name = "mcp-server"
+path = "src/main.rs"
+
+[dependencies]
+# rmcp: official Rust MCP SDK (version 1.7.0, pinned for API stability).
+# Features enabled:
+#   server       — ServerHandler, tool registry
+#   transport-io — stdio() transport for stdin/stdout wire
+#   macros       — #[tool], #[tool_router] procedural macros
+#   schemars     — JsonSchema derive for parameter structs (required by Parameters<T>)
+rmcp = { version = "=1.7.0", features = ["server", "transport-io", "macros", "schemars"] }
+
+# Configurazione da startup.json (fase 1, orchestrator+mcp-server -- vedi
+# Docs/superpowers/specs/2026-08-12-startup-config-design.md).
+startup-config = { path = "../startup-config" }
+
+# tokio: async runtime required by rmcp's serve() + waiting() API.
+# process: needed by session.rs to spawn and manage the persistent shell.
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "process", "io-util", "sync"] }
+
+# serde / serde_json: for the DTO in the MCP glue layer.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# anyhow: ergonomic error handling in main.
+anyhow = "1"
+
+# tracing + tracing-subscriber: structured logging to stderr
+# (stdout is reserved for the MCP wire; all logs MUST go to stderr).
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# opener: cross-platform file/URL/folder opener.
+# Uses ShellExecute (Windows), open (macOS), xdg-open (Linux).
+# No shell-string → no injection risk from quoting.
+opener = "0.8.5"
+
+[dev-dependencies]
+# tempfile provides auto-cleaned temp directories for the cwd test.
+tempfile = "3"
+

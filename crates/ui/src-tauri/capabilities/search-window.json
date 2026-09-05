@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "search-window",
+  "description": "Capability for Lare Terminal live search-result windows (Task 11, label: 'search-*'). Grants core:default so window-search.js can invoke take_window_content / close_self via IPC and use the event API (core:event: listen for search:hit/search:done, emit search:open-path/search:cancel). Grants core:window:allow-start-dragging for the chromeless, transparent titlebar drag region. Global-shortcut and clipboard permissions are intentionally NOT included.",
+  "platforms": ["linux", "macOS", "windows"],
+  "windows": ["search-*"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging"
+  ]
+}

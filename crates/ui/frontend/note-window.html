@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lare — Nota</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: rgba(15, 15, 22, var(--window-alpha, 0.87));
+      --text: rgba(220, 235, 255, 0.92);
+      --border: rgba(80, 160, 240, 0.50);
+      --muted: rgba(130, 190, 255, 0.55);
+      --field-bg: rgba(15, 15, 30, 0.85);
+    }
+    html { background: transparent; width: 100%; height: 100%; }
+    body {
+      width: 100%; height: 100%;
+      background: var(--bg);
+      border: 1.5px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      color: var(--text);
+      /* Font unico app-wide (0.45.2): Cascadia Mono Light, fallback a Consolas. */
+      font-family: 'Cascadia Mono Light', 'Cascadia Mono', 'Consolas', 'Courier New', monospace;
+      font-size: 13px;
+      display: flex; flex-direction: column;
+    }
+    #titlebar {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 8px; padding: 8px 12px 6px 16px;
+      border-bottom: 1px solid var(--border);
+      font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase;
+      color: var(--muted); flex-shrink: 0; user-select: none;
+    }
+    #close-btn { background: transparent; border: none; color: var(--muted);
+      font-size: 15px; cursor: pointer; padding: 0 4px; }
+    #close-btn:hover { color: rgba(220, 100, 80, 0.90); }
+
+    /* ── Form: titolo + corpo + errore + pulsanti ────────────────────────── */
+    /* La textarea riempie lo spazio verticale disponibile (flex: 1) invece di
+       avere un proprio handle di resize — è la FINESTRA a essere ridimensionabile
+       dai bordi nativi del SO (v. main.rs open_note_window, resizable(true)).
+       Un handle di resize sulla sola textarea era esattamente il finding #3 del
+       primo smoke test dal vivo (2026-07-31): "ridimensionabile solo dall'angolo
+       della textarea, non dal bordo della finestra". */
+    #note-form {
+      flex: 1 1 auto;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      padding: 10px 16px 14px;
+      gap: 6px;
+    }
+    #note-title-input, #note-text-input {
+      width: 100%;
+      box-sizing: border-box;
+      font-family: inherit;
+      font-size: inherit;
+      background: var(--field-bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 6px 8px;
+      outline: none;
+    }
+    #note-text-input {
+      flex: 1 1 auto;
+      min-height: 0;
+      resize: none;
+    }
+    #note-error {
+      color: rgba(255, 140, 120, 0.9);
+      font-size: 12px;
+      flex-shrink: 0;
+    }
+    #note-footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    #note-footer button {
+      cursor: pointer;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text);
+      border-radius: 6px;
+      padding: 4px 12px;
+      font: inherit;
+    }
+    #note-footer button:hover {
+      border-color: rgba(130, 190, 255, 0.85);
+    }
+    #note-save {
+      border-color: rgba(130, 190, 255, 0.85);
+      color: rgba(160, 205, 255, 0.95);
+    }
+  </style>
+</head>
+<body>
+  <div id="titlebar" data-tauri-drag-region>
+    <span id="titlebar-text">Nuova nota</span>
+    <button id="close-btn" title="Chiudi" aria-label="Chiudi">&#x00D7;</button>
+  </div>
+  <div id="note-form">
+    <input id="note-title-input" type="text" maxlength="200" placeholder="Titolo / descrizione" />
+    <textarea id="note-text-input" placeholder="Testo della nota…"></textarea>
+    <div id="note-error" style="display:none"></div>
+    <div id="note-footer">
+      <button id="note-cancel" type="button">Annulla</button>
+      <button id="note-save" type="button">Salva</button>
+    </div>
+  </div>
+  <script type="module" src="note-window.js"></script>
+</body>
+</html>

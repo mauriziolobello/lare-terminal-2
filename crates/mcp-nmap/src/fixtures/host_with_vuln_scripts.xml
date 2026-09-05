@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<nmaprun scanner="nmap" args="nmap -sT --script vuln -oX - 192.168.178.1">
+  <host>
+    <status state="up" reason="syn-ack"/>
+    <address addr="192.168.178.1" addrtype="ipv4"/>
+    <ports>
+      <port protocol="tcp" portid="80">
+        <state state="open" reason="syn-ack"/>
+        <service name="http"/>
+        <script id="http-csrf" output="Couldn&apos;t find any CSRF vulnerabilities."/>
+        <script id="http-vuln-cve2014-3704" output="ERROR: Script execution failed (use -d to debug)"/>
+      </port>
+      <port protocol="tcp" portid="445">
+        <state state="open" reason="syn-ack"/>
+        <service name="microsoft-ds"/>
+      </port>
+    </ports>
+    <hostscript>
+      <script id="smb-vuln-ms10-054" output="false">false</script>
+      <script id="samba-vuln-cve-2012-1182" output="Could not negotiate a connection:SMB: Failed to receive bytes: EOF">false</script>
+    </hostscript>
+  </host>
+  <runstats>
+    <finished time="1721140000" timestr="Thu Jul 16 06:00:00 2026" elapsed="1.23"/>
+  </runstats>
+</nmaprun>

@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "aichat-window",
+  "description": "Capability per la finestra-chat AI Chat (label: 'aichat'). core:default per l'IPC Tauri (close_self + event API per aichat:* in/out) e core:window:allow-start-dragging per la titlebar chromeless.",
+  "platforms": ["linux", "macOS", "windows"],
+  "windows": ["aichat"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging"
+  ]
+}

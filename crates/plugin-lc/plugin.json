@@ -1,0 +1,13 @@
+{
+  "name": "Lare Commander",
+  "id": "lc",
+  "version": "0.4.5",
+  "protocol_version": 1,
+  "triggers": {
+    "command": "/lc"
+  },
+  "window": {
+    "width": 960.0,
+    "height": 620.0
+  }
+}

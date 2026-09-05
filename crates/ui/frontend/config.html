@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lare — Configurazione</title>
+  <link rel="stylesheet" href="config.css" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: rgba(15, 15, 22, var(--window-alpha, 0.87));
+      --text: rgba(220, 235, 255, 0.92);
+      --border: rgba(80, 160, 240, 0.50);
+    }
+    html { background: transparent; width: 100%; height: 100%; }
+    body {
+      width: 100%; height: 100%;
+      background: var(--bg);
+      border: 1.5px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      color: var(--text);
+      /* Standard font unico app-wide (0.45.2): Cascadia Mono, monospace piu'
+         sottile di Consolas, fallback a Consolas se non installato. */
+      font-family: 'Cascadia Mono Light', 'Cascadia Mono', 'Consolas', 'Courier New', monospace;
+      font-size: 13px;
+      display: flex; flex-direction: column;
+      -webkit-app-region: no-drag;
+    }
+    #titlebar {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 8px; padding: 8px 12px 6px 16px;
+      border-bottom: 1px solid var(--border);
+      font-size: 11px; letter-spacing: 0.08em;
+      color: rgba(130, 190, 255, 0.65);
+      flex-shrink: 0; user-select: none;
+    }
+    #titlebar-label { pointer-events: none; text-transform: uppercase; letter-spacing: 0.12em; }
+    #close-btn {
+      background: transparent; border: none; color: rgba(130, 190, 255, 0.50);
+      font-size: 15px; line-height: 1; cursor: pointer; padding: 0 4px;
+      -webkit-app-region: no-drag;
+    }
+    #close-btn:hover { color: rgba(220, 100, 80, 0.90); }
+    #config-root { flex: 1; overflow: hidden; display: flex; }
+  </style>
+</head>
+<body>
+  <div id="titlebar" data-tauri-drag-region>
+    <span id="titlebar-label">Configurazione — /config</span>
+    <button id="close-btn" title="Chiudi" aria-label="Chiudi">&#x00D7;</button>
+  </div>
+  <div id="config-root"></div>
+  <script type="module" src="config-window.js"></script>
+</body>
+</html>

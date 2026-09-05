@@ -1,0 +1,278 @@
+/* ══════════════════════════════════════════════════════════════════
+   /config dialog styles
+   Estratto da index.html (Lare Terminal) — usato sia nel pannello
+   principale (quando il dialog era inline) sia nella finestra dedicata
+   config.html. Gli override in fondo adattano le regole al contesto
+   finestra (niente backdrop oscurante, box che riempie e scrolla).
+   ══════════════════════════════════════════════════════════════════ */
+
+/* Full-panel backdrop */
+.config-dialog-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 10, 16, 0.72);
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+/* Dialog box */
+.config-dialog-box {
+  width: 540px;
+  padding: 24px 28px 20px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  background: rgba(20, 24, 36, var(--window-alpha, 0.87));
+  border: 1px solid rgba(120, 150, 200, 0.35);
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+
+.config-dialog-title {
+  font-size: 13px;
+  font-weight: normal;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(130, 190, 255, 0.75);
+}
+
+/* Field rows */
+.config-dialog-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.config-field-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.config-field-label {
+  width: 130px;
+  flex-shrink: 0;
+  font-size: 11px;
+  color: rgba(170, 200, 240, 0.75);
+  text-align: right;
+}
+
+.config-field-input {
+  flex: 1;
+  background: rgba(25, 30, 45, 0.9);
+  border: 1px solid rgba(80, 130, 200, 0.4);
+  border-radius: 4px;
+  color: #FFFFFF;
+  font-family: inherit;
+  font-size: 11px;
+  padding: 4px 8px;
+  outline: none;
+}
+.config-field-input:focus {
+  border-color: rgba(80, 160, 255, 0.7);
+}
+select.config-field-input option {
+  background: #111820;
+  color: #FFFFFF;
+}
+
+/* Slider di trasparenza (window_alpha) */
+.config-slider-wrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.config-slider {
+  flex: 1;
+  accent-color: rgba(80, 160, 255, 0.85);
+}
+.config-slider-value {
+  width: 42px;
+  flex-shrink: 0;
+  font-size: 11px;
+  color: rgba(220, 235, 255, 0.85);
+  text-align: right;
+}
+
+/* Colour field: swatch grid + native picker */
+.config-color-wrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.config-swatches {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.config-swatch {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border-radius: 4px;
+  border: 1.5px solid rgba(255, 255, 255, 0.2);
+  cursor: pointer;
+}
+.config-swatch.selected {
+  border-color: #FFFFFF;
+  box-shadow: 0 0 0 1px #FFFFFF;
+}
+.config-color-native {
+  width: 30px;
+  height: 22px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid rgba(80, 130, 200, 0.4);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+/* Action-key capture row */
+.config-capture-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.config-key-badge {
+  display: inline-block;
+  background: rgba(40, 60, 100, 0.8);
+  border: 1px solid rgba(80, 140, 220, 0.5);
+  border-radius: 4px;
+  padding: 3px 10px;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: rgba(180, 220, 255, 0.95);
+  cursor: pointer;
+  min-width: 60px;
+  text-align: center;
+  user-select: none;
+}
+.config-key-badge:hover {
+  border-color: rgba(80, 160, 255, 0.8);
+}
+
+.config-capture-hint {
+  font-size: 10px;
+  color: rgba(120, 160, 200, 0.5);
+  cursor: pointer;
+}
+
+/* The capture input is visually hidden; it exists only to capture keydown */
+.config-capture-input {
+  position: absolute;
+  left: -9999px;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+
+/* Nota informativa in fondo a un tab (es. "richiede riavvio"). Muted, piccola. */
+.config-note {
+  font-size: 10px;
+  color: rgba(170, 200, 240, 0.55);
+  margin: 6px 0 0 0;
+  line-height: 1.4;
+}
+
+/* Error message */
+.config-dialog-error {
+  font-size: 10px;
+  color: rgba(255, 140, 120, 0.9);
+  min-height: 14px;
+}
+
+/* Buttons */
+.config-dialog-buttons {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.config-btn {
+  font-family: inherit;
+  font-size: 11px;
+  padding: 5px 18px;
+  border-radius: 4px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  letter-spacing: 0.05em;
+}
+.config-btn-primary {
+  background: rgba(60, 120, 220, 0.8);
+  color: #FFFFFF;
+  border-color: rgba(80, 150, 255, 0.5);
+}
+.config-btn-primary:hover  { background: rgba(80, 140, 240, 0.9); }
+.config-btn-secondary {
+  background: rgba(40, 45, 60, 0.8);
+  color: rgba(180, 200, 230, 0.8);
+  border-color: rgba(80, 100, 150, 0.4);
+}
+.config-btn-secondary:hover { background: rgba(55, 60, 80, 0.9); }
+
+/* Bottone "Test connessione" (tab Dati Mercato) — stessa famiglia visiva di
+   .config-btn-secondary (colori/bordo/raggio identici); classe a sé perché
+   il markup del bottone (config-dialog.js::_buildMarketDataTab) gli assegna
+   una sola className, non due. margin-top per staccarlo dalla nota sopra. */
+.config-test-btn {
+  font-family: inherit;
+  font-size: 11px;
+  padding: 5px 18px;
+  border-radius: 4px;
+  border: 1px solid rgba(80, 100, 150, 0.4);
+  cursor: pointer;
+  letter-spacing: 0.05em;
+  background: rgba(40, 45, 60, 0.8);
+  color: rgba(180, 200, 230, 0.8);
+  margin-top: 10px;
+}
+.config-test-btn:hover:not(:disabled) { background: rgba(55, 60, 80, 0.9); }
+.config-test-btn:disabled { opacity: 0.5; cursor: default; }
+
+/* ── Config dialog tabs ── */
+.config-tabs { display: flex; gap: 6px; margin-bottom: 10px; }
+.config-tab-btn {
+  background: transparent;
+  border: none;
+  color: inherit;
+  opacity: 0.6;
+  padding: 4px 10px;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  font-family: inherit;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+}
+.config-tab-btn.active { opacity: 1; border-bottom-color: currentColor; }
+.config-tab-panel.hidden { display: none; }
+
+/* ── Override contesto-finestra (config.html) ──────────────────────────────
+   In una finestra dedicata l'overlay non deve oscurare nulla: diventa un
+   semplice contenitore che riempie il body; il box è il contenuto, scrollabile
+   se più alto della finestra. */
+.config-dialog-overlay {
+  position: static;
+  inset: auto;
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  padding: 0;
+  display: flex;
+  align-items: stretch;
+  justify-content: stretch;
+}
+.config-dialog-box {
+  width: 100%;
+  max-height: 100%;
+  margin: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}

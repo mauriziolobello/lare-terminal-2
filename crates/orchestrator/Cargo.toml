@@ -1,0 +1,94 @@
+[package]
+name = "orchestrator"
+version = "2.0.0"
+edition = "2021"
+
+# The orchestrator is the Lare Terminal daemon:
+#   - WebSocket server on 127.0.0.1:7331 (Contratto A)
+#   - MCP client toward mcp-server via child-process stdio (Contratto B)
+#   - Router OS/NL + AI adapter (stub in Fase 1)
+#
+# References:
+#   - Docs/03-protocol.md  — source of truth for both contracts
+#   - Docs/02-architecture.md — layered architecture
+#   - Docs/06-decisions.md — ADR-005 (AI adapter), ADR-007 (security)
+
+[[bin]]
+name = "orchestrator"
+path = "src/main.rs"
+
+[dependencies]
+# --- Shared types (Contratto A wire format) ---
+protocol = { path = "../protocol" }
+
+# Configurazione da startup.json (fase 1 -- vedi
+# Docs/superpowers/specs/2026-08-12-startup-config-design.md).
+startup-config = { path = "../startup-config" }
+
+# --- Plugin host (Contract P: manifest + messages host<->plugin) ---
+plugin-protocol = { path = "../plugin-protocol" }
+
+# --- Async runtime ---
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "io-util", "process", "time", "net"] }
+
+# --- WebSocket server (Contratto A transport) ---
+tokio-tungstenite = "0.24"
+futures-util = "0.3"
+
+# --- MCP client (Contratto B) ---
+# Features: client + child-process transport.
+# NOT server/macros/schemars — those are only needed by mcp-server.
+rmcp = { version = "=1.7.0", features = ["client", "transport-child-process"] }
+
+# --- Async streams (used by ProgressSubscriber streaming in tool_client.rs) ---
+futures = "0.3"
+
+# --- Serialization ---
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# --- Error handling ---
+anyhow = "1"
+
+# --- Async trait (needed for dyn-safe async traits, not yet stable in Rust 1.96) ---
+async-trait = "0.1"
+
+# --- HTTP client for Anthropic Messages API (Fase 2 / Slice 1) ---
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+
+# --- Random token generation (for LARE_TOKEN default) ---
+rand = "0.8"
+
+# --- Search (file matching, glob patterns, regex) ---
+globset = "0.4"
+regex = "1"
+# Cross-platform standard user directory resolution (Documents, Downloads, Desktop, home).
+dirs = "5"
+# Async-friendly directory walker used in spawn_blocking.
+walkdir = "2"
+# CancellationToken for cooperative task cancellation.
+tokio-util = "0.7"
+
+# --- TOTP (RFC 6238) per il canale Telegram (ADR-007) ---
+# Features: gen_secret (generazione secret casuale), otpauth (URI per Google Authenticator).
+# Versione 5.x — API: TOTP::new(alg, digits, skew, step, secret_bytes, issuer, account) + get_url() + generate(secs) + check(code, secs).
+totp-rs = { version = "5", features = ["gen_secret", "otpauth"] }
+
+# --- QR code a terminale (primo avvio Telegram: URI otpauth scansionabile) ---
+# API pubblica usata: generate_qr_string(data: impl AsRef<[u8]>) -> Result<String, QrError>.
+# Usa crossterm per explicit color pairs (bianco su nero / nero su bianco) —
+# scansionabile su terminali a sfondo scuro.
+qr2term = "0.3"
+
+# --- Logging ---
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+# tokio test macro
+# `test-util` abilita `start_paused = true` nei #[tokio::test] (avanzamento virtuale del tempo).
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "io-util", "process", "net", "time", "test-util"] }
+# WS client for integration tests
+tokio-tungstenite = "0.24"
+# Auto-cleaned temp dirs for integration test
+tempfile = "3"

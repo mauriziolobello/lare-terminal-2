@@ -1,0 +1,13 @@
+[package]
+name = "plugin-ping"
+version = "2.0.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "ping"          # il binario si chiama "ping" -> plugins/ping/ping(.exe) (convenzione discovery)
+path = "src/main.rs"
+
+[dependencies]
+plugin-protocol = { path = "../plugin-protocol" }
+serde_json = "1"

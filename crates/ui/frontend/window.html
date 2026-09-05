@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lare — Output</title>
+  <style>
+    /* ── Reset ─────────────────────────────────────────────────────────── */
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    /* ── Root / project palette ─────────────────────────────────────────── */
+    :root {
+      /* +5% di trasparenza rispetto al pannello principale (0.92 → 0.87). */
+      --bg:          rgba(15, 15, 22, var(--window-alpha, 0.87));
+      --text:        rgba(220, 235, 255, 0.92);
+      --text-muted:  rgba(160, 185, 220, 0.7);
+      --border:      rgba(80, 160, 240, 0.55);
+      --accent:      rgba(80, 160, 240, 0.8);
+      --code-bg:     rgba(10, 12, 22, 0.9);
+      --code-border: rgba(60, 120, 200, 0.35);
+    }
+
+    /* ── html: transparent so the OS sees through the rounded-corner gap ── */
+    html {
+      background: transparent;
+      width:  100%;
+      height: 100%;
+    }
+
+    /* ── body IS the panel — same look as .overlay-panel in index.html ──── */
+    body {
+      width:  100%;
+      height: 100%;
+      background: var(--bg);
+      border: 1.5px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;       /* clips children to rounded corners */
+      color:      var(--text);
+      font-family: 'Cascadia Mono Light', 'Cascadia Mono', 'Consolas', 'Courier New', monospace;
+      font-size:   13px;
+      line-height: 1.6;
+      display: flex;
+      flex-direction: column;
+      /* Ensure pixels outside the border-radius stay transparent */
+      -webkit-app-region: no-drag;
+    }
+
+    /* ── Custom title bar (drag region + close button) ──────────────────── */
+    #titlebar {
+      /* data-tauri-drag-region enables OS-level window dragging */
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px 6px 16px;
+      font-size: 11px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: rgba(130, 190, 255, 0.6);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      /* Whole bar is draggable (attribute set in HTML) */
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    #titlebar-label {
+      /* text within the drag region — pointer-events are on the bar, not here */
+      pointer-events: none;
+    }
+
+    /* ── Titlebar buttons — must NOT carry data-tauri-drag-region ──────────── */
+    #close-btn, #save-btn {
+      background: transparent;
+      border: none;
+      color: rgba(130, 190, 255, 0.5);
+      font-size: 15px;
+      line-height: 1;
+      cursor: pointer;
+      padding: 0 4px;
+      /* Ensure these buttons are NOT caught by the drag region */
+      -webkit-app-region: no-drag;
+    }
+    #close-btn:hover {
+      color: rgba(220, 100, 80, 0.9);
+    }
+    #save-btn:hover {
+      color: rgba(130, 220, 130, 0.9);
+    }
+
+    /* ── Scrollable content area ───────────────────────────────────────── */
+    #content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 18px 24px 24px 24px;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(80, 140, 220, 0.35) transparent;
+    }
+
+    #content::-webkit-scrollbar { width: 5px; }
+    #content::-webkit-scrollbar-thumb {
+      background: rgba(80, 140, 220, 0.35);
+      border-radius: 3px;
+    }
+
+    /* ── Markdown element styles ───────────────────────────────────────── */
+
+    /* Headings */
+    #content h1, #content h2, #content h3,
+    #content h4, #content h5, #content h6 {
+      color: rgba(140, 200, 255, 0.92);
+      font-weight: normal;
+      letter-spacing: 0.04em;
+      margin-top: 1.2em;
+      margin-bottom: 0.4em;
+    }
+    #content h1 { font-size: 1.45em; border-bottom: 1px solid var(--border); padding-bottom: 0.2em; }
+    #content h2 { font-size: 1.2em; }
+    #content h3 { font-size: 1.05em; }
+
+    /* Paragraphs */
+    #content p {
+      margin-bottom: 0.8em;
+      color: var(--text);
+    }
+
+    /* Lists */
+    #content ul, #content ol {
+      margin: 0.5em 0 0.8em 1.5em;
+    }
+    #content li {
+      margin-bottom: 0.25em;
+    }
+
+    /* Inline code */
+    #content code {
+      background: var(--code-bg);
+      border: 1px solid var(--code-border);
+      border-radius: 3px;
+      padding: 1px 5px;
+      font-family: inherit;
+      font-size: 0.93em;
+      color: rgba(180, 230, 180, 0.9);
+    }
+
+    /* Fenced code blocks */
+    #content pre {
+      background: var(--code-bg);
+      border: 1px solid var(--code-border);
+      border-left: 3px solid var(--accent);
+      border-radius: 4px;
+      padding: 12px 14px;
+      overflow-x: auto;
+      margin: 0.8em 0;
+    }
+    #content pre code {
+      background: none;
+      border: none;
+      padding: 0;
+      font-size: 0.92em;
+      color: rgba(200, 235, 180, 0.9);
+      white-space: pre;
+    }
+
+    /* Blockquotes */
+    #content blockquote {
+      border-left: 3px solid var(--accent);
+      margin: 0.8em 0;
+      padding: 0.4em 0 0.4em 1em;
+      color: var(--text-muted);
+    }
+
+    /* Horizontal rules */
+    #content hr {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 1.2em 0;
+    }
+
+    /* Tables */
+    #content table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 0.8em 0;
+      font-size: 0.92em;
+    }
+    #content th, #content td {
+      border: 1px solid var(--border);
+      padding: 5px 10px;
+      text-align: left;
+    }
+    #content th {
+      background: rgba(30, 50, 90, 0.5);
+      color: rgba(160, 210, 255, 0.9);
+    }
+    #content tr:nth-child(even) {
+      background: rgba(20, 30, 55, 0.3);
+    }
+    .sort-arrow {
+      cursor: pointer;
+      margin-left: 2px;
+      opacity: 0.6;
+    }
+    .sort-arrow:hover {
+      opacity: 1;
+      color: rgba(160, 210, 255, 1);
+    }
+
+    /* Links */
+    #content a {
+      color: rgba(100, 180, 255, 0.9);
+      text-decoration: none;
+    }
+    #content a:hover {
+      text-decoration: underline;
+    }
+
+    /* Strong / em */
+    #content strong { color: rgba(230, 240, 255, 0.95); font-weight: bold; }
+    #content em     { color: rgba(210, 225, 255, 0.85); font-style: italic; }
+
+    /* ── Help window: distinct border (kind="help", body.help CSS class) ─── */
+    /*
+     * Applied by window.js when data.kind === "help".
+     * Thicker border + a slightly warmer accent colour mark this as a system
+     * window (as opposed to regular /show output).
+     *
+     * NOTE (cosmetic): window.js auto-height adds +4 px for the 1.5px border.
+     * A 3px border adds ~3px more — the window may be ~3px shorter than the
+     * content. Acceptable; a custom resize handle is out of scope.
+     */
+    body.help {
+      --border: rgba(120, 180, 255, 0.80);  /* brighter blue */
+      border-width: 3px;                    /* thicker than default 1.5px */
+    }
+    /* La finestra /help è di sistema, e una finestra riaperta dall'archivio è
+       già salvata: in entrambi i casi niente pulsante salva. */
+    body.help #save-btn,
+    body.archived #save-btn { display: none; }
+
+    /* ── Barra "Espandi" — solo per documenti Library con source_file ───── */
+    #expand-bar {
+      display: none;   /* mostrata solo da body.expandable sotto */
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    body.expandable #expand-bar { display: flex; }
+
+    #expand-input {
+      flex: 1;
+      background: rgba(10, 12, 22, 0.6);
+      border: 1px solid var(--code-border);
+      border-radius: 4px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 12px;
+      padding: 5px 8px;
+    }
+    #expand-input::placeholder { color: var(--text-muted); }
+
+    #expand-btn {
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 12px;
+      padding: 5px 10px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    #expand-btn:disabled {
+      opacity: 0.4;
+      cursor: default;
+    }
+    #expand-btn:not(:disabled):hover {
+      border-color: var(--accent);
+      color: rgba(140, 200, 255, 0.95);
+    }
+
+    #expand-status {
+      font-size: 11px;
+      color: var(--text-muted);
+      white-space: nowrap;
+    }
+
+    /* ── Loading / error states ─────────────────────────────────────────── */
+    #content.loading, #content.error {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-muted);
+      font-size: 11px;
+    }
+    #content.error { color: rgba(255, 140, 120, 0.9); }
+  </style>
+</head>
+<body>
+  <!--
+    #titlebar carries data-tauri-drag-region so the OS handles window drag.
+    The close button (#close-btn) does NOT carry data-tauri-drag-region and
+    has -webkit-app-region: no-drag so its click is never swallowed by the
+    drag handler.
+  -->
+  <div id="titlebar" data-tauri-drag-region>
+    <span id="titlebar-label">Lare — Output</span>
+    <span>
+      <button id="save-btn" title="Save to archive" aria-label="Save window to archive">&#x1F4BE;</button>
+      <button id="close-btn" title="Close" aria-label="Close window">&#x00D7;</button>
+    </span>
+  </div>
+  <div id="expand-bar">
+    <input id="expand-input" type="text" placeholder="Cosa vuoi aggiungere o approfondire?" />
+    <button id="expand-btn" disabled>Espandi</button>
+    <span id="expand-status"></span>
+  </div>
+  <div id="content" class="loading">Loading…</div>
+
+  <!--
+    Tauri v2: withGlobalTauri = true in tauri.conf.json → window.__TAURI__ is available.
+    Both vendor libs are loaded as regular scripts (not ES modules) so they attach
+    to window.marked / window.DOMPurify as globals before window.js runs.
+    SECURITY: DOMPurify must run BEFORE any innerHTML assignment.
+  -->
+  <script src="vendor/marked.min.js"></script>
+  <script src="vendor/purify.min.js"></script>
+  <script type="module" src="window.js"></script>
+</body>
+</html>

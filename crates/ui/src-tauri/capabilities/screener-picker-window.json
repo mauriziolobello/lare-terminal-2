@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "screener-picker-window",
+  "description": "Capability per la finestra picker screener (canale /markets, label: 'screener-picker-*'). Grants core:default per IPC (take_window_content/close_self) ed event API (emit screener:picked). Grants core:window:allow-start-dragging per la titlebar chromeless. Global-shortcut e clipboard NON inclusi.",
+  "platforms": ["linux", "macOS", "windows"],
+  "windows": ["screener-picker-*"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging"
+  ]
+}

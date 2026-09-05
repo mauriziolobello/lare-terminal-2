@@ -1,0 +1,6 @@
+mcp<2.0.0
+yfinance
+mplfinance
+pandas
+pytest
+ib_async

@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "config-window",
+  "description": "Capability per la finestra di configurazione di Lare Terminal (label: 'config'). Concede core:default per l'IPC Tauri (get_config/set_config/get_search_settings/set_search_settings/close_self e l'event API per emettere config:saved) e core:window:allow-start-dragging per la titlebar chromeless. Global-shortcut e clipboard NON inclusi.",
+  "platforms": ["linux", "macOS", "windows"],
+  "windows": ["config"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging"
+  ]
+}

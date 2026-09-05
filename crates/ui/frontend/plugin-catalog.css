@@ -1,0 +1,267 @@
+/*
+ * plugin-catalog.css — design-token library for plugin windows.
+ *
+ * Loaded by plugin-window.html (injected by the host, not by the plugin).
+ * Plugin HTML can reference these classes freely: .lare-window, .lare-label,
+ * .lare-button, etc.  Visual consistency is enforced by the host; the plugin
+ * author does not need to know the exact color values.
+ *
+ * Palette mirrors the glass-morphism style of window-search.html:
+ *   --bg      translucent dark background
+ *   --border  muted blue border accent
+ *   --accent  interactive highlight blue
+ *   --text    primary text
+ *   --muted   secondary / label text
+ */
+
+/* ── Design tokens ──────────────────────────────────────────────────────── */
+
+:root {
+  --lare-bg:        rgba(15, 15, 22, var(--window-alpha, 0.87));
+  --lare-border:    rgba(80, 160, 240, 0.45);
+  --lare-accent:    rgba(80, 160, 240, 0.85);
+  --lare-accent-hv: rgba(100, 180, 255, 1);
+  /* Allineato al token --text condiviso da ogni altra finestra dell'app
+     (era rgba(230, 235, 245, 0.95), leggermente diverso — 0.4.4/0.45.2). */
+  --lare-text:      rgba(220, 235, 255, 0.92);
+  --lare-muted:     rgba(160, 170, 190, 0.75);
+  --lare-radius:    8px;
+  --lare-gap:       10px;
+}
+
+/* ── Base window reset ──────────────────────────────────────────────────── */
+
+/*
+ * .lare-window  — the outer wrapper of a plugin panel.
+ * Provides the frosted-glass container that matches search/markdown windows.
+ */
+.lare-window {
+  box-sizing: border-box;
+  background:    var(--lare-bg);
+  border:        1px solid var(--lare-border);
+  border-radius: var(--lare-radius);
+  color:         var(--lare-text);
+  /* Standard font/size unico app-wide (0.45.2): Cascadia Mono monospace +
+     13px, come ogni altra finestra (era Segoe UI 14px). */
+  font-family:   'Cascadia Mono Light', 'Cascadia Mono', 'Consolas', 'Courier New', monospace;
+  font-size:     13px;
+  line-height:   1.5;
+  padding:       16px;
+  display:       flex;
+  flex-direction: column;
+  gap:           var(--lare-gap);
+}
+
+/* ── Typography helpers ─────────────────────────────────────────────────── */
+
+/*
+ * .lare-label — section label / caption text (smaller, muted).
+ */
+.lare-label {
+  font-size:   11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color:       var(--lare-muted);
+  margin:      0;
+}
+
+/* ── Interactive controls ───────────────────────────────────────────────── */
+
+/*
+ * .lare-button — primary action button.
+ * Plugin HTML adds [data-evt="action-name"] to make it interactive.
+ */
+.lare-button {
+  display:         inline-flex;
+  align-items:     center;
+  justify-content: center;
+  gap:             6px;
+  padding:         6px 14px;
+  background:      transparent;
+  border:          1px solid var(--lare-accent);
+  border-radius:   var(--lare-radius);
+  color:           var(--lare-accent);
+  font-size:       13px;
+  font-weight:     500;
+  cursor:          pointer;
+  transition:      background 0.15s, color 0.15s, border-color 0.15s;
+  user-select:     none;
+}
+
+.lare-button:hover,
+.lare-button:focus-visible {
+  background:    rgba(80, 160, 240, 0.18);
+  border-color:  var(--lare-accent-hv);
+  color:         var(--lare-accent-hv);
+  outline:       none;
+}
+
+.lare-button:active {
+  background: rgba(80, 160, 240, 0.30);
+}
+
+.lare-button:disabled {
+  opacity:    0.45;
+  cursor:     not-allowed;
+  background: transparent;
+}
+
+/*
+ * .lare-button--primary — filled variant for the main CTA.
+ */
+.lare-button--primary {
+  background:   var(--lare-accent);
+  color:        rgba(10, 10, 18, 0.95);
+  border-color: var(--lare-accent);
+}
+
+.lare-button--primary:hover,
+.lare-button--primary:focus-visible {
+  background:   var(--lare-accent-hv);
+  border-color: var(--lare-accent-hv);
+  color:        rgba(10, 10, 18, 1);
+}
+
+/* ── Input ──────────────────────────────────────────────────────────────── */
+
+/*
+ * .lare-input — text/number input consistent with the window palette.
+ */
+.lare-input {
+  background:   rgba(255, 255, 255, 0.06);
+  border:       1px solid var(--lare-border);
+  border-radius: var(--lare-radius);
+  color:        var(--lare-text);
+  font-size:    13px;
+  padding:      5px 10px;
+  outline:      none;
+  width:        100%;
+  box-sizing:   border-box;
+  transition:   border-color 0.15s;
+}
+
+.lare-input:focus {
+  border-color: var(--lare-accent);
+}
+
+/* ── Row / column layout helpers ────────────────────────────────────────── */
+
+.lare-row {
+  display:     flex;
+  flex-direction: row;
+  align-items: center;
+  gap:         var(--lare-gap);
+  flex-wrap:   wrap;
+}
+
+.lare-col {
+  display:        flex;
+  flex-direction: column;
+  gap:            calc(var(--lare-gap) / 2);
+}
+
+/* ── Calcolatrice (Slice 2) ─────────────────────────────────────────────── */
+.lare-display {
+  min-height: 56px;
+  padding: 10px 14px;
+  margin-bottom: 10px;
+  background: rgba(10, 10, 16, 0.6);
+  border: 1px solid rgba(80, 160, 240, 0.35);
+  border-radius: 8px;
+  color: #e8eefc;
+  font-size: 28px;          /* la UI può ridurlo se il contenuto è lungo (futuro real-magnitude) */
+  text-align: right;
+  overflow-x: auto;
+  white-space: nowrap;
+  display: flex; align-items: center; justify-content: flex-end;
+}
+/* Display della calcolatrice: parte a ~3 righe e ancora il contenuto in BASSO a destra
+   (stile calcolatrice fisica). L'altezza effettiva poi cresce in modo monotòno via JS
+   (min-height high-water in plugin-window.js) e non rimpicciolisce più → niente
+   "saltellio" della finestra. min-height in em (relativo al font del display). */
+.lare-calc .lare-display {
+  min-height: 3.2em;
+  align-items: flex-end;
+}
+.lare-key-grid {
+  display: grid;
+  /* 5 colonne per ospitare la riga scientifica (sin/cos/tan/log/ln + shift variant). */
+  grid-template-columns: repeat(5, 1fr);
+  gap: 5px;
+}
+.lare-key {
+  font: inherit; font-size: 15px;
+  padding: 8px 0;
+  background: rgba(30, 36, 52, 0.9);
+  color: #e8eefc;
+  border: 1px solid rgba(80, 160, 240, 0.4);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.lare-key:hover { background: rgba(50, 90, 150, 0.9); }
+.lare-key:active { background: rgba(80, 160, 240, 0.6); }
+/* Frazione impilata: numeratore / barra / denominatore. */
+.lare-frac { display: inline-flex; flex-direction: column; align-items: center; vertical-align: middle; margin: 0 2px; }
+.lare-frac-num, .lare-frac-den { padding: 0 6px; }
+.lare-frac-bar { width: 100%; height: 0; border-bottom: 2px solid currentColor; margin: 2px 0; }
+
+/* ── Riga "espressione digitata" (calcolatrice) ────────────────────────────
+   L'input grezzo, verbatim, sotto il display. Allineata a destra come il
+   display, più piccola e smorzata. Scorre in orizzontale se l'espressione è
+   lunga, senza allargare la finestra. min-height per layout stabile da vuota. */
+.lare-expr {
+  min-height: 1.4em;
+  margin: 2px 0 8px;
+  padding: 0 4px;
+  text-align: right;
+  font-size: 0.85em;
+  color: var(--text-muted, rgba(160, 185, 220, 0.70));
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.lare-expr::-webkit-scrollbar { height: 0; }
+
+/* ── Shift attivo — tasto "2nd/Shift" evidenziato in blu quando state.shift=true ── */
+.lare-key--shift-on {
+  background: rgba(80, 160, 240, 0.55);
+  color: #0b0f18;
+  border-color: rgba(120, 190, 255, 0.9);
+}
+
+/* Utility per tasti "larghi" (span 2 colonne). Attualmente non usato dalla
+   calcolatrice (con i tasti scientifici la griglia 7×5 è tutta a celle singole);
+   resta disponibile per layout futuri (es. un "0" o "=" largo). */
+.lare-key--wide { grid-column: span 2; }
+
+/* ── Riga stato/etichette (.lare-status) — tra l'eco e la griglia tasti ──
+   Mostra la modalità DEG/RAD e, in futuro, altre etichette. Sempre visibile,
+   non scorre con l'espressione (a differenza del vecchio indicatore nell'eco).
+   Allineata a destra, piccola e smorzata, con una sottile linea di separazione
+   dalla griglia tasti. min-height per layout stabile. */
+.lare-status {
+  min-height: 1.2em;
+  margin: 2px 0 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(80, 160, 240, 0.18);
+  text-align: right;
+  font-size: 0.78em;
+  letter-spacing: 0.12em;
+  color: var(--text-muted, rgba(160, 185, 220, 0.7));
+}
+
+/* ── Potenza in apice 2D — <span class="lare-pow"><span class="lare-pow-base">…</span>
+   <sup class="lare-pow-exp">…</sup></span> emesso da render.rs ──────────────────── */
+.lare-pow {
+  display: inline-flex;
+  align-items: flex-start;
+}
+.lare-pow-exp {
+  font-size: 0.7em;
+  /* line-height: 1 compatta l'apice — evita che erediti il line-height del parent
+     e spinga verso l'alto tutta la riga del display. */
+  line-height: 1;
+}

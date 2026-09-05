@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "plugin-window",
+  "description": "Capability for Lare Terminal generic plugin windows (Plugin Slice 1, label: 'plugin-*'). Grants core:default so plugin-window.js can invoke take_window_content / close_self via IPC and use the event API (core:event: emit plugin:ui-event / plugin:window-closed, listen for plugin:update / plugin:close). Grants core:window:allow-start-dragging for the chromeless, transparent titlebar drag region. Global-shortcut and clipboard permissions are intentionally NOT included.",
+  "platforms": ["linux", "macOS", "windows"],
+  "windows": ["plugin-*"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging"
+  ]
+}

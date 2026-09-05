@@ -1,0 +1,17 @@
+[package]
+name = "startup-config"
+version = "2.0.0"
+edition = "2021"
+
+# Crate infrastrutturale puro (nessuna logica di dominio) -- stessa
+# categoria di `protocol`. Risolve dove vivono i file di configurazione
+# (local_dir, llms.json, telegramsettings.json, ...) con precedenza a 3
+# livelli: env var > campo di startup.json > default del chiamante.
+# Vedi Docs/superpowers/specs/2026-08-12-startup-config-design.md.
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+tempfile = "3"

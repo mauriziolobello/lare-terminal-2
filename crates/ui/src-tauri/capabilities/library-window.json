@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "library-window",
+  "description": "Capability for the Lare Terminal archive browser window (label: 'library'). Grants core:default for Tauri IPC (archive_list, archive_open, open_markdown_window, close_self) and core:window:allow-start-dragging for the chromeless titlebar drag region. Global-shortcut and clipboard permissions are intentionally NOT included.",
+  "platforms": ["linux", "macOS", "windows"],
+  "windows": ["library"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging"
+  ]
+}

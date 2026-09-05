@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<nmaprun scanner="nmap" args="nmap -O -oX - 192.168.1.20">
+  <host>
+    <status state="up" reason="syn-ack"/>
+    <address addr="192.168.1.20" addrtype="ipv4"/>
+    <ports>
+      <port protocol="tcp" portid="443">
+        <state state="filtered" reason="no-response"/>
+        <service name="https"/>
+      </port>
+    </ports>
+    <os>
+      <osmatch name="Linux 5.X" accuracy="95"/>
+      <osmatch name="Linux 6.X" accuracy="88"/>
+    </os>
+  </host>
+  <runstats>
+    <finished time="1721140020" timestr="Thu Jul 16 06:00:20 2026" elapsed="8.77"/>
+  </runstats>
+</nmaprun>

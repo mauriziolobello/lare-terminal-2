@@ -1,0 +1,43 @@
+[package]
+# Name must be "ui" so that `cargo build -p ui` (from the repo root) works.
+name = "ui"
+version = "2.0.0"
+edition = "2021"
+publish = false
+
+# Expose a library target so the `config` module can be unit-tested without
+# starting a Tauri runtime.  The binary (main.rs) imports from this lib.
+[lib]
+name = "ui_lib"
+path = "src/lib.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# Core Tauri v2 runtime
+tauri = { version = "2", features = [] }
+
+# Global hotkey plugin — Windows/macOS/Linux (not mobile)
+tauri-plugin-global-shortcut = "2"
+
+# Clipboard plugin — read/write system clipboard from JS via Tauri IPC
+tauri-plugin-clipboard-manager = "2"
+
+# Serialization (for Rust commands that return structured data)
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Home directory resolution for the `home_dir` Tauri command.
+dirs = "5"
+
+# Filesystem watcher — rilevamento modifiche alla cartella Library (Slice 3).
+# notify-debouncer-mini (0.7.x) dipende internamente da notify 8.x;
+# usiamo solo notify-debouncer-mini come dipendenza diretta e accediamo
+# a notify tramite i suoi re-export (notify_debouncer_mini::notify::*).
+# Questo evita conflitti di versione nel grafo delle dipendenze.
+notify-debouncer-mini = "0"
+
+[dev-dependencies]
+# Used in config tests: create temp files/dirs with auto-cleanup.
+tempfile = "3"

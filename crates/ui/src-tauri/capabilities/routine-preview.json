@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "routine-preview",
+  "description": "Capability per la finestra di anteprima save_routine (Fase 2, label dinamica 'routine-preview-<ts>-<ctr>' — v. open_routine_preview in main.rs). core:default per l'IPC Tauri (take_window_content/close_self/get_config + event API per routine-preview:decision e config:saved) e core:window:allow-start-dragging per la titlebar chromeless. Stesso pattern di note-window.json/aichat-window.json/search-window.json per le altre finestre secondarie a label dinamica.",
+  "platforms": ["linux", "macOS", "windows"],
+  "windows": ["routine-preview-*"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging"
+  ]
+}
