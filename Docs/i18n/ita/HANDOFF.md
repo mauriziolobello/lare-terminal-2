@@ -8,17 +8,17 @@
 (a fine piano 1 "fondamenta" — lette da ogni `Cargo.toml`)
 
 - protocol 2.0.0 (da v1 0.15.4)
-- startup-config 2.0.1 (da v1 0.1.0)
+- startup-config 2.0.2 (da v1 0.1.0)
 - mcp-server 2.0.1 (da v1 0.7.1)
 - mcp-nmap 2.0.0 (da v1 0.8.2)
-- orchestrator 2.0.1 (da v1 0.41.21)
+- orchestrator 2.0.2 (da v1 0.41.21)
 - plugin-protocol 2.0.0 (da v1 0.2.1)
 - plugin-ping 2.0.0 (da v1 0.1.0)
 - plugin-counter 2.0.0 (da v1 0.1.0)
 - plugin-calc 2.0.0 (da v1 0.2.0)
 - plugin-lc 2.0.0 (da v1 0.4.5)
 - plugin-crypto 2.0.0 (da v1 1.0.1)
-- ui 2.0.2 (da v1 0.47.1)
+- ui 2.0.3 (da v1 0.47.1)
 
 ## FATTO
 
@@ -50,6 +50,10 @@ completato il 2026-09-05:
   `KNOWN-ISSUES.md`, `06-decisions.md` con ADR-015..017) e questo aggiornamento di `HANDOFF.md`.
   Questo commit di release (`release: piano 1 completato — fondamenta 2.0 (config unica, ui
   host di finestre, Test Run)`).
+- Fix wave della review finale (whole-branch, findings I1-I3/M1/M2/M3/M4/M6/M7/M8): assolutizzazione
+  di `--config-dir` spostata in `startup-config`, `--config-dir` anche ai plugin, pulizia commenti
+  frontend `app.js`→`host.js`, `LISTEN_ADDR` morta, exit code di `deploy_test_run.ps1`. Commit
+  `93eb355`.
 
 ## DA FARE
 
@@ -70,26 +74,23 @@ Minori, rimandati deliberatamente (non bloccano il piano 1, da valutare/chiudere
 successivi):
 
 - 12 `Cargo.toml` riscritti CRLF→LF e voci CHANGELOG con endings misti.
-- `startup-config::resolve_path` con valore rooted senza drive (`/x`) su Windows: `Path::join`
-  scarta la base — da documentare/testare.
 - `RuntimeConfig::{mcp_server_exe,mcp_nmap_exe,pytools_dir}` non usati dai resolver (formula
   duplicata inline).
 - Test `generate_token_is_random` rimosso senza sostituto.
-- Commenti in `orchestrator/src/lib.rs`/`ws.rs` citano ancora la porta fissa 7331.
-- `crates/orchestrator/tests/ws_integration.rs` ~riga 1150 fa ancora
-  `set_var("LARE_PYTOOLS_DIR")` (inerte).
 - `scripts/pytools/README.md` riga ~5 "convenzione invariata" (falso) e riga ~27 etichetta
   interna "Task 4/5".
-- 4 costruzioni `LareWsClient` senza guardia su `url` vuota (`config-dialog.js`,
-  `external-channel-window.js`, `host.js`, `window.js`).
+- 3 costruzioni `LareWsClient` senza guardia su `url` vuota (`config-dialog.js`,
+  `external-channel-window.js`, `window.js`) — `host.js` ha la guardia.
 - `capabilities/default.json` concede `core:window:allow-set-size`/`allow-start-dragging`
   inutilizzati.
 - `diagnose_connection` registrato senza chiamante JS.
-- Titolo `crates/ui/IMPLEMENTATION.md` ancora "v0.47.1".
 - `library.js` invoca `open_saved_find_window` direttamente (pre-esistente).
 - `Test Run/Configuration/README.md` dice "a ogni avvio" per network/search json (solo se
   assenti/corrotti).
-- `deploy_test_run.ps1` lascia `$LASTEXITCODE` di robocopy a fine script.
+- Commenti nel frontend copiato dalla v1 citano percorsi `Docs/superpowers/...` che nel 2.0
+  non esistono (la documentazione è sotto `Docs/i18n/`).
+- `ui.exe --open` accetta solo la forma con spazio (`--open config`), non `--open=config`.
+- `ui.log` su file non implementato (`ui.exe` logga solo su stdout).
 
 **Nota per il piano 2**: `host.js` `openAiChatWindow` non ha chiamanti finché `/aichat` non
 arriva via l'orchestratore (`OpenUiLocal` dovrà includere `aichat`).

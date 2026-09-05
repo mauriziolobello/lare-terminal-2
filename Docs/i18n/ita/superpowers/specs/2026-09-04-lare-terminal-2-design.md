@@ -51,7 +51,7 @@ fuori MVP (§12).
 | D3 | Linguaggio naturale solo con slash: `/ai "testo"` ≡ `/ "testo"`, **virgolette obbligatorie** | 04/09 |
 | D4 | Slash sconosciuto → **scartato in silenzio** nel terminale, una riga di log nell'orchestratore | 04/09 |
 | D5 | MVP: plugin `/ping` e `/calc`; slash `/help`, `/config`, `/open`, `/web`, `/library`, `/ai` | 04/09 |
-| D6 | Cartella unica `Configuration\`; **nessuna variabile d'ambiente** letta da alcun binario; unico override `--config-dir` | 04/09 |
+| D6 | Cartella unica `Configuration\`; **nessuna variabile d'ambiente `LARE_*` né `LOCALAPPDATA`/`APPDATA` come sorgente di configurazione Lare**; unico override `--config-dir` (eccezioni fuori scope: le chiavi dei provider AI — `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY` — restano env; la scoperta delle cartelle Dropbox per `/find` legge `APPDATA`, integrazione con un'app terza, non configurazione Lare) | 04/09 |
 | D7 | `Test Run\` dentro il repo, specchio del layout di deploy, copiabile fuori senza modifiche | 04/09 |
 | D8 | Repo nuovo `mauriziolobello/lare-terminal-2`, slegato dalla v1: crate **copiati** | 04/09 |
 | D9 | **pwsh 7+**; Windows PowerShell 5.1 non supportata. Conseguenza (§12): Linux/macOS saranno *pwsh-flavored* | 04/09; conseguenza da confermare |
@@ -329,9 +329,13 @@ Indipendente dal WS: la host emette `ESC ] 9001 ; lare ; <evento> ; <dato> ESC \
    `shell\`: `..\Configuration\`).
 
 Vale per `orchestrator.exe`, `ui.exe`, `lare-shell.exe`, `mcp-server.exe`, `mcp-nmap.exe`, plugin,
-server Python. **Nessun binario legge variabili d'ambiente `LARE_*`**. I figli ricevono
-`--config-dir` esplicito dal padre. Il crate `startup-config` v1 perde il livello env; la host C#
-legge lo stesso `startup.json` con lo stesso schema.
+server Python. **Nessuna variabile d'ambiente `LARE_*` né `LOCALAPPDATA`/`APPDATA` come sorgente
+di configurazione Lare**. I figli ricevono `--config-dir` esplicito dal padre. Il crate
+`startup-config` v1 perde il livello env; la host C# legge lo stesso `startup.json` con lo stesso
+schema. Eccezioni fuori scope di questa regola (non sono configurazione Lare): le chiavi dei
+provider AI (`ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`) restano variabili d'ambiente; la scoperta
+delle cartelle Dropbox per `/find` legge `APPDATA` — è un'integrazione con un'app terza (Dropbox
+scrive lì il proprio `info.json`), non un modo per configurare Lare.
 
 ### 6.2 Contenuto di `Configuration\`
 
@@ -344,14 +348,14 @@ legge lo stesso `startup.json` con lo stesso schema.
 | `network.json`, `search-paths.json`, `search-content.json`, `market_data.json`, `notes.json` | `Local` | invariati |
 | `telegramsettings.json`, `telegram-state.json`, `memory-*.md` | accanto all'exe / `Local` | gitignored |
 | `routines\`, `plugin-storage\`, `library\` | `Local` / `Roaming` | invariati |
-| `logs\` | — | `orchestrator.log`, `ui.log`, `lare-shell.log`, `mcp-server.log`; rotazione giornaliera, 7 file |
+| `logs\` | — | `orchestrator.log`, `ui.log`, `lare-shell.log`, `mcp-server.log`; rotazione giornaliera, 7 file (`ui.log` non ancora implementato: `ui.exe` logga su stdout — vedi HANDOFF DA FARE) |
 
 ### 6.3 `startup.json`
 
 ```jsonc
 {
   "ws_port": 7331,
-  "paths": {                         // relativi alla cartella di startup.json, oppure assoluti
+  "paths": {                         // relativi alla cartella radice del deploy (padre di Configuration\), oppure assoluti
     "shell":        "shell/lare-shell.exe",
     "mcp_server":   "mcp-server.exe",
     "mcp_nmap":     "mcp-nmap.exe",

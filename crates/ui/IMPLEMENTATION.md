@@ -1,4 +1,16 @@
-# Implementation — crates/ui v0.47.1 (Fix review finale whole-branch: `merge_active` + nota UI)
+# Implementation — crates/ui v2.0.3
+
+## Fix wave della review finale del piano 1 (v2.0.3)
+
+Ripulitura dei commenti del frontend copiato dalla v1: ~37 occorrenze in 11 file citavano
+ancora `app.js`, il file cancellato in Task 7 (v. sezione sotto) — sostituite con `host.js`,
+il suo successore, ovunque descrivessero il contratto ATTUALE (`host.js:19,731` restano
+invariati: sono riferimenti storici corretti, "estratto da app.js (v1)"). `path-utils.js` e
+`search-status.js` citavano anche `list_path_completions`/`line-editor.js`, entrambi cancellati
+insieme al "cursore" v1 — rimossi anche questi riferimenti morti. `config_dir.rs` (`token_path`)
+ora usa `startup_config::TOKEN_FILE_NAME` invece della stringa letterale `"token"` duplicata
+(anche in `orchestrator::token_store`). Nessun cambio di comportamento: solo commenti e la
+costante condivisa.
 
 ## Pagina host: overlay F2 rimosso, `host.js`/`host.html`, flag dev `--open` (v2.0.2)
 

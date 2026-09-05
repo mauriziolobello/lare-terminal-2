@@ -1,4 +1,31 @@
-# Implementation — startup-config
+# Implementation — startup-config v2.0.2
+
+## Assolutizzazione di `--config-dir` spostata qui dall'orchestrator (v2.0.2)
+
+Fix wave della review finale (piano 1). Prima solo `orchestrator/src/main.rs` rendeva
+assoluto un `--config-dir` relativo (subito dopo averlo letto, prima di
+`set_current_dir(home)` più sotto in quello stesso `main()`) — `ui` e `mcp-server`,
+che chiamano la stessa `config_dir_from_process()`, non ne beneficiavano affatto.
+
+Estratta la logica in una funzione pura, `absolutize(p: PathBuf, cwd: &Path) ->
+PathBuf` (assoluto invariato; relativo → `cwd.join(p)`), testabile senza toccare la
+cwd reale del processo di test. `config_dir_from_process()` la chiama con
+`std::env::current_dir()` al momento della chiamata; se quella lettura fallisce
+(rarissimo) il path resta relativo invece di fallire l'avvio per un dettaglio
+secondario. Ogni binario che chiama questa funzione (orchestrator, ui, mcp-server)
+ora riceve sempre un `config_dir` assoluto, non solo l'orchestrator.
+
+Aggiunta anche `TOKEN_FILE_NAME` (accanto a `STARTUP_FILE_NAME`): prima
+`orchestrator::token_store` e `ui::config_dir` scrivevano ciascuno la stringa
+letterale `"token"` per conto proprio.
+
+Nuovi test (TDD, RED prima di `absolutize`): `absolutize` con un path relativo e uno
+assoluto; `deploy_root` con `config_dir` direttamente sotto la radice di un'unità
+(`C:/Configuration` → `C:/`); `resolve_path` con un valore "rooted" senza lettera di
+unità (`/x`) su Windows, che fissa con un test il comportamento reale di
+`PathBuf::join` in quel caso (sostituisce solo la radice della base, non l'intero
+path — vedi il commento sul test per il dettaglio; chiude il debito noto #2 di
+`HANDOFF.md`).
 
 ## API 2.0 (v2.0.1 — riscrittura Task 2, piano 1 "fondamenta")
 
@@ -30,10 +57,12 @@ reale del processo di test:
   parametro (non chiama `exe_dir()` da sola): il test non dipende da dove
   si trova il binario di test compilato.
 - `config_dir_from_process()` — l'UNICA funzione che tocca il processo
-  reale (`std::env::args()` + `exe_dir()`): comodità per i vari `main`,
-  intenzionalmente non testata con unit test diretti, stesso pattern già
-  in uso per `exe_dir()` (wrapper sottile sul confine col sistema
-  operativo — vedi nota più sotto).
+  reale (`std::env::args()` + `exe_dir()` + `std::env::current_dir()`, per
+  assolutizzare un `--config-dir` relativo tramite `absolutize`, v2.0.2):
+  comodità per i vari `main`, intenzionalmente non testata con unit test
+  diretti, stesso pattern già in uso per `exe_dir()` (wrapper sottile sul
+  confine col sistema operativo — vedi nota più sotto). `absolutize(p, cwd)`
+  sotto di lei è invece pura e testata.
 - `exe_dir()` — invariata dalla v1: `current_exe()` riflette sempre il
   path del binario realmente lanciato, mai la cwd (che PUÒ differire —
   es. `System32` per un servizio Windows senza working directory
@@ -45,9 +74,10 @@ reale del processo di test:
 col sistema operativo — intenzionalmente NON testati con unit test
 diretti, stesso pattern già in uso altrove nel progetto (es.
 `McpToolClient::resolve()`): la logica pura sotto (`parse_config_dir()`,
-`resolve_config_dir()`, `deploy_root()`, `StartupConfig::load()`,
-`StartupConfig::resolve_path()`) è invece testata a fondo via injection di
-parametri, senza mai mutare l'ambiente reale del processo di test.
+`resolve_config_dir()`, `deploy_root()`, `absolutize()`, `StartupConfig::
+load()`, `StartupConfig::resolve_path()`) è invece testata a fondo via
+injection di parametri, senza mai mutare l'ambiente reale del processo di
+test.
 
 ### Regola dei percorsi relativi in `startup.json` (radice del deploy)
 

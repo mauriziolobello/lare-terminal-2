@@ -1,5 +1,40 @@
 # Implementation — orchestrator v0.33.0 (Ammissione alla stanza — AI Chat)
 
+## Fix wave della review finale del piano 1 (v2.0.2)
+
+Solo pulizia dopo la review whole-branch, nessun cambio di comportamento visibile:
+
+- **`--config-dir` anche ai plugin** (`spawn_plugin`, `plugins/transport.rs`): la
+  regola dello spec 2.0 §6.1 ("ogni binario Lare, senza eccezioni") ora vale anche
+  per i sidecar plugin. Verificato: nessun plugin oggi fa parsing di argv, quindi
+  l'argomento è inerte — ma la regola vale comunque, non solo quando servirà.
+  `spawn_plugin` cambia firma (`bin_path, config_dir`); aggiornati i due chiamanti
+  di produzione (`main.rs`, `ws.rs` — quest'ultimo ora clona `Arc<RuntimeConfig>`
+  nel task `'static` che spawna i plugin lazy) e i 5 call site nei test e2e
+  `#[ignore]` (config_dir fittizio, `tmp.path()`).
+- **Assolutizzazione di `--config-dir` spostata in `startup-config`**: il blocco
+  locale in `main.rs` che rendeva assoluto un `--config-dir` relativo è stato
+  rimosso — lo fa ora `startup_config::config_dir_from_process()` per ogni
+  binario (vedi CHANGELOG di quel crate, v2.0.2). L'invariante di
+  `RuntimeConfig::config_dir` (SEMPRE assoluto) resta vera; il commento che la
+  documenta ora punta al crate condiviso.
+- **`ws::LISTEN_ADDR`** (costante morta, sostituita da tempo da `startup.json.
+  ws_port`): rimossa; corretti i commenti in `ws.rs`/`lib.rs` che citavano ancora
+  la porta fissa 7331.
+- **`ws_integration.rs`**: rimosso un `std::env::set_var("LARE_PYTOOLS_DIR", …)`
+  residuo e il commento che diceva che `resolve()` lo legge — non lo fa più da
+  quando questo crate è passato a `RuntimeConfig` (D6); il test resta verde
+  perché `test_rt()` usa già un `config_dir` fittizio la cui `pytools_dir`
+  risolta non esiste su disco.
+- **`token_store::resolve_token`**: usa `startup_config::TOKEN_FILE_NAME` invece
+  della stringa letterale `"token"`.
+- **`external_channel::tests::test_rt()`**: prima faceva `tempdir().unwrap().
+  keep()`, che rende permanente la tempdir (disattiva la pulizia RAII) — ogni
+  chiamata (15 nei test di questo modulo) lasciava una cartella orfana in
+  `%TEMP%`. Ora ritorna `(RuntimeConfig, TempDir)`; i 15 chiamanti tengono vivo
+  il `TempDir` per la durata del test (`let (rt, _tmp) = test_rt();`), che viene
+  ripulito al drop come dovrebbe.
+
 ## Configurazione 2.0: RuntimeConfig, figli con --config-dir, log su file (v2.0.1)
 
 Piano `2026-09-05-piano-1-fondamenta`, Task 4. Il crate `startup-config` è stato
@@ -65,6 +100,10 @@ questo task: **nessun punto del crate rilegge `--config-dir`/ricostruisce
 - **`LARE_PLUGINS_DIR` rimossa**: la v1 aveva un caso speciale (NESSUN trim/empty-
   check, per restare "consistente" con `plugins_view.rs` lato UI) prima di ricadere
   su `startup.json`/default. Un solo risolutore ora: `rt.plugins_dir()`.
+- **Anche i plugin sidecar ricevono `--config-dir`** (`spawn_plugin`, fix wave
+  della review finale, v2.0.2): la regola dello spec 2.0 §6.1 vale per OGNI
+  binario Lare senza eccezioni — oggi nessun plugin fa parsing di argv, quindi
+  l'argomento è inerte, ma la regola resta valida anche per i sidecar.
 
 ### `EXTERNAL_TOOL_CHANNELS` — factory con contesto esplicito
 
