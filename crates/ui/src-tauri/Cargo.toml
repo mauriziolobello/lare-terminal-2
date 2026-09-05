@@ -1,7 +1,7 @@
 [package]
 # Name must be "ui" so that `cargo build -p ui` (from the repo root) works.
 name = "ui"
-version = "2.0.0"
+version = "2.0.1"
 edition = "2021"
 publish = false
 
@@ -37,6 +37,11 @@ dirs = "5"
 # a notify tramite i suoi re-export (notify_debouncer_mini::notify::*).
 # Questo evita conflitti di versione nel grafo delle dipendenze.
 notify-debouncer-mini = "0"
+
+# Risoluzione della cartella di configurazione (--config-dir/startup.json) —
+# stesso crate usato da orchestrator e mcp-server (2.0, decisione D6: un solo
+# risolutore, nessuna env var). Vedi crates/ui/src-tauri/src/config_dir.rs.
+startup-config = { path = "../../startup-config" }
 
 [dev-dependencies]
 # Used in config tests: create temp files/dirs with auto-cleanup.

@@ -4,9 +4,8 @@
 // to disk as `.md` files, listing archived files, and opening them.
 // Does NOT touch Tauri APIs (those are in main.rs).
 //
-// File location at runtime: `{app_config_dir}/library/*.md`
-// where `app_config_dir` already includes the bundle identifier, e.g.:
-//   Windows: C:\Users\<user>\AppData\Roaming\dev.lare.terminal\library\
+// File location at runtime: `<config_dir>/library/*.md` (2.0: `config_dir` is
+// resolved once via `ConfigDirState`, see main.rs's `library_dir_path`).
 //
 // The `dir` parameter is injectable (&Path) so all functions are fully
 // testable without a running Tauri instance — same pattern as config.rs.

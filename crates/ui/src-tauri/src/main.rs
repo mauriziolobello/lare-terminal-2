@@ -20,12 +20,13 @@
 // Prevents a console window from appearing on Windows in release builds.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod window;
-mod search_settings;
 mod aichat_settings;
+mod config_dir;
 mod llm_settings;
 mod market_data_settings;
 mod plugins_view;
+mod search_settings;
+mod window;
 
 /// Riconosce il comando di uscita pulita digitato sullo stdin interattivo ("Q"/"quit",
 /// case-insensitive, spazi ai bordi ignorati). Vedi il thread stdin-reader in `.setup()`:
@@ -37,6 +38,7 @@ fn is_quit_command(line: &str) -> bool {
     matches!(line.trim().to_lowercase().as_str(), "q" | "quit")
 }
 
+use config_dir::ConfigDirState;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Duration;
@@ -94,62 +96,44 @@ struct LibraryWatchGuard(Mutex<library_watch::WatchGuard>);
 // Tauri commands
 // ---------------------------------------------------------------------------
 
-/// Resolve the Lare auth token using the same order as the orchestrator:
-///   1. `LARE_TOKEN` env var (backward compat + dev override)
-///   2. `<app_local_data_dir>/token` file (persistent; works when orchestrator
-///      runs as a service — env vars don't cross session boundaries)
-///   3. Empty string (UI shows "error" status + triggers auto-diagnosis)
-///
-/// `app_local_data_dir` resolves to `%LOCALAPPDATA%\dev.lare.terminal\` on
-/// Windows — the same path the orchestrator writes the token file to, unless
-/// `LARE_LOCAL_DIR` overrides it (see the inline comment in step 2 below) —
-/// in which case both processes must agree on the same override value.
+/// Legge il token dal file `<config_dir>/token` — STESSA cartella
+/// dell'orchestrator (che lo genera al primo avvio, vedi
+/// `orchestrator::token_store::resolve_token`), STESSO file: nessuna env var
+/// (2.0, decisione D6). `config_dir` viene dallo stato gestito da Tauri
+/// (`ConfigDirState`, risolto una volta in `main()`), non ri-derivato qui.
+/// Stringa vuota se il file è assente/vuoto — la UI mostra lo stato
+/// "errore" e innesca l'auto-diagnosi, come in v1.
 fn read_lare_token(app: &AppHandle) -> String {
-    // 1. env var
-    if let Ok(t) = std::env::var("LARE_TOKEN") {
-        let t = t.trim().to_string();
-        if !t.is_empty() {
-            return t;
-        }
-    }
-    // 2. token file in the local app-data directory. LARE_LOCAL_DIR (full-path
-    //    override) wins first — must match the orchestrator's resolution exactly,
-    //    or the two processes would read/write the token in different folders.
-    //    Falls back to Tauri's app_local_data_dir() (same folder as
-    //    %LOCALAPPDATA%\dev.lare.terminal\ given the "dev.lare.terminal" bundle
-    //    identifier), same as today.
-    let local_data_dir = match std::env::var("LARE_LOCAL_DIR") {
-        Ok(dir) if !dir.trim().is_empty() => Some(std::path::PathBuf::from(dir)),
-        _ => app.path().app_local_data_dir().ok(),
-    };
-    if let Some(dir) = local_data_dir {
-        if let Ok(raw) = std::fs::read_to_string(dir.join("token")) {
-            let t = raw.trim().to_string();
-            if !t.is_empty() {
-                return t;
-            }
-        }
-    }
-    String::new()
+    config_dir::read_token(&app.state::<ConfigDirState>().config_dir)
 }
 
 /// Return the resolved Lare auth token to the frontend.
 ///
 /// The frontend uses this to authenticate the WebSocket connection to the
-/// orchestrator.  Returns an empty string if no token is available (neither
-/// env var nor token file); the frontend will then trigger auto-diagnosis.
+/// orchestrator.  Returns an empty string if no token is available (the
+/// token file is absent or empty); the frontend will then trigger
+/// auto-diagnosis.
 #[tauri::command]
 fn get_lare_token(app: AppHandle) -> String {
     read_lare_token(&app)
 }
 
+/// Endpoint WebSocket dell'orchestrator, per il frontend (2.0: la porta è
+/// configurabile via `startup.json`, non più hardcoded — vedi `ws-client.js`,
+/// che la richiede con questo comando prima di aprire la connessione invece
+/// di tenere una costante `WS_URL` propria).
+#[tauri::command]
+fn get_ws_endpoint(state: State<'_, ConfigDirState>) -> String {
+    state.ws_endpoint()
+}
+
 /// Structured result returned by `diagnose_connection`.
 #[derive(serde::Serialize)]
 struct ConnectionDiagnosis {
-    /// Whether `LARE_TOKEN` is set and non-empty in the UI process environment.
+    /// Whether the token file (`<config_dir>/token`) resolves to a non-empty value.
     token_set: bool,
-    /// Whether TCP port 7331 (the orchestrator WS address) accepted a connection
-    /// within a short timeout.  True = orchestrator is listening; false = not up.
+    /// Whether the orchestrator's WS port accepted a connection within a short
+    /// timeout.  True = orchestrator is listening; false = not up.
     port_open: bool,
 }
 
@@ -157,24 +141,29 @@ struct ConnectionDiagnosis {
 ///
 /// Called by the frontend after persistent connection failures to surface
 /// actionable guidance via a Markdown window.  Two checks:
-///   1. Is a token available (env var or token file)?
-///   2. Can we open a TCP connection to `127.0.0.1:7331` within 400 ms?
+///   1. Is a token available (`<config_dir>/token`)?
+///   2. Can we open a TCP connection to `127.0.0.1:<ws_port>` within 400 ms?
+///      `ws_port` viene da `startup.json` (via `ConfigDirState`), non più
+///      hardcoded a 7331 — altrimenti, con una porta personalizzata, questa
+///      diagnosi mentirebbe all'utente controllando la porta sbagliata.
 ///
 /// The TCP check is blocking (≤400 ms) but runs on Tauri's thread pool, so
 /// it does not block the UI event loop.
 #[tauri::command]
-fn diagnose_connection(app: AppHandle) -> ConnectionDiagnosis {
+fn diagnose_connection(app: AppHandle, state: State<'_, ConfigDirState>) -> ConnectionDiagnosis {
     let token_set = !read_lare_token(&app).is_empty();
 
+    let addr = format!("127.0.0.1:{}", state.startup.ws_port);
     let port_open = std::net::TcpStream::connect_timeout(
-        &"127.0.0.1:7331"
-            .parse()
-            .expect("literal addr is always valid"),
+        &addr.parse().expect("host:port letterale sempre valido"),
         std::time::Duration::from_millis(400),
     )
     .is_ok();
 
-    ConnectionDiagnosis { token_set, port_open }
+    ConnectionDiagnosis {
+        token_set,
+        port_open,
+    }
 }
 
 /// Return the user's home directory as a string.
@@ -491,7 +480,12 @@ async fn open_screener_picker_window(
         // source_file = label della finestra /markets opener.
         map.insert(
             label.clone(),
-            ("Seleziona screener".to_string(), items_json, "screener-picker".to_string(), opener_label),
+            (
+                "Seleziona screener".to_string(),
+                items_json,
+                "screener-picker".to_string(),
+                opener_label,
+            ),
         );
     } // lock released here
 
@@ -614,7 +608,10 @@ async fn open_routine_preview(
     let label = {
         use std::sync::atomic::{AtomicU32, Ordering};
         use std::time::{SystemTime, UNIX_EPOCH};
-        let ts = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
+        let ts = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
         static CTR: AtomicU32 = AtomicU32::new(0);
         let ctr = CTR.fetch_add(1, Ordering::Relaxed);
         format!("routine-preview-{ts}-{ctr}")
@@ -638,7 +635,15 @@ async fn open_routine_preview(
 
     {
         let mut map = store.0.lock().map_err(|e| format!("lock error: {e}"))?;
-        map.insert(label.clone(), (title.clone(), payload, "routine_preview".to_string(), String::new()));
+        map.insert(
+            label.clone(),
+            (
+                title.clone(),
+                payload,
+                "routine_preview".to_string(),
+                String::new(),
+            ),
+        );
     }
 
     WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("routine-preview.html".into()))
@@ -677,7 +682,9 @@ fn take_window_content(
     let label = webview.label().to_string();
     let mut map = store.0.lock().ok()?;
     let (title, content, kind, source_file) = map.remove(&label)?;
-    Some(serde_json::json!({ "title": title, "content": content, "kind": kind, "source_file": source_file }))
+    Some(
+        serde_json::json!({ "title": title, "content": content, "kind": kind, "source_file": source_file }),
+    )
 }
 
 /// Close the calling Markdown window programmatically.
@@ -740,50 +747,41 @@ fn apply_hotkey(app: &AppHandle, key: &str) -> Result<(), String> {
 // Config file path
 // ---------------------------------------------------------------------------
 
-/// Compute the path to the config file: `{app_config_dir}/config.json`.
-///
-/// `app_config_dir` resolves to `{Roaming}/{bundle_identifier}` on Windows
-/// (e.g. `C:\Users\<user>\AppData\Roaming\dev.lare.terminal\`), unless
-/// `LARE_ROAMING_DIR` overrides it (full-path override, used verbatim).
+/// Percorso del file di configurazione: `<config_dir>/config.json` (2.0: la
+/// firma resta `Result<PathBuf, String>` perché molti chiamanti già usano
+/// `?` su questo comando — ma il corpo ora è infallibile, delega a
+/// `config_dir::config_file_path` con la cartella già risolta in `ConfigDirState`,
+/// nessuna risoluzione locale/env var residua (v1 leggeva una directory dati
+/// applicativa fornita dal framework, con un override a parte).
 fn config_file_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
-    if let Ok(dir) = std::env::var("LARE_ROAMING_DIR") {
-        if !dir.trim().is_empty() {
-            return Ok(std::path::PathBuf::from(dir).join("config.json"));
-        }
-    }
-    let dir = app
-        .path()
-        .app_config_dir()
-        .map_err(|e| format!("cannot resolve app_config_dir: {e}"))?;
-    Ok(dir.join("config.json"))
+    Ok(config_dir::config_file_path(
+        &app.state::<ConfigDirState>().config_dir,
+    ))
 }
 
-/// Compute the path to the archive library directory: `{app_config_dir}/library`.
-///
-/// Same root as `config.json` — including the `LARE_ROAMING_DIR` override, if set.
-/// The directory is created lazily by `archive::save`.
+/// Percorso della cartella Library: `<config_dir>/library` — stessa cartella
+/// di `config.json` (2.0: in v1 era una sottocartella della stessa directory
+/// dati applicativa di sopra, con lo stesso override; ora un solo risolutore,
+/// `ConfigDirState`). La cartella viene creata lazy da `archive::save`.
 fn library_dir_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
-    if let Ok(dir) = std::env::var("LARE_ROAMING_DIR") {
-        if !dir.trim().is_empty() {
-            return Ok(std::path::PathBuf::from(dir).join("library"));
-        }
-    }
-    let dir = app
-        .path()
-        .app_config_dir()
-        .map_err(|e| format!("cannot resolve app_config_dir: {e}"))?;
-    Ok(dir.join("library"))
+    Ok(config_dir::library_dir_path(
+        &app.state::<ConfigDirState>().config_dir,
+    ))
 }
 
-/// Compute the path to the Find archive directory: `{app_config_dir}/library/find`.
+/// Compute the path to the Find archive directory: `<config_dir>/library/find`.
 ///
 /// Subdirectory of `library_dir_path`; created eagerly in `.setup` (best-effort)
-/// and also by `archive::save_find` on first save.
+/// and also by `archive::save_find` on first save. Delega a
+/// `config_dir::find_dir_path` invece di ricomporre `library_dir_path(app)?.join("find")`
+/// a mano — stessa regola espressa in un solo posto.
 fn library_find_dir_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
-    Ok(library_dir_path(app)?.join("find"))
+    Ok(config_dir::find_dir_path(
+        &app.state::<ConfigDirState>().config_dir,
+    ))
 }
 
-/// `{app_config_dir}/library/documents` — la cartella dei markdown (nuovo layout v0.26.0).
+/// `<config_dir>/library/documents` — la cartella dei markdown (nuovo layout v0.26.0).
 ///
 /// Tutti i comandi documento (`archive_save`, `archive_list`, `archive_open`,
 /// `archive_delete`, `archive_list_tree`, `archive_create_folder`,
@@ -807,8 +805,8 @@ fn documents_dir_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
 /// Mantenuto per compatibilità (es. navigazione struttura), ma il bottone 📂
 /// nella Library ora usa `documents_dir` (coerente con la vista Explorer).
 ///
-/// Returns `Err` only if `app_config_dir` cannot be resolved (very unlikely
-/// in a running Tauri app).
+/// Non fallisce mai in pratica (2.0: `library_dir_path` è infallibile, la
+/// firma `Result` resta per compatibilità con i chiamanti esistenti).
 #[tauri::command]
 fn library_dir(app: AppHandle) -> Result<String, String> {
     Ok(library_dir_path(&app)?.to_string_lossy().into_owned())
@@ -820,7 +818,7 @@ fn library_dir(app: AppHandle) -> Result<String, String> {
 /// nell'Explorer di sistema — coerente con ciò che mostra la vista ad albero.
 /// Sostituisce `library_dir` per questo scopo specifico (v0.26.0).
 ///
-/// Returns `Err` only if `app_config_dir` cannot be resolved.
+/// Non fallisce mai in pratica (stesso motivo di `library_dir` sopra).
 #[tauri::command]
 fn documents_dir(app: AppHandle) -> Result<String, String> {
     Ok(documents_dir_path(&app)?.to_string_lossy().into_owned())
@@ -848,7 +846,12 @@ fn archive_delete(app: AppHandle, file: String) -> Result<(), String> {
 /// `file` è il rel-path del documento (può contenere sottocartelle), noto
 /// alla finestra tramite `source_file` (vedi Task 2).
 #[tauri::command]
-fn archive_update(app: AppHandle, file: String, title: String, content: String) -> Result<(), String> {
+fn archive_update(
+    app: AppHandle,
+    file: String,
+    title: String,
+    content: String,
+) -> Result<(), String> {
     let library_dir = documents_dir_path(&app)?;
     archive::update(&library_dir, &file, &title, &content)
 }
@@ -1139,16 +1142,20 @@ async fn open_note_window(
         return Ok(());
     }
 
-    WebviewWindowBuilder::new(&app, "note-compose", WebviewUrl::App("note-window.html".into()))
-        .title("Lare — Nota")
-        .inner_size(440.0, 400.0)
-        .decorations(false)
-        .transparent(true)
-        .resizable(true)
-        .always_on_top(true)
-        .focused(true)
-        .build()
-        .map_err(|e| format!("open_note_window build() failed: {e}"))?;
+    WebviewWindowBuilder::new(
+        &app,
+        "note-compose",
+        WebviewUrl::App("note-window.html".into()),
+    )
+    .title("Lare — Nota")
+    .inner_size(440.0, 400.0)
+    .decorations(false)
+    .transparent(true)
+    .resizable(true)
+    .always_on_top(true)
+    .focused(true)
+    .build()
+    .map_err(|e| format!("open_note_window build() failed: {e}"))?;
     Ok(())
 }
 
@@ -1163,11 +1170,7 @@ async fn open_note_window(
 ///
 /// Returns the plain filename created (e.g. `"my-window-1718000000000.md"`).
 #[tauri::command]
-fn archive_save(
-    app: AppHandle,
-    title: String,
-    content: String,
-) -> Result<String, String> {
+fn archive_save(app: AppHandle, title: String, content: String) -> Result<String, String> {
     // v0.26.0: salva in documents/ (nuovo layout) invece della root library/.
     let library_dir = documents_dir_path(&app)?;
 
@@ -1288,8 +1291,8 @@ async fn open_saved_find_window(
     let record = archive::open_find(&dir, &file)?;
 
     // Step 2: serialize as JSON and build the "saved:" payload.
-    let json = serde_json::to_string(&record)
-        .map_err(|e| format!("cannot serialize ArchiveFind: {e}"))?;
+    let json =
+        serde_json::to_string(&record).map_err(|e| format!("cannot serialize ArchiveFind: {e}"))?;
     let content = format!("saved:{json}");
 
     // Step 3: generate a unique window label.
@@ -1336,7 +1339,22 @@ async fn open_saved_find_window(
 // ---------------------------------------------------------------------------
 
 fn main() {
+    // ── Risoluzione della cartella di configurazione (2.0, decisione D6):
+    //    `--config-dir` dagli argv reali, altrimenti `<exe_dir>/Configuration`
+    //    — PRIMA di costruire il builder, così è disponibile sia per
+    //    `.manage()` sotto sia per il log di avvio. `warn` è `Some` solo se
+    //    `startup.json` esiste ma è illeggibile/malformato (file assente →
+    //    default silenzioso, non è un errore).
+    let (cfg_state, warn) = config_dir::ConfigDirState::from_process();
+    if let Some(w) = warn {
+        eprintln!("[ui] {w}");
+    }
+    println!("[ui] config dir: {}", cfg_state.config_dir.display());
+
     tauri::Builder::default()
+        // Stato gestito: cartella di configurazione + startup.json, risolti
+        // una volta sopra — nessun comando/modulo li ri-deriva da solo.
+        .manage(cfg_state)
         // -----------------------------------------------------------------
         // Clipboard plugin: enables read/write of the system clipboard from
         // the JS frontend via window.__TAURI__.clipboardManager.
@@ -1414,6 +1432,7 @@ fn main() {
             hide_overlay,
             show_overlay,
             get_lare_token,
+            get_ws_endpoint,
             diagnose_connection,
             get_config,
             set_config,
@@ -1461,16 +1480,12 @@ fn main() {
             open_saved_find_window,
         ])
         .setup(|app| {
-            // ── Diagnostic: print the resolved Local/Roaming data dirs once at
-            //    startup, so the user doesn't have to go hunting for them.
-            let local_data_dir = match std::env::var("LARE_LOCAL_DIR") {
-                Ok(dir) if !dir.trim().is_empty() => Ok(std::path::PathBuf::from(dir)),
-                _ => app.handle().path().app_local_data_dir(),
-            };
-            match local_data_dir {
-                Ok(dir) => println!("[ui] Local data dir: {}", dir.display()),
-                Err(e) => eprintln!("[ui] Local data dir: error resolving ({e})"),
-            }
+            // ── Diagnostica (2.0): un'unica cartella di configurazione, non più
+            //    due (Local/Roaming) come in v1 — già stampata in main() da
+            //    `ConfigDirState::from_process()` prima che il builder partisse.
+            //    `config.json` e `library/` vivono entrambi lì (vedi
+            //    `config_file_path`/`library_dir_path` sotto): un secondo print
+            //    qui ripeterebbe la stessa cartella con un'etichetta diversa.
 
             // ── Load config from disk (or defaults on first run). ──────────
             let config_path = config_file_path(app.handle()).unwrap_or_else(|e| {
@@ -1478,9 +1493,6 @@ fn main() {
                 // A non-persistent fallback path (writes will fail silently).
                 std::path::PathBuf::from("lare-terminal-config.json")
             });
-            if let Some(dir) = config_path.parent() {
-                println!("[ui] Roaming data dir: {}", dir.display());
-            }
 
             let cfg = config::load_from(&config_path);
             println!("[ui] Loaded config: action_key={:?}", cfg.action_key);
@@ -1504,8 +1516,8 @@ fn main() {
             // ── Ensure the archive (library) directory exists, so the Library
             //    "Apri" button always has a folder to open — even before the
             //    first save (the dir is otherwise created lazily on save).
-            //    The UI owns this path (Tauri app_config_dir), so it is the
-            //    right side to create it; best-effort, never fatal.
+            //    The UI owns this path (under the resolved config dir), so it
+            //    is the right side to create it; best-effort, never fatal.
             match library_dir_path(app.handle()) {
                 Ok(dir) => {
                     if let Err(e) = std::fs::create_dir_all(&dir) {
@@ -1633,7 +1645,10 @@ mod quit_command_tests {
         assert!(is_quit_command("Q"));
         assert!(is_quit_command("quit"));
         assert!(is_quit_command("QUIT"));
-        assert!(is_quit_command("  q  "), "gli spazi ai bordi vanno ignorati");
+        assert!(
+            is_quit_command("  q  "),
+            "gli spazi ai bordi vanno ignorati"
+        );
     }
 
     #[test]
@@ -1655,9 +1670,15 @@ mod list_path_completions_tests {
         let mut result = list_path_completions(cwd, String::new(), "do".to_string());
         result.sort();
         #[cfg(windows)]
-        assert_eq!(result, vec!["Documents\\".to_string(), "Downloads\\".to_string()]);
+        assert_eq!(
+            result,
+            vec!["Documents\\".to_string(), "Downloads\\".to_string()]
+        );
         #[cfg(not(windows))]
-        assert!(result.is_empty(), "case-sensitive on non-Windows: 'do' must not match 'Documents'/'Downloads'");
+        assert!(
+            result.is_empty(),
+            "case-sensitive on non-Windows: 'do' must not match 'Documents'/'Downloads'"
+        );
     }
 
     #[test]
@@ -1673,7 +1694,11 @@ mod list_path_completions_tests {
 
     #[test]
     fn nonexistent_directory_returns_empty_not_a_panic() {
-        let result = list_path_completions("Z:\\definitely\\does\\not\\exist".to_string(), String::new(), String::new());
+        let result = list_path_completions(
+            "Z:\\definitely\\does\\not\\exist".to_string(),
+            String::new(),
+            String::new(),
+        );
         assert!(result.is_empty());
     }
 

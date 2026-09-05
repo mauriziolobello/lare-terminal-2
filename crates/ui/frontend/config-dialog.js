@@ -721,11 +721,14 @@ export class ConfigDialog {
     // bottone bloccato su "Verifica in corso…" per sempre — un fallimento
     // peggiore di quello che la guardia onStatus qui sotto previene già.
     let token = "";
+    let url = "";
     if (this._invoke) {
       try {
         token = (await this._invoke("get_lare_token")) ?? "";
+        // Porta WS da startup.json (2.0), stessa guardia del token sopra.
+        url = (await this._invoke("get_ws_endpoint")) ?? "";
       } catch (e) {
-        console.error("[config-dialog] get_lare_token error:", e);
+        console.error("[config-dialog] get_lare_token/get_ws_endpoint error:", e);
         resultEl.textContent = "❌ Impossibile ottenere il token.";
         btn.disabled = false;
         return;
@@ -735,6 +738,7 @@ export class ConfigDialog {
     let settled = false;
 
     const client = new LareWsClient({
+      url,
       token,
       channel: "config-market-data-test",
       // Stessa guardia usata da runExpand()/library-expand: senza questo

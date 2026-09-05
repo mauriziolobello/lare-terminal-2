@@ -260,11 +260,14 @@ async function bootstrap() {
     expandStatusEl.textContent = "🔄 espando…";
 
     const token = (await invokeCmd("get_lare_token")) ?? "";
+    // Porta WS da startup.json (2.0), stesso comando usato da app.js.
+    const url = (await invokeCmd("get_ws_endpoint")) ?? "";
     const requestId = crypto.randomUUID();
     let buffer = "";
     let settled = false;
 
     const client = new LareWsClient({
+      url,
       token,
       channel: "library-expand",
       // LareWsClient retries indefinitely on drop (exponential backoff, no

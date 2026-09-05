@@ -1,5 +1,5 @@
 //! Lettura/scrittura del provider LLM attivo in `llms.json` (di proprietà
-//! dell'orchestrator, in `%LOCALAPPDATA%\dev.lare.terminal\` — stesso path che
+//! dell'orchestrator, in `<config_dir>` — stesso path che
 //! `orchestrator::llms_config::resolve_path` risolve, vedi
 //! `Docs/superpowers/specs/2026-07-07-llms-config-ui-tab-design.md`).
 //!
@@ -10,7 +10,10 @@
 //! omesso per disciplina, non esiste nello schema. Aggiungere/rimuovere provider o
 //! editare le API key resta editing a mano del file JSON.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use tauri::State;
+
+use crate::config_dir::ConfigDirState;
 
 /// Un provider, per la sola visualizzazione nel tab (mai una API key).
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq)]
@@ -27,20 +30,11 @@ pub struct LlmSettings {
     pub providers: Vec<LlmProviderInfo>,
 }
 
-/// Percorso di `llms.json` — check `LARE_LOCAL_DIR` prima, poi
-/// `%LOCALAPPDATA%\dev.lare.terminal\`, stesso path che
-/// `orchestrator::llms_config::resolve_path` risolve di default (nessun
-/// coordinamento a runtime fra i due processi: entrambi hardcodano la stessa
-/// costante).
-fn llms_json_path() -> PathBuf {
-    let base = match std::env::var("LARE_LOCAL_DIR") {
-        Ok(dir) if !dir.trim().is_empty() => PathBuf::from(dir),
-        _ => match std::env::var("LOCALAPPDATA") {
-            Ok(local) if !local.is_empty() => PathBuf::from(local).join("dev.lare.terminal"),
-            _ => PathBuf::from(".lare-data"),
-        },
-    };
-    base.join("llms.json")
+/// Percorso di `llms.json` — SEMPRE `<config_dir>/llms.json`, stesso path che
+/// `orchestrator::llms_config::resolve_path` risolve (2.0: entrambi i processi
+/// usano lo stesso crate `startup-config`, nessuna divergenza possibile).
+fn llms_json_path(config_dir: &Path) -> PathBuf {
+    config_dir.join("llms.json")
 }
 
 /// Estrae `active`+`providers[].{name,model}` da un JSON grezzo. Pura (nessun
@@ -49,7 +43,10 @@ fn llms_json_path() -> PathBuf {
 /// produce il default vuoto — mai un panic: il dialog deve sempre potersi
 /// aprire, anche col file assente o corrotto.
 fn parse_llm_settings(content: &str) -> LlmSettings {
-    let empty = || LlmSettings { active: String::new(), providers: Vec::new() };
+    let empty = || LlmSettings {
+        active: String::new(),
+        providers: Vec::new(),
+    };
     let Ok(value) = serde_json::from_str::<serde_json::Value>(content) else {
         return empty();
     };
@@ -80,8 +77,8 @@ fn parse_llm_settings(content: &str) -> LlmSettings {
 /// → `{active: "", providers: []}` — il tab mostra la nota informativa invece
 /// della lista (vedi `config-dialog.js::_buildLlmTab`, Task 3).
 #[tauri::command]
-pub fn get_llm_settings() -> LlmSettings {
-    let content = std::fs::read_to_string(llms_json_path()).unwrap_or_default();
+pub fn get_llm_settings(state: State<'_, ConfigDirState>) -> LlmSettings {
+    let content = std::fs::read_to_string(llms_json_path(&state.config_dir)).unwrap_or_default();
     parse_llm_settings(&content)
 }
 
@@ -124,8 +121,8 @@ fn merge_active(existing: &str, active: &str) -> Result<String, String> {
 /// key da mettere) — fallisce esplicitamente se il file non esiste o non
 /// contiene il provider scelto.
 #[tauri::command]
-pub fn set_llm_settings(active: String) -> Result<(), String> {
-    let path = llms_json_path();
+pub fn set_llm_settings(active: String, state: State<'_, ConfigDirState>) -> Result<(), String> {
+    let path = llms_json_path(&state.config_dir);
     let existing =
         std::fs::read_to_string(&path).map_err(|e| format!("llms.json: lettura fallita ({e})"))?;
     let merged = merge_active(&existing, &active)?;
@@ -202,13 +199,25 @@ mod tests {
         }"#;
         let out = merge_active(existing, "deepseek-openrouter").unwrap();
         let v: serde_json::Value = serde_json::from_str(&out).unwrap();
-        assert_eq!(v["active"], "deepseek-openrouter", "solo active deve cambiare");
+        assert_eq!(
+            v["active"], "deepseek-openrouter",
+            "solo active deve cambiare"
+        );
         assert_eq!(
             v["api_keys"]["openrouter"], "sk-or-real-secret",
             "api_keys devono restare intatte — questo e' il test di sicurezza centrale"
         );
-        assert_eq!(v["api_keys"]["anthropic"], "sk-ant-real-secret", "api_keys intatte");
-        assert_eq!(v["providers"][0]["api_key_ref"], "openrouter", "provider fields intatti");
-        assert_eq!(v["providers"][1]["model"], "claude-sonnet-4-6", "provider fields intatti");
+        assert_eq!(
+            v["api_keys"]["anthropic"], "sk-ant-real-secret",
+            "api_keys intatte"
+        );
+        assert_eq!(
+            v["providers"][0]["api_key_ref"], "openrouter",
+            "provider fields intatti"
+        );
+        assert_eq!(
+            v["providers"][1]["model"], "claude-sonnet-4-6",
+            "provider fields intatti"
+        );
     }
 }

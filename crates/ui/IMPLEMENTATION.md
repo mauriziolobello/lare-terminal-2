@@ -1,5 +1,105 @@
 # Implementation — crates/ui v0.47.1 (Fix review finale whole-branch: `merge_active` + nota UI)
 
+## Configurazione 2.0: `ConfigDirState`, `get_ws_endpoint`, un solo risolutore (v2.0.1)
+
+Piano `2026-09-05-piano-1-fondamenta`, Task 6. Il fork v1 di questo crate leggeva
+`LARE_TOKEN`/`LARE_LOCAL_DIR`/`LARE_ROAMING_DIR`/`LARE_PLUGINS_DIR`/`LOCALAPPDATA` in sei punti
+indipendenti, più `app_local_data_dir()`/`app_config_dir()` di Tauri — nessuna garanzia che
+concordassero fra loro né con l'orchestrator (Task 4, `RuntimeConfig`) o `mcp-server` (Task 3),
+entrambi già migrati allo stesso crate `startup-config` (Task 2).
+
+### `ConfigDirState` — lo stesso pattern "context object" di `RuntimeConfig`
+
+Nuovo modulo `config_dir.rs` (dichiarato SOLO in `main.rs`, non in `lib.rs`: è binary-only,
+come `search_settings`/`aichat_settings`/ecc.):
+
+```rust
+pub struct ConfigDirState {
+    pub config_dir: PathBuf,   // SEMPRE risolto in main(), prima del Builder
+    pub startup: StartupConfig,
+}
+impl ConfigDirState {
+    pub fn from_process() -> (Self, Option<String>) { /* config_dir_from_process() + StartupConfig::load */ }
+    pub fn ws_endpoint(&self) -> String { format!("ws://127.0.0.1:{}", self.startup.ws_port) }
+    pub fn plugins_dir(&self) -> PathBuf { StartupConfig::resolve_path(&self.config_dir, &self.startup.paths.plugins_dir) }
+}
+pub fn token_path(config_dir: &Path) -> PathBuf { config_dir.join("token") }
+pub fn config_file_path(config_dir: &Path) -> PathBuf { config_dir.join("config.json") }
+pub fn library_dir_path(config_dir: &Path) -> PathBuf { config_dir.join("library") }
+pub fn find_dir_path(config_dir: &Path) -> PathBuf { library_dir_path(config_dir).join("find") }
+pub fn read_token(config_dir: &Path) -> String { /* legge, trim, "" se assente/vuoto */ }
+```
+
+Gestito da Tauri con `.manage(cfg_state)` in `main()` (prima del `Builder`, così è disponibile
+sia a `.setup()` sia a ogni comando via `State<'_, ConfigDirState>`/`app.state::<ConfigDirState>()`).
+A differenza dell'orchestrator (`token_store::resolve_token`, che genera il token al primo
+avvio), `config_dir::read_token` è SOLA lettura: chi lo crea resta l'orchestrator, `ui` legge
+lo stesso file `<config_dir>/token`.
+
+TDD: `config_dir.rs` scritto PRIMA come solo modulo test (con `use super::*` che referenzia
+`token_path`/`read_token`/`ConfigDirState`/`StartupConfig` non ancora esistenti) →
+`cargo test -p ui config_dir` → 11 errori di compilazione (E0422/E0425/E0433) → RED. Poi
+l'implementazione sopra → 3 test GREEN.
+
+### `get_ws_endpoint` — la porta WS non è più hardcoded nel frontend
+
+`ws-client.js` aveva `const WS_URL = "ws://127.0.0.1:7331";` — un SECONDO risolutore della
+porta, indipendente da `startup.json.ws_port` e capace di divergerne silenziosamente.
+`LareWsClient` ora richiede `url` nel costruttore (nessun default: un default silenzioso
+reintrodurrebbe lo stesso problema); i 4 punti che lo costruiscono (`app.js::initClient`,
+`config-dialog.js::_runMarketDataTest`, `external-channel-window.js::init`,
+`window.js::runExpand`) chiamano `await invoke("get_ws_endpoint")` — nuovo comando Tauri,
+`state.ws_endpoint()` — prima di aprire la connessione. `diagnose_connection` verifica la
+stessa porta configurata (`state.startup.ws_port`), non più `7331` hardcoded: con una porta
+personalizzata in `startup.json`, il vecchio codice avrebbe controllato la porta sbagliata e
+mostrato una diagnosi falsa all'utente.
+
+### I 5 moduli settings — un parametro al posto di un risolutore locale
+
+`search_settings.rs`, `market_data_settings.rs`, `llm_settings.rs`, `aichat_settings.rs`
+avevano ciascuno una funzione locale (`search_paths_json_path`/`market_data_json_path`/
+`llms_json_path`/`app_data_dir`) che ripeteva la stessa catena
+`LARE_LOCAL_DIR`→`LOCALAPPDATA`→`.lare-data`. Ora ogni funzione prende `config_dir: &Path` ed è
+`config_dir.join(<nome-file>)`; i comandi Tauri corrispondenti guadagnano
+`state: State<'_, ConfigDirState>` e passano `&state.config_dir`. `aichat_settings.rs` conserva
+il fallback non distruttivo `network.json` → `aichat.json` legacy (`read_existing_settings_json`,
+`legacy_aichat_json_path`) — cambia solo la base (`config_dir` invece di `app_data_dir()`), la
+logica di migrazione resta identica.
+
+`plugins_view::plugins_dir()` è stata rimossa (non solo modificata): il comando `list_plugins`
+usa `state.plugins_dir()` — sparisce anche il caso speciale `LARE_PLUGINS_DIR` (v1: nessun
+trim/empty-check su quella variabile, un'incoerenza deliberata mai più necessaria con un solo
+risolutore condiviso con l'orchestrator).
+
+### `main.rs` — cablaggio
+
+`config_file_path(app)`/`library_dir_path(app)` mantengono la firma `Result<PathBuf, String>`
+(molti chiamanti in questo file usano `?`), ma il corpo diventa infallibile — delega a
+`config_dir::config_file_path`/`library_dir_path` con `&app.state::<ConfigDirState>().config_dir`.
+`library_find_dir_path` delega a `config_dir::find_dir_path` invece di ricomporre
+`library_dir_path(app)?.join("find")` a mano. La diagnostica in `.setup()` che stampava
+"Local data dir"/"Roaming data dir" (due etichette per un'unica cartella, dopo questa
+unificazione) è sparita: `config dir` resta stampato una volta in `main()`, prima del
+`Builder` — `.manage(cfg_state)` è la prima chiamata sulla catena, così sia `.setup()` sia
+ogni comando lo trovano già gestito.
+
+### Verifica
+
+`grep -rn 'env::var("LARE_\|LOCALAPPDATA\|APPDATA\|app_local_data_dir\|app_config_dir' src`
+vuoto — esteso anche a `config.rs`/`archive.rs` (`ui_lib`), che citavano la vecchia risoluzione
+solo in un commento di modulo, mai nella logica (`Config`/l'archivio prendono `&Path` iniettabile
+da sempre, invariati). `cargo test -p ui`: 153/153 (100 lib + 53 bin). `node --test
+frontend/*.test.mjs`: 269/269 (`ws-client.test.mjs` aggiornato con `url: "ws://127.0.0.1:7331"`
+nei 2 costruttori, anche se quei test non chiamano mai `connect()`). `cargo clippy -p ui
+--all-targets`: un solo warning, preesistente (`open_routine_preview`, `too_many_arguments`),
+verificato via `git stash` che esisteva già prima di questo task.
+
+**Fuori scope, segnalato non corretto**: `connection-diagnosis.js`/`.test.mjs` mostrano ancora
+`$env:LARE_TOKEN = "..."` come guida utente e l'etichetta `"porta TCP 7331"`; `app.js` ha un
+`console.error` con lo stesso testo. Nessuno di questi file è nell'elenco file del Task 6 —
+copy utente, non un risolutore duplicato — impatto pratico nullo col default `ws_port=7331`,
+fuorviante solo con una porta personalizzata.
+
 > Piano `2026-08-14-financial-markets-ibkr-data-source`, fix wave post-review
 > (`.superpowers/sdd/2026-08-14-financial-markets-ibkr-data-source/review-fix-wave-brief.md`,
 > Fix B — CRITICO, e Fix G).

@@ -18,7 +18,6 @@
 // All server messages are forwarded to the onMessage callback unconditionally
 // (the switch in app.js handles dispatch by type).
 
-const WS_URL = "ws://127.0.0.1:7331";
 const RETRY_INITIAL_MS = 1000;
 const RETRY_MAX_MS = 8000;
 
@@ -26,19 +25,28 @@ const RETRY_MAX_MS = 8000;
  * LareWsClient
  *
  * Usage:
- *   const client = new LareWsClient({ token, onStatus, onMessage });
+ *   const url = await invoke("get_ws_endpoint");   // "ws://127.0.0.1:<ws_port>"
+ *   const client = new LareWsClient({ url, token, onStatus, onMessage });
  *   client.connect();
  *   client.sendCommand("dir", "cmd-uuid");
  *   client.disconnect();
+ *
+ * `url` è obbligatorio (2.0): niente più una costante `WS_URL` hardcoded qui
+ * dentro — sarebbe un SECONDO risolutore della porta WS, che duplicherebbe
+ * `startup.json.ws_port` invece di leggerlo. Ogni chiamante lo richiede col
+ * comando Tauri `get_ws_endpoint` (letto da `ConfigDirState` una volta
+ * all'avvio del backend) prima di costruire il client.
  *
  * onStatus(status: "connecting"|"connected"|"disconnected"|"error")
  * onMessage(msg: object)  — parsed ServerMsg
  */
 export class LareWsClient {
   /**
-   * @param {{ token: string, onStatus: function, onMessage: function, channel?: string }} opts
+   * @param {{ url: string, token: string, onStatus: function, onMessage: function, channel?: string }} opts
    */
-  constructor({ token, onStatus, onMessage, channel }) {
+  constructor({ url, token, onStatus, onMessage, channel }) {
+    /** @type {string} */
+    this._url = url;
     /** @type {string} */
     this._token = token;
     /** @type {function} */
@@ -433,7 +441,7 @@ export class LareWsClient {
   _openSocket() {
     this._onStatus("connecting");
     try {
-      const ws = new WebSocket(WS_URL);
+      const ws = new WebSocket(this._url);
       this._ws = ws;
 
       ws.addEventListener("open", () => {

@@ -126,7 +126,11 @@ function handleServerMsg(msg) {
 
 async function init() {
   const token = (await invoke("get_lare_token")) ?? "";
+  // Porta WS da startup.json (2.0), letta una volta all'apertura della
+  // finestra — stesso comando usato da app.js.
+  const url = (await invoke("get_ws_endpoint")) ?? "";
   client = new LareWsClient({
+    url,
     token,
     channel: channelId,
     onStatus: (s) => renderer.setStatus(s),

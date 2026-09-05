@@ -1,7 +1,7 @@
 //! Lettura/scrittura dei parametri di rete condivisi (enabled, label_base,
-//! chat_port) in network.json (di proprietà dell'orchestrator, in %LOCALAPPDATA%).
+//! chat_port) in network.json (di proprietà dell'orchestrator, in `<config_dir>`).
 //! Mirror di `search_settings.rs`: stesso pattern (merge preserva gli altri
-//! campi, stesso path %LOCALAPPDATA%\dev.lare.terminal\ con fallback .lare-data).
+//! campi, stessa cartella — `ConfigDirState`, 2.0).
 //!
 //! **Nome del file** — era `aichat.json` fino al piano "Blocco note": il file
 //! porta l'identità di rete condivisa da PIÙ funzionalità (AI Chat *e* Blocco
@@ -20,7 +20,10 @@
 //! AI Chat legge network.json solo all'avvio dell'orchestrator — la UI lo
 //! segnala con una nota nel tab "AI Chat" di /config.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use tauri::State;
+
+use crate::config_dir::ConfigDirState;
 
 /// I 3 campi di network.json editabili da /config.
 ///
@@ -73,8 +76,14 @@ pub fn merge_aichat_settings(existing: &str, s: &AiChatSettings) -> String {
     obj.insert("enabled".to_string(), serde_json::json!(s.enabled));
     obj.insert("label_base".to_string(), serde_json::json!(s.label_base));
     obj.insert("chat_port".to_string(), serde_json::json!(s.chat_port));
-    obj.insert("ai_participates".to_string(), serde_json::json!(s.ai_participates));
-    obj.insert("ai_autoparticipate".to_string(), serde_json::json!(s.ai_autoparticipate));
+    obj.insert(
+        "ai_participates".to_string(),
+        serde_json::json!(s.ai_participates),
+    );
+    obj.insert(
+        "ai_autoparticipate".to_string(),
+        serde_json::json!(s.ai_autoparticipate),
+    );
     // A differenza dei campi sopra (sempre presenti), i due nickname sono
     // opzionali: `remove` invece di `insert(json!(null))` — un nickname
     // cancellato dall'utente deve sparire dal file, non restare come chiave
@@ -98,26 +107,11 @@ pub fn merge_aichat_settings(existing: &str, s: &AiChatSettings) -> String {
     serde_json::to_string_pretty(&value).unwrap_or_else(|_| "{}".to_string())
 }
 
-/// Directory app-data condivisa con l'orchestrator: check `LARE_LOCAL_DIR` prima,
-/// poi `%LOCALAPPDATA%\dev.lare.terminal\`, con fallback .lare-data (usato
-/// nei test/dev quando LOCALAPPDATA non è impostata, es. CI non-Windows).
-/// Estratta perché ora la usano DUE path (corrente e legacy) invece di uno solo.
-fn app_data_dir() -> PathBuf {
-    if let Ok(dir) = std::env::var("LARE_LOCAL_DIR") {
-        if !dir.trim().is_empty() {
-            return PathBuf::from(dir);
-        }
-    }
-    match std::env::var("LOCALAPPDATA") {
-        Ok(local) if !local.is_empty() => PathBuf::from(local).join("dev.lare.terminal"),
-        _ => PathBuf::from(".lare-data"),
-    }
-}
-
 /// Percorso di network.json — il file corrente, l'UNICO su cui si SCRIVE.
-/// Rispecchia `search_paths_json_path` e la logica dell'orchestrator.
-fn network_json_path() -> PathBuf {
-    app_data_dir().join("network.json")
+/// SEMPRE `<config_dir>/network.json` (2.0: `ConfigDirState`, stessa cartella
+/// dell'orchestrator — niente più variabili d'ambiente).
+fn network_json_path(config_dir: &Path) -> PathBuf {
+    config_dir.join("network.json")
 }
 
 /// Percorso del vecchio aichat.json — nome storico, letto SOLO in fallback
@@ -125,8 +119,8 @@ fn network_json_path() -> PathBuf {
 /// l'orchestrator aggiornato, che è chi esegue la migrazione vera). Non viene
 /// mai scritto né cancellato: la migrazione è non distruttiva da entrambi i
 /// lati (v. `aichat::config::load_or_generate_with_migration` lato orchestrator).
-fn legacy_aichat_json_path() -> PathBuf {
-    app_data_dir().join("aichat.json")
+fn legacy_aichat_json_path(config_dir: &Path) -> PathBuf {
+    config_dir.join("aichat.json")
 }
 
 /// Contenuto grezzo del file di config corrente, con fallback al nome legacy.
@@ -142,12 +136,12 @@ fn legacy_aichat_json_path() -> PathBuf {
 /// `merge_aichat_settings`/`validate`): resta un helper condiviso da
 /// `get_aichat_settings` e `set_aichat_settings` per non duplicare la regola di
 /// precedenza in due punti — un solo posto che decide "da dove si legge".
-fn read_existing_settings_json() -> String {
-    let current = network_json_path();
+fn read_existing_settings_json(config_dir: &Path) -> String {
+    let current = network_json_path(config_dir);
     if current.exists() {
         return std::fs::read_to_string(current).unwrap_or_default();
     }
-    std::fs::read_to_string(legacy_aichat_json_path()).unwrap_or_default()
+    std::fs::read_to_string(legacy_aichat_json_path(config_dir)).unwrap_or_default()
 }
 
 /// Valida i campi prima di scrivere su disco. Funzione pura (nessun I/O): può
@@ -218,8 +212,8 @@ fn validate_nickname(value: &Option<String>, field_label: &str) -> Result<(), St
 /// `AiChatConfig::default()` lato orchestrator) invece di propagare un errore.
 /// Il tab /config deve sempre potersi aprire, anche al primissimo avvio.
 #[tauri::command]
-pub fn get_aichat_settings() -> AiChatSettings {
-    let content = read_existing_settings_json();
+pub fn get_aichat_settings(state: State<'_, ConfigDirState>) -> AiChatSettings {
+    let content = read_existing_settings_json(&state.config_dir);
     let value: serde_json::Value =
         serde_json::from_str(&content).unwrap_or_else(|_| serde_json::json!({}));
     let enabled = value
@@ -290,7 +284,10 @@ pub fn get_aichat_settings() -> AiChatSettings {
 /// letti live dall'orchestrator — hanno effetto solo al prossimo riavvio (il
 /// tab lo segnala in UI).
 #[tauri::command]
-pub fn set_aichat_settings(settings: AiChatSettings) -> Result<(), String> {
+pub fn set_aichat_settings(
+    settings: AiChatSettings,
+    state: State<'_, ConfigDirState>,
+) -> Result<(), String> {
     let settings = AiChatSettings {
         label_base: settings.label_base.trim().to_string(),
         // Stesso trattamento di `label_base`: trimma se presente, e converte
@@ -309,11 +306,11 @@ pub fn set_aichat_settings(settings: AiChatSettings) -> Result<(), String> {
     };
     validate(&settings)?;
 
-    let path = network_json_path();
+    let path = network_json_path(&state.config_dir);
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
-    let existing = read_existing_settings_json();
+    let existing = read_existing_settings_json(&state.config_dir);
     let merged = merge_aichat_settings(&existing, &settings);
     std::fs::write(&path, merged).map_err(|e| format!("network.json: scrittura fallita ({e})"))
 }
@@ -466,7 +463,8 @@ mod tests {
     /// campi restano intatti (stesso principio di `merge_preserves_other_fields`).
     #[test]
     fn merge_round_trip_preserves_ai_participates() {
-        let existing = r#"{"enabled":true,"label_base":"skimble","chat_port":40100,"ai_participates":true}"#;
+        let existing =
+            r#"{"enabled":true,"label_base":"skimble","chat_port":40100,"ai_participates":true}"#;
         let out = merge_aichat_settings(
             existing,
             &AiChatSettings {
@@ -480,7 +478,10 @@ mod tests {
             },
         );
         let v: serde_json::Value = serde_json::from_str(&out).unwrap();
-        assert_eq!(v["ai_participates"], false, "merge deve scrivere il nuovo valore");
+        assert_eq!(
+            v["ai_participates"], false,
+            "merge deve scrivere il nuovo valore"
+        );
         // Gli altri 3 campi restano intatti.
         assert_eq!(v["enabled"], true);
         assert_eq!(v["label_base"], "skimble");
@@ -505,7 +506,10 @@ mod tests {
             .get("ai_autoparticipate")
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(false);
-        assert!(!ai_autoparticipate, "default assente deve leggersi come false");
+        assert!(
+            !ai_autoparticipate,
+            "default assente deve leggersi come false"
+        );
     }
 
     /// Un `aichat.json` scritto PRIMA che il campo esistesse (nessuna chiave
@@ -523,7 +527,10 @@ mod tests {
             .get("ai_autoparticipate")
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(false);
-        assert!(!ai_autoparticipate, "config senza il campo deve assumere false");
+        assert!(
+            !ai_autoparticipate,
+            "config senza il campo deve assumere false"
+        );
     }
 
     /// `merge_aichat_settings` scrive `ai_autoparticipate` nel JSON — round-trip
@@ -544,7 +551,10 @@ mod tests {
             },
         );
         let v: serde_json::Value = serde_json::from_str(&out).unwrap();
-        assert_eq!(v["ai_autoparticipate"], true, "merge deve scrivere il nuovo valore");
+        assert_eq!(
+            v["ai_autoparticipate"], true,
+            "merge deve scrivere il nuovo valore"
+        );
         // Gli altri campi restano intatti.
         assert_eq!(v["enabled"], true);
         assert_eq!(v["label_base"], "skimble");
@@ -586,8 +596,14 @@ mod tests {
     #[test]
     fn get_settings_reads_display_names_with_none_default() {
         let value: serde_json::Value = serde_json::json!({});
-        let display_name = value.get("display_name").and_then(serde_json::Value::as_str).map(str::to_string);
-        let ai_display_name = value.get("ai_display_name").and_then(serde_json::Value::as_str).map(str::to_string);
+        let display_name = value
+            .get("display_name")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string);
+        let ai_display_name = value
+            .get("ai_display_name")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string);
         assert_eq!(display_name, None);
         assert_eq!(ai_display_name, None);
     }
@@ -624,7 +640,10 @@ mod tests {
             display_name: Some("Maria José".to_string()),
             ai_display_name: Some("Àlex".to_string()),
         };
-        assert!(validate(&s).is_ok(), "nickname libero (spazi/accenti) deve essere accettato, a differenza di label_base");
+        assert!(
+            validate(&s).is_ok(),
+            "nickname libero (spazi/accenti) deve essere accettato, a differenza di label_base"
+        );
     }
 
     /// `config-dialog.js` (Task 6) manda oggi sempre `display_name`/
@@ -644,8 +663,8 @@ mod tests {
     #[test]
     fn deserializes_payload_without_display_name_keys() {
         let json = r#"{"enabled":true,"label_base":"lare","chat_port":40100,"ai_participates":true,"ai_autoparticipate":false}"#;
-        let s: AiChatSettings =
-            serde_json::from_str(json).expect("un payload senza le chiavi nickname deve comunque deserializzare");
+        let s: AiChatSettings = serde_json::from_str(json)
+            .expect("un payload senza le chiavi nickname deve comunque deserializzare");
         assert_eq!(s.display_name, None);
         assert_eq!(s.ai_display_name, None);
     }

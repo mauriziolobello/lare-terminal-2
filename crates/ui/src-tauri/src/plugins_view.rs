@@ -12,7 +12,10 @@
 //! Editing della configurazione, nuova finestra dedicata, cifratura: fuori
 //! scope per questa prima slice (vedi `IMPLEMENTATION.md`).
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
+use tauri::State;
+
+use crate::config_dir::ConfigDirState;
 
 /// Una entry della lista Plugin: id/nome (per la riga) + il contenuto grezzo
 /// del manifest (per la vista dettaglio). Sola lettura — nessuna validazione
@@ -25,39 +28,10 @@ pub struct PluginListEntry {
     pub manifest_json: String,
 }
 
-/// Risolve la directory dei plugin — STESSA logica di `main.rs` (orchestrator),
-/// duplicata deliberatamente: `ui` non dipende dal crate `orchestrator` (vedi
-/// `llm_settings.rs` per lo stesso pattern applicato a `llms.json`).
-///
-/// Ordine di risoluzione (identico a `main.rs:339` e dintorni):
-/// 1. `LARE_PLUGINS_DIR` — override esplicito (usato nei test e2e), vince
-///    SEMPRE se impostata (anche a stringa vuota: `env::var` la ritorna Ok,
-///    non guardiamo `is_empty()` qui — stesso comportamento di main.rs, che
-///    usa `.map(...).unwrap_or_else(...)` senza guardia su questa var).
-/// 2. `LARE_LOCAL_DIR` — full path override di tutta la base (sostituisce il
-///    calcolo di `dev.lare.terminal`), se impostata e non vuota.
-/// 3. Altrimenti: `%LOCALAPPDATA%\dev.lare.terminal\plugins` (Windows).
-/// 4. Se `LOCALAPPDATA` è assente o vuota: `.lare-data/plugins` (fallback
-///    relativo alla cwd, usato in sviluppo/test su piattaforme senza quella
-///    variabile).
-pub fn plugins_dir() -> PathBuf {
-    if let Ok(dir) = std::env::var("LARE_PLUGINS_DIR") {
-        return PathBuf::from(dir);
-    }
-    let base = match std::env::var("LARE_LOCAL_DIR") {
-        Ok(dir) if !dir.trim().is_empty() => PathBuf::from(dir),
-        _ => match std::env::var("LOCALAPPDATA") {
-            Ok(local) if !local.is_empty() => PathBuf::from(local).join("dev.lare.terminal"),
-            _ => PathBuf::from(".lare-data"),
-        },
-    };
-    base.join("plugins")
-}
-
 /// Scandisce `dir` e ritorna una entry per ogni sottocartella che contiene un
 /// `plugin.json` leggibile. Nucleo puro/testabile (prende `dir` come
 /// parametro, esattamente come `discovery::discover`) — nessuna dipendenza
-/// da `plugins_dir()` così i test possono puntare a una tempdir.
+/// da `ConfigDirState::plugins_dir()` così i test possono puntare a una tempdir.
 ///
 /// Tolleranza (a differenza di `discovery::discover`, che scarta i manifest
 /// invalidi): se il JSON non parsa, o `id`/`name` mancano o non sono
@@ -118,7 +92,11 @@ pub fn scan_plugins(dir: &Path) -> Vec<PluginListEntry> {
             Err(_) => (folder_name.clone(), folder_name.clone(), raw),
         };
 
-        out.push(PluginListEntry { id, name, manifest_json });
+        out.push(PluginListEntry {
+            id,
+            name,
+            manifest_json,
+        });
     }
 
     out
@@ -126,10 +104,13 @@ pub fn scan_plugins(dir: &Path) -> Vec<PluginListEntry> {
 
 /// Comando Tauri invocato dal frontend (`library.js::loadPluginsTab`).
 /// Sottile: nessuna logica qui, solo la composizione risoluzione-path +
-/// scansione — la logica vera è in `scan_plugins`, testata sotto.
+/// scansione — la logica vera è in `scan_plugins`, testata sotto. La
+/// directory viene da `ConfigDirState::plugins_dir()` (`startup.json.paths.plugins_dir`,
+/// relativa alla radice del deploy) — 2.0: niente più caso speciale
+/// `LARE_PLUGINS_DIR`, un solo risolutore condiviso con l'orchestrator.
 #[tauri::command]
-pub fn list_plugins() -> Vec<PluginListEntry> {
-    scan_plugins(&plugins_dir())
+pub fn list_plugins(state: State<'_, ConfigDirState>) -> Vec<PluginListEntry> {
+    scan_plugins(&state.plugins_dir())
 }
 
 #[cfg(test)]

@@ -475,6 +475,20 @@ async function getToken() {
 }
 
 // ---------------------------------------------------------------------------
+// Endpoint WebSocket dell'orchestrator (2.0: la porta viene da startup.json,
+// non più una costante hardcoded in ws-client.js — vedi il comando Tauri
+// `get_ws_endpoint`, letto da ConfigDirState una volta all'avvio del backend).
+// ---------------------------------------------------------------------------
+async function getWsUrl() {
+  try {
+    return await invokeCmd("get_ws_endpoint") ?? "";
+  } catch (e) {
+    console.error("[app] get_ws_endpoint error:", e);
+    return "";
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Idle duck animation
 //
 // Dopo `idleDuckMinutes` minuti senza input, 🐤 appare nel pannello e cammina
@@ -600,7 +614,19 @@ async function initClient() {
     return;
   }
 
+  // Porta WS da startup.json (via get_ws_endpoint), non più una costante
+  // hardcoded in ws-client.js — stessa guardia usata sopra per il token:
+  // senza endpoint la connessione non ha senso, diagnosi immediata.
+  const url = await getWsUrl();
+  if (!url) {
+    renderer.setStatus("error");
+    console.error("[app] get_ws_endpoint non ha restituito un URL.");
+    runDiagnosis();
+    return;
+  }
+
   client = new LareWsClient({
+    url,
     token,
     onStatus: (s) => {
       renderer.setStatus(s);

@@ -1,5 +1,5 @@
 //! Lettura/scrittura della fonte dati di mercato attiva in `market_data.json`
-//! (stessa cartella di `llms.json`, `%LOCALAPPDATA%\dev.lare.terminal\`).
+//! (stessa cartella di `llms.json`, `<config_dir>`).
 //!
 //! **Sola selezione**: come `llm_settings.rs`, questo modulo legge
 //! `active`+`sources[].kind` e scrive SOLO `active`. Non tocca `port`/
@@ -9,11 +9,13 @@
 //! configurazione avanzata.
 //!
 //! Letto anche DIRETTAMENTE dal tool Python (`scripts/pytools/financial-markets/`)
-//! — nessuna nuova plumbing lato orchestrator: il processo Python eredita
-//! l'ambiente del padre, `LARE_LOCAL_DIR` se impostata arriva già (vedi
-//! resolver Python, Task 3).
+//! — nessuna nuova plumbing lato orchestrator: il processo Python riceve
+//! `--config-dir` allo spawn (vedi resolver Python, Task 3), stesso file.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use tauri::State;
+
+use crate::config_dir::ConfigDirState;
 
 /// Una fonte configurata in `sources[]` — solo `kind` per la UI (sola
 /// selezione, mai `port`/`client_id`).
@@ -30,17 +32,10 @@ pub struct MarketDataSettings {
     pub sources: Vec<MarketDataSourceInfo>,
 }
 
-/// Percorso di `market_data.json` — stessa risoluzione di `llms_json_path()`
-/// (`LARE_LOCAL_DIR` poi `%LOCALAPPDATA%\dev.lare.terminal\`).
-fn market_data_json_path() -> PathBuf {
-    let base = match std::env::var("LARE_LOCAL_DIR") {
-        Ok(dir) if !dir.trim().is_empty() => PathBuf::from(dir),
-        _ => match std::env::var("LOCALAPPDATA") {
-            Ok(local) if !local.is_empty() => PathBuf::from(local).join("dev.lare.terminal"),
-            _ => PathBuf::from(".lare-data"),
-        },
-    };
-    base.join("market_data.json")
+/// Percorso di `market_data.json` — SEMPRE `<config_dir>/market_data.json`,
+/// stessa risoluzione di `llms_json_path()` (2.0: `ConfigDirState`).
+fn market_data_json_path(config_dir: &Path) -> PathBuf {
+    config_dir.join("market_data.json")
 }
 
 /// Default quando il file è assente/illeggibile/malformato: SOLO YFinance
@@ -49,7 +44,9 @@ fn market_data_json_path() -> PathBuf {
 fn default_settings() -> MarketDataSettings {
     MarketDataSettings {
         active: "yfinance".to_string(),
-        sources: vec![MarketDataSourceInfo { kind: "yfinance".to_string() }],
+        sources: vec![MarketDataSourceInfo {
+            kind: "yfinance".to_string(),
+        }],
     }
 }
 
@@ -78,7 +75,11 @@ fn parse_market_data_settings(content: &str) -> MarketDataSettings {
                 .collect::<Vec<_>>()
         })
         .filter(|v: &Vec<MarketDataSourceInfo>| !v.is_empty())
-        .unwrap_or_else(|| vec![MarketDataSourceInfo { kind: "yfinance".to_string() }]);
+        .unwrap_or_else(|| {
+            vec![MarketDataSourceInfo {
+                kind: "yfinance".to_string(),
+            }]
+        });
     MarketDataSettings { active, sources }
 }
 
@@ -86,8 +87,9 @@ fn parse_market_data_settings(content: &str) -> MarketDataSettings {
 /// Infallibile: file assente/illeggibile/malformato → default (SOLO
 /// YFinance) — il tab mostra sempre almeno YFinance selezionabile.
 #[tauri::command]
-pub fn get_market_data_settings() -> MarketDataSettings {
-    let content = std::fs::read_to_string(market_data_json_path()).unwrap_or_default();
+pub fn get_market_data_settings(state: State<'_, ConfigDirState>) -> MarketDataSettings {
+    let content =
+        std::fs::read_to_string(market_data_json_path(&state.config_dir)).unwrap_or_default();
     if content.is_empty() {
         return default_settings();
     }
@@ -109,9 +111,12 @@ fn merge_active(existing: &str, active: &str) -> Result<String, String> {
         .ok_or_else(|| "market_data.json: non è un oggetto JSON".to_string())?;
 
     let kind_exists = |obj: &serde_json::Map<String, serde_json::Value>| -> bool {
-        obj.get("sources").and_then(serde_json::Value::as_array).is_some_and(|arr| {
-            arr.iter().any(|s| s.get("kind").and_then(serde_json::Value::as_str) == Some(active))
-        })
+        obj.get("sources")
+            .and_then(serde_json::Value::as_array)
+            .is_some_and(|arr| {
+                arr.iter()
+                    .any(|s| s.get("kind").and_then(serde_json::Value::as_str) == Some(active))
+            })
     };
 
     // Stesso caso limite già gestito per il file ASSENTE (vedi
@@ -140,7 +145,9 @@ fn merge_active(existing: &str, active: &str) -> Result<String, String> {
     // fonte che richiede port/client_id senza che l'utente li abbia
     // scritti a mano almeno una volta.
     if !kind_exists(obj) && active == "yfinance" {
-        let sources = obj.entry("sources").or_insert_with(|| serde_json::json!([]));
+        let sources = obj
+            .entry("sources")
+            .or_insert_with(|| serde_json::json!([]));
         if let Some(arr) = sources.as_array_mut() {
             arr.push(serde_json::json!({ "kind": "yfinance" }));
         }
@@ -164,14 +171,16 @@ fn merge_active(existing: &str, active: &str) -> Result<String, String> {
 /// pregresso" possibile, dato che tws/ib_gateway richiedono comunque un
 /// port/client_id che l'utente deve aver scritto a mano almeno una volta).
 #[tauri::command]
-pub fn set_market_data_settings(active: String) -> Result<(), String> {
-    let path = market_data_json_path();
+pub fn set_market_data_settings(
+    active: String,
+    state: State<'_, ConfigDirState>,
+) -> Result<(), String> {
+    let path = market_data_json_path(&state.config_dir);
     let existing = match std::fs::read_to_string(&path) {
         Ok(content) => content,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             // File doesn't exist: use default.
-            serde_json::to_string_pretty(&default_settings())
-                .unwrap_or_else(|_| "{}".to_string())
+            serde_json::to_string_pretty(&default_settings()).unwrap_or_else(|_| "{}".to_string())
         }
         Err(e) => {
             // Any other error (permission denied, locked by antivirus, etc.)
@@ -187,8 +196,7 @@ pub fn set_market_data_settings(active: String) -> Result<(), String> {
             .map_err(|e| format!("market_data.json: impossibile creare cartella ({e})"))?;
     }
 
-    std::fs::write(&path, merged)
-        .map_err(|e| format!("market_data.json: scrittura fallita ({e})"))
+    std::fs::write(&path, merged).map_err(|e| format!("market_data.json: scrittura fallita ({e})"))
 }
 
 #[cfg(test)]
@@ -199,7 +207,12 @@ mod tests {
     fn parse_returns_default_yfinance_only_on_malformed_json() {
         let s = parse_market_data_settings("not json");
         assert_eq!(s.active, "yfinance");
-        assert_eq!(s.sources, vec![MarketDataSourceInfo { kind: "yfinance".to_string() }]);
+        assert_eq!(
+            s.sources,
+            vec![MarketDataSourceInfo {
+                kind: "yfinance".to_string()
+            }]
+        );
     }
 
     #[test]
@@ -224,7 +237,12 @@ mod tests {
     fn parse_treats_missing_sources_as_yfinance_only() {
         let s = parse_market_data_settings(r#"{"active":"yfinance"}"#);
         assert_eq!(s.active, "yfinance");
-        assert_eq!(s.sources, vec![MarketDataSourceInfo { kind: "yfinance".to_string() }]);
+        assert_eq!(
+            s.sources,
+            vec![MarketDataSourceInfo {
+                kind: "yfinance".to_string()
+            }]
+        );
     }
 
     #[test]
@@ -254,8 +272,14 @@ mod tests {
         let out = merge_active(existing, "ib_gateway").unwrap();
         let v: serde_json::Value = serde_json::from_str(&out).unwrap();
         assert_eq!(v["active"], "ib_gateway", "solo active deve cambiare");
-        assert_eq!(v["sources"][1]["port"], 4001, "port preservata, non e' un campo Rust");
-        assert_eq!(v["sources"][1]["client_id"], 731, "client_id preservato, non e' un campo Rust");
+        assert_eq!(
+            v["sources"][1]["port"], 4001,
+            "port preservata, non e' un campo Rust"
+        );
+        assert_eq!(
+            v["sources"][1]["client_id"], 731,
+            "client_id preservato, non e' un campo Rust"
+        );
     }
 
     #[test]
@@ -294,7 +318,8 @@ mod tests {
         // (Questo è indiretto: testa che il merge produce JSON valido.)
         let json = r#"{"active":"yfinance","sources":[{"kind":"yfinance"},{"kind":"ib_gateway","port":4001,"client_id":731}]}"#;
         let merged = merge_active(json, "ib_gateway").expect("merge should succeed");
-        let v: serde_json::Value = serde_json::from_str(&merged).expect("merged JSON must be valid");
+        let v: serde_json::Value =
+            serde_json::from_str(&merged).expect("merged JSON must be valid");
         assert_eq!(v["active"], "ib_gateway");
         assert_eq!(v["sources"][1]["port"], 4001);
     }
@@ -322,12 +347,22 @@ mod tests {
         let merged = merge_active(&existing, "ib_gateway").expect("merge should succeed");
 
         // Verifica che i dati custom sono preservati.
-        let v: serde_json::Value = serde_json::from_str(&merged).expect("merged JSON must be valid");
+        let v: serde_json::Value =
+            serde_json::from_str(&merged).expect("merged JSON must be valid");
         assert_eq!(v["active"], "ib_gateway");
         assert_eq!(v["sources"][1]["port"], 7496, "tws port must be preserved");
-        assert_eq!(v["sources"][1]["client_id"], 731, "tws client_id must be preserved");
-        assert_eq!(v["sources"][2]["port"], 4001, "ib_gateway port must be preserved");
-        assert_eq!(v["sources"][2]["client_id"], 732, "ib_gateway client_id must be preserved");
+        assert_eq!(
+            v["sources"][1]["client_id"], 731,
+            "tws client_id must be preserved"
+        );
+        assert_eq!(
+            v["sources"][2]["port"], 4001,
+            "ib_gateway port must be preserved"
+        );
+        assert_eq!(
+            v["sources"][2]["client_id"], 732,
+            "ib_gateway client_id must be preserved"
+        );
     }
 
     #[test]
@@ -335,13 +370,15 @@ mod tests {
         // Testa il comportamento explitamente quando il file non esiste:
         // il default viene usato e un merge su di esso produce JSON valido.
         // Questo verifica che il `match` su ErrorKind::NotFound va al branch corretto.
-        let nonexistent_path = std::path::PathBuf::from("/this/path/definitely/does/not/exist/market_data.json");
+        let nonexistent_path =
+            std::path::PathBuf::from("/this/path/definitely/does/not/exist/market_data.json");
 
         // Simula il match del nostro codice: se il file non esiste, usa il default.
         let content = match std::fs::read_to_string(&nonexistent_path) {
             Ok(c) => c,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                serde_json::to_string_pretty(&default_settings()).unwrap_or_else(|_| "{}".to_string())
+                serde_json::to_string_pretty(&default_settings())
+                    .unwrap_or_else(|_| "{}".to_string())
             }
             Err(e) => panic!("unexpected error: {e}"),
         };
@@ -354,7 +391,8 @@ mod tests {
 
         // Verifica che il merge su di esso funziona.
         let merged = merge_active(&content, "yfinance").expect("merge should succeed");
-        let v: serde_json::Value = serde_json::from_str(&merged).expect("merged JSON must be valid");
+        let v: serde_json::Value =
+            serde_json::from_str(&merged).expect("merged JSON must be valid");
         assert_eq!(v["active"], "yfinance");
     }
 
@@ -372,9 +410,13 @@ mod tests {
         let existing = r#"{"active":"yfinance"}"#;
         let merged = merge_active(existing, "yfinance")
             .expect("stesso caso limite gia' gestito per il file ASSENTE, ora anche per il file presente senza sources");
-        let v: serde_json::Value = serde_json::from_str(&merged).expect("merged JSON must be valid");
+        let v: serde_json::Value =
+            serde_json::from_str(&merged).expect("merged JSON must be valid");
         assert_eq!(v["active"], "yfinance");
-        assert_eq!(v["sources"][0]["kind"], "yfinance", "sources deve essere sintetizzato con lo stesso default della lettura");
+        assert_eq!(
+            v["sources"][0]["kind"], "yfinance",
+            "sources deve essere sintetizzato con lo stesso default della lettura"
+        );
     }
 
     // Non regressione: per qualunque active DIVERSO da "yfinance" senza un
@@ -401,18 +443,27 @@ mod tests {
     #[test]
     fn merge_active_synthesizes_default_when_sources_entries_have_no_usable_kind() {
         let existing = r#"{"active":"yfinance","sources":[{"port":4001}]}"#;
-        let merged = merge_active(existing, "yfinance")
-            .expect("stessa sintesi della lettura, anche quando sources[] non ha 'kind' utilizzabili");
+        let merged = merge_active(existing, "yfinance").expect(
+            "stessa sintesi della lettura, anche quando sources[] non ha 'kind' utilizzabili",
+        );
         let v: serde_json::Value = serde_json::from_str(&merged).unwrap();
         assert!(
-            v["sources"].as_array().unwrap().iter().any(|s| s["kind"] == "yfinance"),
+            v["sources"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|s| s["kind"] == "yfinance"),
             "sources deve guadagnare una voce yfinance utilizzabile: {v}"
         );
         // La voce preesistente (port:4001) non deve sparire -- append, non
         // replace, mirror del vincolo già testato in
         // merge_active_writes_only_active_preserving_port_and_client_id.
         assert!(
-            v["sources"].as_array().unwrap().iter().any(|s| s["port"] == 4001),
+            v["sources"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|s| s["port"] == 4001),
             "la voce preesistente con port non deve essere persa: {v}"
         );
     }

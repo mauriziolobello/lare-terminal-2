@@ -3,13 +3,12 @@
 // Responsibility (SRP): owns the Config struct, its defaults, JSON persistence,
 // and action-key validation.  Does NOT touch Tauri APIs (those are in main.rs).
 //
-// File location at runtime: `{app_config_dir}/config.json`
-// where `app_config_dir` already includes the bundle identifier, e.g.:
-//   Windows: C:\Users\<user>\AppData\Roaming\dev.lare.terminal\config.json
-//   macOS:   ~/Library/Application Support/dev.lare.terminal/config.json
-// The full path is built by main.rs using `app.path().app_config_dir()` and
-// then handed to `load_from` / `save_to` here as an injectable &Path — keeping
-// this module testable without a running Tauri instance.
+// File location at runtime: `<config_dir>/config.json` (2.0: `config_dir` is
+// `--config-dir` or `<exe_dir>/Configuration`, resolved once via
+// `ConfigDirState` — see main.rs's `config_file_path`).
+// The full path is built by main.rs and then handed to `load_from` / `save_to`
+// here as an injectable &Path — keeping this module testable without a
+// running Tauri instance.
 
 use serde::{Deserialize, Serialize};
 use std::path::Path;

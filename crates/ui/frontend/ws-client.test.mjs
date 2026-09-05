@@ -34,7 +34,11 @@ class FakeWebSocket {
 FakeWebSocket.OPEN = 1;
 
 test("sendTestMarketDataSource invia ClientMsg::TestMarketDataSource sul wire", () => {
-  const client = new LareWsClient({ token: "t", channel: "config-market-data-test" });
+  const client = new LareWsClient({
+    url: "ws://127.0.0.1:7331",
+    token: "t",
+    channel: "config-market-data-test",
+  });
   // Inietta direttamente un socket "aperto" fake, bypassando l'evento
   // asincrono "open" di connect() — qui ci interessa solo _send/_isOpen.
   client._ws = new FakeWebSocket();
@@ -50,7 +54,11 @@ test("sendTestMarketDataSource invia ClientMsg::TestMarketDataSource sul wire", 
 });
 
 test("sendTestMarketDataSource ritorna false se il socket non è aperto", () => {
-  const client = new LareWsClient({ token: "t", channel: "config-market-data-test" });
+  const client = new LareWsClient({
+    url: "ws://127.0.0.1:7331",
+    token: "t",
+    channel: "config-market-data-test",
+  });
   // Nessun connect() chiamato: _ws resta null, quindi _isOpen() è false.
   const ok = client.sendTestMarketDataSource("req-456");
   assert.equal(ok, false);
