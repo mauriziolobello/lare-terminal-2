@@ -39,6 +39,8 @@ direttamente:
 | `search-paths.json` | orchestrator, a ogni avvio (`PathsConfig::load_or_generate`) — cartelle indicizzate dalla ricerca | No, ma specifico della macchina (percorsi assoluti locali) |
 | `search-content.json` | orchestrator, a ogni avvio (`ContentConfig::load_or_generate`) | No, specifico della macchina |
 | `network.json` | orchestrator, a ogni avvio (`load_or_generate_with_migration`) — impostazioni AI Chat (nickname, porta di discovery, autopartecipazione), disattivo di default | No |
+| `market_data.json` | `ui.exe`, al primo salvataggio delle impostazioni "fonte dati mercato" (tab `/config`) | No, ma specifico della macchina (es. porta/host di IB Gateway) |
+| `aichat.json` | nome legacy di `network.json` (pre-migrazione): letto solo per compatibilità se presente, mai scritto con questo nome nel codice attuale | No |
 | `notes.json` | orchestrator, al primo salvataggio di una nota da AI Chat | No |
 | `memory-<label>.md` | orchestrator, memoria persistente di AI Chat per etichetta AI | No, ma è contenuto conversazionale locale |
 
