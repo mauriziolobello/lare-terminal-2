@@ -55,6 +55,21 @@ commenti storici per il secondo, dove citano la v1). `LOCALAPPDATA`/`APPDATA` re
 `search/paths_config.rs::detect_cloud_impl` (rilevamento della cartella di sync Dropbox
 dell'utente — funzionalità di ricerca file, indipendente dalla configurazione 2.0, fuori scope D6).
 
+### Fix round 1 (review Task 4) — log su file panic-free
+
+L'inizializzazione del log su file (bullet sopra) usava `tracing_appender::rolling::daily(...)`,
+che internamente fa `.expect(...)` e va in **panic** se la cartella di log non è creabile/scrivibile
+(permessi negati, percorso occupato da un file, ...) — l'unico punto rimasto in questo task che
+poteva ancora far crashare l'orchestrator all'avvio invece di ripiegare in modo morbido, un
+problema serio per un demone pensato per girare inosservato in autostart. Estratta in un nuovo
+modulo **`logging.rs`**: `open_log_file(log_dir) -> Result<(NonBlocking, WorkerGuard), String>`
+(pura, mai panic, usa `RollingFileAppender::builder()...build()` che ritorna `Result` invece di
+`rolling::daily()` che fa `.expect()`) + `init_logging(log_dir, level, console) -> LoggingGuard`,
+che su errore stampa il motivo con `eprintln!` e ripiega su un subscriber di sola console
+(SEMPRE attivo in quel caso, non solo con `--console-log` — un demone senza alcun log è peggio
+di uno rumoroso). Due nuovi test coprono il fix, incluso quello di regressione (cartella di log
+il cui genitore è un file regolare → `Err`, non panic).
+
 ## 2.0.0 — 2026-09-05 — fork da v1 0.41.21
 
 Copia del crate dalla v1 (`mauriziolobello/lare-terminal`) nel repo 2.0. Nessuna modifica

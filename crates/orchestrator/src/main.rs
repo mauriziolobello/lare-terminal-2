@@ -39,6 +39,7 @@ use orchestrator::{
     claude_backend::ClaudeBackend,
     cwd_tracking::CwdTrackingToolClient,
     llms_config,
+    logging,
     messages_client::HttpMessagesClient,
     runtime_config::RuntimeConfig,
     search::{
@@ -52,7 +53,6 @@ use orchestrator::{
     ws,
 };
 use tokio::sync::Mutex;
-use tracing_subscriber::fmt;
 
 /// Determina l'IP LAN locale tramite il "UDP connect trick":
 /// apre un socket UDP effimero e lo "connette" virtualmente a un IP pubblico (senza inviare nulla).
@@ -142,31 +142,19 @@ async fn main() -> Result<()> {
     let (startup, startup_warn) = startup_config::StartupConfig::load(&config_dir);
     let rt = Arc::new(RuntimeConfig { config_dir: config_dir.clone(), startup });
 
-    // ── Tracing (2.0): sempre su file (Configuration/logs/orchestrator.log,
-    // rotazione giornaliera); ANCHE su console solo con --console-log (usato
-    // da init_*.ps1 per il debug interattivo). Un orchestrator avviato in
-    // autostart non deve sporcare (né bloccarsi su) un terminale che non ha.
-    let log_dir = rt.log_dir();
-    let _ = std::fs::create_dir_all(&log_dir);
-    let file_appender = tracing_appender::rolling::daily(&log_dir, "orchestrator.log");
-    let (file_writer, _guard) = tracing_appender::non_blocking(file_appender);
-    let level = rt.startup.log.level.parse::<tracing::Level>().unwrap_or(tracing::Level::INFO);
+    // ── Tracing (2.0; panic-free dal fix round 1, vedi `logging`): sempre su
+    // file (Configuration/logs/orchestrator.log, rotazione giornaliera);
+    // ANCHE su console solo con --console-log (usato da init_*.ps1 per il
+    // debug interattivo). Un orchestrator avviato in autostart non deve
+    // sporcare (né bloccarsi su) un terminale che non ha — e non deve MAI
+    // fermarsi all'avvio solo perché la cartella di log non è scrivibile
+    // (`logging::init_logging` ripiega sulla sola console in quel caso,
+    // non va mai in panic: vedi il doc-comment del modulo per il perché).
     let console = startup_config::has_flag(&args, "--console-log");
-    {
-        use tracing_subscriber::prelude::*;
-        let file_layer = fmt::layer().with_writer(file_writer).with_ansi(false);
-        let registry = tracing_subscriber::registry()
-            .with(tracing_subscriber::filter::LevelFilter::from_level(level))
-            .with(file_layer);
-        if console {
-            registry.with(fmt::layer().with_writer(std::io::stderr)).init();
-        } else {
-            registry.init();
-        }
-    }
-    // `_guard` (sopra) deve vivere fino alla fine di `main`: droppandolo si
-    // interrompe il flush del writer non bloccante — tenuto vivo per tutta
-    // la funzione semplicemente non spostandolo/droppandolo mai.
+    let _log_guard = logging::init_logging(&rt.log_dir(), &rt.startup.log.level, console);
+    // `_log_guard` deve vivere fino alla fine di `main`: droppandolo si
+    // interrompe il flush del writer non bloccante del file di log — tenuto
+    // vivo per tutta la funzione semplicemente non spostandolo/droppandolo mai.
     if let Some(w) = startup_warn {
         tracing::warn!("{w}");
     }

@@ -58,6 +58,7 @@ pub mod cwd_tracking;
 pub mod external_channel;
 pub mod llms_config;
 pub mod local_confirm;
+pub mod logging;
 pub mod messages_client;
 pub mod nmap_tool_client;
 pub mod notes;
