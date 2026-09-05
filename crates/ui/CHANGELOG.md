@@ -5,6 +5,50 @@ Versioning: `major.minor.update`.
 
 ---
 
+## 2.0.2 — 2026-09-05 — overlay F2 rimosso, pagina host nascosta, flag --open (dev)
+
+Task 7 del piano `2026-09-05-piano-1-fondamenta`. In 2.0 la shell non gira più dentro
+`ui.exe` (spec §5): l'overlay F2 — editor a riga singola, output scrollabile, spinner di
+attività, pulcino idle, diagnosi automatica — non ha più ragione d'essere. `ui.exe` diventa
+un puro host di finestre.
+
+- **`app.js` → `host.js` + `host.html`**: estratte (invariate salvo i riferimenti al DOM del
+  cursore) la connessione WS di default, `handleServerMsg` (solo i tipi classificati
+  `window`/`relay` da `host-dispatch.mjs`), ogni `open*Window`/`emitTo*`/`setup*Events` e
+  `bootstrap`. `host.html` è la nuova finestra `main`: nascosta (`visible:false`), 200×100,
+  `skipTaskbar:true`, non trasparente, senza alcuna UI propria.
+- **`host-dispatch.mjs`** (nuovo, TDD): `classifyServerMsg(msg)` — logica pura, nessun DOM —
+  classifica ogni `ServerMsg` in `"window"` (apre/aggiorna una finestra), `"relay"` (va
+  rigirato a una finestra già aperta), `"ignored"` (era per il cursore v1, che non esiste
+  più) o `"deny"` (`tool_confirm_request`: senza cursore nessuno può rispondere, default
+  sicuro NO). `handleServerMsg` in `host.js` la usa per decidere se entrare nello switch.
+  `host-dispatch.test.mjs`: RED (modulo assente) → GREEN.
+- **Rimosso**: plugin `tauri-plugin-global-shortcut` (e il suo handler in `.setup()`),
+  `tauri-plugin-clipboard-manager` (usato solo da `app.js`), i comandi Tauri
+  `hide_overlay`/`show_overlay`/`list_path_completions`/`home_dir`, `apply_hotkey`,
+  `window.rs` (positioning dell'overlay — dipendeva solo dall'enum `Position`, sparito con
+  lui), `index.html`, `app.js`, `line-editor.js`, `idle-duck.js`, `page-scroll.js`,
+  `cwd-format.js`, `connection-diagnosis.js` e i rispettivi test.
+- **`Config`** (`config.rs`): via `action_key`, `cursor_color`, `cursor_font`, `cursor_size`,
+  `position`, `activity_indicator`, `idle_duck_minutes` e gli enum `Position`/
+  `ActivityIndicator` che li tipavano — restano `web_search_enabled` e `window_alpha`.
+  Nessun `#[serde(deny_unknown_fields)]`: un `config.json` v1 con i campi rimossi continua a
+  caricare (`legacy_v1_config_json_with_extra_fields_still_loads`). `set_config` non valida
+  più un tasto d'attivazione né ri-registra un hotkey — solo persist + stato in memoria.
+  `/config` (`config-dialog.js`) mantiene solo le tab Ricerca web e Trasparenza; corretto
+  anche il testo di aiuto della tab LLM (`llms.json` vive nella cartella di configurazione,
+  non più in `%LOCALAPPDATA%\dev.lare.terminal`/`LARE_LOCAL_DIR`, riferimenti 2.0 non
+  aggiornati da un edit precedente).
+- **`--open config|library`** (dev-only, `DevOpenRequest`): senza overlay né canale shell
+  nessuna superficie può ancora chiedere l'apertura di una finestra da sola — questo flag la
+  apre subito all'avvio, per verificare le finestre a mano durante lo sviluppo. Rimosso nel
+  piano 3, quando l'orchestratore guiderà l'apertura delle finestre.
+- **`tauri.conf.json`**/**`capabilities/default.json`**/**`Cargo.toml`**: finestra `main` →
+  `host.html`, non trasparente, non always-on-top, 200×100; tolte le permission
+  `global-shortcut:*`/`clipboard-manager:*`; tolte le dipendenze
+  `tauri-plugin-global-shortcut`/`tauri-plugin-clipboard-manager`/`dirs` (quest'ultima era
+  usata solo da `home_dir`, anch'esso rimosso).
+
 ## 2.0.1 — 2026-09-05 — `--config-dir`, `startup.json`, un solo risolutore, nessuna env var
 
 Task 6 del piano `2026-09-05-piano-1-fondamenta`. Il crate `ui` (fork v1) leggeva

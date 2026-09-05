@@ -1,7 +1,7 @@
 // config.rs — Persistent configuration for Lare Terminal.
 //
-// Responsibility (SRP): owns the Config struct, its defaults, JSON persistence,
-// and action-key validation.  Does NOT touch Tauri APIs (those are in main.rs).
+// Responsibility (SRP): owns the Config struct, its defaults, and JSON
+// persistence.  Does NOT touch Tauri APIs (those are in main.rs).
 //
 // File location at runtime: `<config_dir>/config.json` (2.0: `config_dir` is
 // `--config-dir` or `<exe_dir>/Configuration`, resolved once via
@@ -9,47 +9,19 @@
 // The full path is built by main.rs and then handed to `load_from` / `save_to`
 // here as an injectable &Path — keeping this module testable without a
 // running Tauri instance.
+//
+// Task 7 (piano 1, 2026-09-05): l'overlay F2 è sparito — con lui ogni campo
+// che pilotava SOLO il suo aspetto/comportamento (tasto d'attivazione,
+// colore/font/dimensione del testo, posizione della finestra, stile
+// dell'indicatore di attività, minuti di inattività, e i due enum che li
+// tipavano). Restano `web_search_enabled` (letto da ogni finestra che invia
+// comandi AI) e `window_alpha` (trasparenza condivisa da tutte le finestre).
+// Nessun `#[serde(deny_unknown_fields)]` su questo struct: le chiavi rimosse
+// in un `config.json` v1 preesistente vengono ignorate silenziosamente in
+// lettura — vedi `legacy_v1_config_json_with_extra_fields_still_loads`.
 
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-use std::str::FromStr;
-
-// Re-export Shortcut so main.rs can parse validated strings.
-pub use tauri_plugin_global_shortcut::Shortcut;
-
-// ---------------------------------------------------------------------------
-// Position enum
-// ---------------------------------------------------------------------------
-
-/// Where the overlay window appears when summoned by the action key.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum Position {
-    /// Centered on the monitor that holds the cursor (default).
-    #[default]
-    Center,
-    /// Horizontally centered, near the bottom of the monitor.
-    BottomCenter,
-    /// Near the current mouse cursor position.
-    NearMouse,
-}
-
-// ---------------------------------------------------------------------------
-// ActivityIndicator enum
-// ---------------------------------------------------------------------------
-
-/// Stile dell'indicatore di attività mostrato durante l'elaborazione.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "snake_case")]
-pub enum ActivityIndicator {
-    /// Spinner accanto al titolo (default).
-    #[default]
-    Title,
-    /// Spinner + "elaboro…" accanto al badge di stato.
-    Status,
-    /// Il prompt pulsa.
-    Prompt,
-}
 
 // ---------------------------------------------------------------------------
 // Config struct
@@ -61,43 +33,13 @@ pub enum ActivityIndicator {
 /// `Default` yields those same values; round-trip through JSON preserves them.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Config {
-    /// Tauri accelerator string for the global toggle hotkey.
-    /// Default: `"F2"`.
-    pub action_key: String,
-
-    /// Text colour as a CSS hex string.
-    /// Default: `"#FFFFFF"` (white).
-    pub cursor_color: String,
-
-    /// Font family name for the input / output area.
-    /// Default: `"Consolas"`.
-    pub cursor_font: String,
-
-    /// Font size in pixels.
-    /// Default: `11`.
-    pub cursor_size: u32,
-
-    /// Where the overlay appears when summoned.
-    /// Default: `Position::Center`.
-    pub position: Position,
-
-    /// Stile dell'indicatore di attività.
-    /// Default: `ActivityIndicator::Title`.
-    #[serde(default)]
-    pub activity_indicator: ActivityIndicator,
-
     /// Abilita la ricerca web interna dell'AI (tool server-side).
     /// Default: `true`.
     #[serde(default = "default_true")]
     pub web_search_enabled: bool,
 
-    /// Minuti di inattività prima che appaia l'animazione del pulcino idle.
-    /// `0` disabilita l'animazione. Default: `5`.
-    #[serde(default = "default_idle_duck_minutes")]
-    pub idle_duck_minutes: u32,
-
     /// Alpha di trasparenza condiviso da ogni sfondo "pannello" di ogni finestra
-    /// dell'app (cursore, Library, /config, AI Chat, tutti i plugin). Intervallo
+    /// dell'app (Library, /config, AI Chat, tutti i plugin). Intervallo
     /// [0.0, 1.0]. Default 0.87 (valore storico allineato in 185f304).
     #[serde(default = "default_window_alpha")]
     pub window_alpha: f64,
@@ -108,11 +50,6 @@ fn default_true() -> bool {
     true
 }
 
-/// Helper per `#[serde(default = "default_idle_duck_minutes")]`.
-fn default_idle_duck_minutes() -> u32 {
-    5
-}
-
 /// Helper per `#[serde(default = "default_window_alpha")]`.
 fn default_window_alpha() -> f64 {
     0.87
@@ -121,14 +58,7 @@ fn default_window_alpha() -> f64 {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            action_key: "F2".to_string(),
-            cursor_color: "#FFFFFF".to_string(),
-            cursor_font: "Consolas".to_string(),
-            cursor_size: 11,
-            position: Position::Center,
-            activity_indicator: ActivityIndicator::Title,
             web_search_enabled: true,
-            idle_duck_minutes: 5,
             window_alpha: 0.87,
         }
     }
@@ -197,26 +127,6 @@ pub fn save_to(config: &Config, path: &Path) -> Result<(), String> {
 }
 
 // ---------------------------------------------------------------------------
-// Validation
-// ---------------------------------------------------------------------------
-
-/// Validate that `key` is parseable as a Tauri/global-hotkey accelerator.
-///
-/// Delegates to `Shortcut::from_str` (via `global_hotkey` crate) — the same
-/// parser used by `app.global_shortcut().register(...)`.
-///
-/// Returns `Ok(())` on success or `Err(human-readable message)` on failure.
-pub fn validate_action_key(key: &str) -> Result<(), String> {
-    Shortcut::from_str(key).map(|_| ()).map_err(|e| {
-        format!(
-            "invalid accelerator {:?}: {e}  \
-             (examples: \"F2\", \"Ctrl+Alt+T\", \"Alt+F4\")",
-            key
-        )
-    })
-}
-
-// ---------------------------------------------------------------------------
 // Tests (TDD: written before implementation)
 // ---------------------------------------------------------------------------
 
@@ -225,33 +135,6 @@ mod tests {
     use super::*;
     use std::io::Write as _;
     use tempfile::NamedTempFile;
-
-    // ── Default values ────────────────────────────────────────────────────
-
-    #[test]
-    fn default_action_key_is_f2() {
-        assert_eq!(Config::default().action_key, "F2");
-    }
-
-    #[test]
-    fn default_cursor_color_is_white() {
-        assert_eq!(Config::default().cursor_color, "#FFFFFF");
-    }
-
-    #[test]
-    fn default_cursor_font_is_consolas() {
-        assert_eq!(Config::default().cursor_font, "Consolas");
-    }
-
-    #[test]
-    fn default_cursor_size_is_11() {
-        assert_eq!(Config::default().cursor_size, 11);
-    }
-
-    #[test]
-    fn default_position_is_center() {
-        assert_eq!(Config::default().position, Position::Center);
-    }
 
     // ── Round-trip save → load ────────────────────────────────────────────
 
@@ -273,14 +156,7 @@ mod tests {
         let path = tmp.path();
 
         let original = Config {
-            action_key: "F5".to_string(),
-            cursor_color: "#00FF00".to_string(),
-            cursor_font: "Courier New".to_string(),
-            cursor_size: 14,
-            position: Position::BottomCenter,
-            activity_indicator: ActivityIndicator::Status,
             web_search_enabled: false,
-            idle_duck_minutes: 10,
             window_alpha: 0.6,
         };
         save_to(&original, path).expect("save_to should succeed");
@@ -313,49 +189,6 @@ mod tests {
         assert_eq!(cfg, Config::default(), "corrupt JSON must yield defaults");
     }
 
-    // ── validate_action_key ───────────────────────────────────────────────
-
-    #[test]
-    fn validate_f2_is_ok() {
-        assert!(
-            validate_action_key("F2").is_ok(),
-            "\"F2\" must be a valid accelerator"
-        );
-    }
-
-    #[test]
-    fn validate_f5_is_ok() {
-        assert!(
-            validate_action_key("F5").is_ok(),
-            "\"F5\" must be a valid accelerator"
-        );
-    }
-
-    #[test]
-    fn validate_ctrl_alt_t_is_ok() {
-        // On Windows/Linux Ctrl+Alt+T is a valid combination.
-        assert!(
-            validate_action_key("Ctrl+Alt+T").is_ok(),
-            "\"Ctrl+Alt+T\" must be a valid accelerator"
-        );
-    }
-
-    #[test]
-    fn validate_invalid_key_returns_err() {
-        assert!(
-            validate_action_key("NotAKey###").is_err(),
-            "\"NotAKey###\" must be rejected"
-        );
-    }
-
-    #[test]
-    fn validate_empty_string_returns_err() {
-        assert!(
-            validate_action_key("").is_err(),
-            "empty string must be rejected"
-        );
-    }
-
     // ── web_search_enabled default and round-trip ─────────────────────────
 
     #[test]
@@ -366,80 +199,11 @@ mod tests {
     #[test]
     fn missing_web_search_field_defaults_to_true() {
         let mut tmp = NamedTempFile::new().unwrap();
-        // JSON senza web_search_enabled ma con action_key distintivo "F7".
-        // Usiamo br##"..."## perché "#FFFFFF" contiene #" che terminerebbe un raw literal a singolo hash.
-        tmp.write_all(br##"{"action_key":"F7","cursor_color":"#FFFFFF","cursor_font":"Consolas","cursor_size":11,"position":"center","activity_indicator":"title"}"##).unwrap();
+        tmp.write_all(br##"{"window_alpha":0.5}"##).unwrap();
         let cfg = load_from(tmp.path());
-        // Se #[serde(default = "default_true")] funziona, il parse riesce e action_key è preservato.
-        assert_eq!(cfg.action_key, "F7",
-            "parse deve riuscire — action_key deve essere F7 (non fallback a F2)");
-        assert!(cfg.web_search_enabled, "campo assente deve defaultare a true");
-    }
-
-    // ── ActivityIndicator default and round-trip ──────────────────────────
-
-    #[test]
-    fn default_activity_indicator_is_title() {
-        assert_eq!(
-            Config::default().activity_indicator,
-            ActivityIndicator::Title,
-            "default activity_indicator must be Title"
-        );
-    }
-
-    /// Verify that `#[serde(default)]` is in place: a JSON config that omits
-    /// `activity_indicator` but has a distinctive `action_key` (not "F2") must
-    /// deserialize successfully with `activity_indicator == Title` AND preserve
-    /// the custom `action_key`.  If `#[serde(default)]` were missing, serde
-    /// would return a parse error and `load_from` would fall back to
-    /// `Config::default()` — which would give `action_key == "F2"`, causing
-    /// the second assertion to fail.
-    #[test]
-    fn default_idle_duck_minutes_is_5() {
-        assert_eq!(Config::default().idle_duck_minutes, 5);
-    }
-
-    #[test]
-    fn missing_idle_duck_minutes_defaults_to_5() {
-        let mut tmp = NamedTempFile::new().expect("tempfile");
-        // JSON senza idle_duck_minutes ma con action_key distintivo "F9".
-        tmp.write_all(
-            br##"{"action_key":"F9","cursor_color":"#FFFFFF","cursor_font":"Consolas","cursor_size":11,"position":"center","activity_indicator":"title","web_search_enabled":true}"##,
-        )
-        .expect("write");
-        let cfg = load_from(tmp.path());
-        assert_eq!(cfg.action_key, "F9",
-            "parse deve riuscire — action_key F9 deve essere preservato");
-        assert_eq!(cfg.idle_duck_minutes, 5,
-            "campo assente deve defaultare a 5");
-    }
-
-    #[test]
-    fn missing_activity_indicator_field_defaults_to_title() {
-        let mut tmp = NamedTempFile::new().expect("tempfile");
-        // JSON with a distinctive action_key but NO activity_indicator field.
-        // Use a two-hash raw literal so the #RRGGBB colour doesn't end the string.
-        tmp.write_all(
-            br##"{
-  "action_key": "F7",
-  "cursor_color": "#00FF00",
-  "cursor_font": "Consolas",
-  "cursor_size": 12,
-  "position": "center"
-}"##,
-        )
-        .expect("write");
-
-        let cfg = load_from(tmp.path());
-        // If #[serde(default)] works, the parse succeeds and action_key is preserved.
-        assert_eq!(
-            cfg.action_key, "F7",
-            "parse must succeed — action_key must be preserved (not fallen back to F2)"
-        );
-        assert_eq!(
-            cfg.activity_indicator,
-            ActivityIndicator::Title,
-            "missing activity_indicator field must default to Title"
+        assert!(
+            cfg.web_search_enabled,
+            "campo assente deve defaultare a true"
         );
     }
 
@@ -453,39 +217,56 @@ mod tests {
     #[test]
     fn missing_window_alpha_field_defaults_to_0_87() {
         let mut tmp = NamedTempFile::new().expect("tempfile");
-        // JSON senza window_alpha ma con action_key distintivo "F11".
-        tmp.write_all(
-            br##"{"action_key":"F11","cursor_color":"#FFFFFF","cursor_font":"Consolas","cursor_size":11,"position":"center","activity_indicator":"title","web_search_enabled":true,"idle_duck_minutes":5}"##,
-        )
-        .expect("write");
+        tmp.write_all(br##"{"web_search_enabled":true}"##)
+            .expect("write");
         let cfg = load_from(tmp.path());
-        assert_eq!(cfg.action_key, "F11",
-            "parse deve riuscire — action_key F11 deve essere preservato");
-        assert_eq!(cfg.window_alpha, 0.87,
-            "campo assente deve defaultare a 0.87");
+        assert_eq!(
+            cfg.window_alpha, 0.87,
+            "campo assente deve defaultare a 0.87"
+        );
     }
 
     #[test]
     fn window_alpha_below_zero_clamps_to_zero_on_load() {
         let mut tmp = NamedTempFile::new().expect("tempfile");
-        tmp.write_all(
-            br##"{"action_key":"F2","cursor_color":"#FFFFFF","cursor_font":"Consolas","cursor_size":11,"position":"center","activity_indicator":"title","web_search_enabled":true,"idle_duck_minutes":5,"window_alpha":-0.5}"##,
-        )
-        .expect("write");
+        tmp.write_all(br##"{"web_search_enabled":true,"window_alpha":-0.5}"##)
+            .expect("write");
         let cfg = load_from(tmp.path());
-        assert_eq!(cfg.window_alpha, 0.0,
-            "un valore negativo scritto a mano deve clampare a 0.0 in lettura");
+        assert_eq!(
+            cfg.window_alpha, 0.0,
+            "un valore negativo scritto a mano deve clampare a 0.0 in lettura"
+        );
     }
 
     #[test]
     fn window_alpha_above_one_clamps_to_one_on_load() {
         let mut tmp = NamedTempFile::new().expect("tempfile");
-        tmp.write_all(
-            br##"{"action_key":"F2","cursor_color":"#FFFFFF","cursor_font":"Consolas","cursor_size":11,"position":"center","activity_indicator":"title","web_search_enabled":true,"idle_duck_minutes":5,"window_alpha":1.5}"##,
-        )
-        .expect("write");
+        tmp.write_all(br##"{"web_search_enabled":true,"window_alpha":1.5}"##)
+            .expect("write");
         let cfg = load_from(tmp.path());
-        assert_eq!(cfg.window_alpha, 1.0,
-            "un valore > 1 scritto a mano deve clampare a 1.0 in lettura");
+        assert_eq!(
+            cfg.window_alpha, 1.0,
+            "un valore > 1 scritto a mano deve clampare a 1.0 in lettura"
+        );
+    }
+
+    // ── Compatibilità con un config.json v1 (Task 7) ───────────────────────
+
+    /// Un `config.json` scritto da v1 (o da un `ui.exe` di una versione
+    /// precedente al Task 7) porta ancora campi dell'overlay che non
+    /// esistono più in questo `Config`. serde deve ignorarli silenziosamente
+    /// (comportamento di default, nessun `#[serde(deny_unknown_fields)]` su
+    /// questo struct) invece di far fallire il parse e far perdere
+    /// `window_alpha`/`web_search_enabled` già personalizzati dall'utente.
+    #[test]
+    fn legacy_v1_config_json_with_extra_fields_still_loads() {
+        // r##"…"## (doppio hash), non r#"…"# (singolo): il valore `"#FFF"`
+        // contiene la sequenza `"#`, che con un solo hash chiuderebbe la raw
+        // string subito dopo `cursor_color":` — stesso motivo per cui gli
+        // altri test qui sopra usano `br##"…"##` per i loro JSON con colori.
+        let json = r##"{"action_key":"F4","cursor_color":"#FFF","window_alpha":0.5,"web_search_enabled":false}"##;
+        let cfg: Config = serde_json::from_str(json).unwrap(); // i campi ignoti vengono ignorati
+        assert_eq!(cfg.window_alpha, 0.5);
+        assert!(!cfg.web_search_enabled);
     }
 }

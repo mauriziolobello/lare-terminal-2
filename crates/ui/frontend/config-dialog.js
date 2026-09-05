@@ -19,101 +19,6 @@ import { LareWsClient } from "./ws-client.js";
 import { isConnectionFailureStatus } from "./expand-prompt.mjs";
 
 // ---------------------------------------------------------------------------
-// Key-capture helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Convert a KeyboardEvent to a Tauri/global-hotkey accelerator string.
- *
- * Rules:
- *   - Modifier-only events (Shift, Ctrl, Alt, Meta alone) are ignored.
- *   - Modifiers appear in order: Ctrl+ / Alt+ / Shift+ / Super+
- *   - Then the key: we use `e.code` for function keys and translate to
- *     the format the parser expects (F1..F12 → "F1".."F12"; other keys
- *     → normalised label).
- *
- * @param {KeyboardEvent} e
- * @returns {string|null}  accelerator string or null if the event is
- *                         modifier-only or otherwise unmappable.
- */
-function keyEventToAccelerator(e) {
-  const MODIFIER_KEYS = new Set([
-    "Control", "Shift", "Alt", "Meta",
-    "ControlLeft", "ControlRight",
-    "ShiftLeft", "ShiftRight",
-    "AltLeft", "AltRight",
-    "MetaLeft", "MetaRight",
-  ]);
-
-  // Ignore stand-alone modifier key presses.
-  if (MODIFIER_KEYS.has(e.key) || MODIFIER_KEYS.has(e.code)) return null;
-
-  const parts = [];
-  if (e.ctrlKey)  parts.push("Ctrl");
-  if (e.altKey)   parts.push("Alt");
-  if (e.shiftKey) parts.push("Shift");
-  if (e.metaKey)  parts.push("Super");
-
-  // Map e.code / e.key to the accelerator token.
-  const token = codeToToken(e.code, e.key);
-  if (!token) return null;
-
-  parts.push(token);
-  return parts.join("+");
-}
-
-/**
- * Map a DOM `code` (physical key) and `key` (logical character) to the
- * token expected by Tauri's global-hotkey accelerator parser.
- *
- * @param {string} code  e.code
- * @param {string} key   e.key
- * @returns {string|null}
- */
-function codeToToken(code, key) {
-  // Function keys F1–F12.
-  const fMatch = code.match(/^F(\d{1,2})$/);
-  if (fMatch) return `F${fMatch[1]}`;
-
-  // Letter keys: use the uppercase letter.
-  const letterMatch = code.match(/^Key([A-Z])$/);
-  if (letterMatch) return letterMatch[1];
-
-  // Digit keys.
-  const digitMatch = code.match(/^Digit(\d)$/);
-  if (digitMatch) return digitMatch[1];
-
-  // Common named keys the parser understands.
-  const NAMED = {
-    Space:       "Space",
-    Enter:       "Return",
-    Tab:         "Tab",
-    Backspace:   "Backspace",
-    Delete:      "Delete",
-    Insert:      "Insert",
-    Home:        "Home",
-    End:         "End",
-    PageUp:      "PageUp",
-    PageDown:    "PageDown",
-    ArrowLeft:   "Left",
-    ArrowRight:  "Right",
-    ArrowUp:     "Up",
-    ArrowDown:   "Down",
-    Escape:      "Escape",
-  };
-  if (NAMED[code]) return NAMED[code];
-
-  // Numpad keys.
-  const numpadMatch = code.match(/^Numpad(\d)$/);
-  if (numpadMatch) return `Numpad${numpadMatch[1]}`;
-
-  // Fallback: use the key label if it's a single printable character.
-  if (key && key.length === 1) return key.toUpperCase();
-
-  return null;
-}
-
-// ---------------------------------------------------------------------------
 // ConfigDialog class
 // ---------------------------------------------------------------------------
 
@@ -155,12 +60,6 @@ export class ConfigDialog {
     if (this._panel) return; // already open
 
     let current = {
-      action_key:          "F2",
-      cursor_color:        "#FFFFFF",
-      cursor_font:         "Consolas",
-      cursor_size:         11,
-      position:            "center",
-      activity_indicator:  "title",
       web_search_enabled:  true,
     };
 
@@ -340,16 +239,6 @@ export class ConfigDialog {
     saveBtn.addEventListener("click", async () => {
       errorEl.textContent = "";
 
-      const sizeVal = parseInt(uiRefs.sizeInput.value, 10);
-      if (!Number.isFinite(sizeVal) || sizeVal < 1) {
-        errorEl.textContent = "Size must be a positive integer.";
-        return;
-      }
-      const idleDuck = parseInt(uiRefs.idleDuckInput.value, 10);
-      if (!Number.isFinite(idleDuck) || idleDuck < 0) {
-        errorEl.textContent = "Duck idle deve essere un intero ≥ 0 (0 = disabilitato).";
-        return;
-      }
       const resultCap = parseInt(searchRefs.resultCapInput.value, 10);
       if (!Number.isFinite(resultCap) || resultCap < 1) {
         errorEl.textContent = "Risultati max deve essere un intero positivo.";
@@ -372,14 +261,7 @@ export class ConfigDialog {
       }
 
       const newCfg = {
-        action_key:          uiRefs.actionKeyInput.dataset.accelerator || cfg.action_key,
-        cursor_color:        uiRefs.colorField.getValue(),
-        cursor_font:         uiRefs.fontSelect.value,
-        cursor_size:         sizeVal,
-        position:            uiRefs.posSelect.value,
-        activity_indicator:  uiRefs.activitySelect.value,
         web_search_enabled:  uiRefs.webSearchInput.checked,
-        idle_duck_minutes:   idleDuck,
         window_alpha:        uiRefs.alphaField.getValue() / 100,
       };
       const newSearch = { result_cap: resultCap, max_depth: maxDepth };
@@ -427,53 +309,28 @@ export class ConfigDialog {
   }
 
   /**
-   * Build the UI tab content: all visual-configuration fields.
-   * Extracted from _buildPanel to keep it focused on layout/wiring.
+   * Build the UI tab content.
+   *
+   * Task 7 (piano 1): l'overlay F2 è sparito, e con lui ogni campo che
+   * pilotava SOLO il suo aspetto/comportamento (tasto d'attivazione,
+   * colore/font/dimensione del testo, posizione della finestra, stile
+   * dell'indicatore di attività, minuti di inattività) — questa tab resta
+   * con le due sole impostazioni condivise da tutte le finestre: ricerca web
+   * e trasparenza.
    *
    * @param {HTMLElement} panel  The tab panel element to append into.
    * @param {object}      cfg    Current UI config.
-   * @returns {{ actionKeyInput, colorField, fontSelect, sizeInput, posSelect, activitySelect, webSearchInput }}
+   * @returns {{ webSearchInput, alphaField }}
    */
   _buildUiTab(panel, cfg) {
     const fields = document.createElement("div");
     fields.className = "config-dialog-fields";
     panel.appendChild(fields);
 
-    // Action key (capture mode).
-    const actionKeyInput = this._buildActionKeyField(fields, cfg.action_key);
-
-    // Cursor color — swatch grid + native picker.
-    const colorField = this._buildColorField(fields, cfg.cursor_color);
-
-    // Cursor font — dropdown of installed monospace fonts.
-    const fontSelect = this._buildFontSelect(fields, cfg.cursor_font);
-
-    // Cursor size.
-    const sizeInput = this._buildField(
-      fields, "Size (px)", "size", "config-size",
-      "number", String(cfg.cursor_size)
-    );
-    sizeInput.min = "6";
-    sizeInput.max = "72";
-
-    // Position.
-    const posSelect = this._buildPositionSelect(fields, cfg.position);
-
-    // Activity indicator style.
-    const activitySelect = this._buildActivitySelect(fields, cfg.activity_indicator);
-
     // Ricerca web interna (toggle).
     const webSearchInput = this._buildCheckbox(
       fields, "Ricerca web", "config-web-search", cfg.web_search_enabled
     );
-
-    // Timeout pulcino idle (0 = disabilitato).
-    const idleDuckInput = this._buildField(
-      fields, "Duck idle (min, 0=off)", "idle-duck", "config-idle-duck",
-      "number", String(cfg.idle_duck_minutes ?? 5)
-    );
-    idleDuckInput.min = "0";
-    idleDuckInput.max = "60";
 
     // Trasparenza (alpha) — slider 0-100%, salvato come window_alpha (0.0-1.0).
     const alphaField = this._buildSliderField(
@@ -481,7 +338,7 @@ export class ConfigDialog {
       0, 100, 1, Math.round((cfg.window_alpha ?? 0.87) * 100)
     );
 
-    return { actionKeyInput, colorField, fontSelect, sizeInput, posSelect, activitySelect, webSearchInput, idleDuckInput, alphaField };
+    return { webSearchInput, alphaField };
   }
 
   /**
@@ -622,9 +479,9 @@ export class ConfigDialog {
       const note = document.createElement("p");
       note.className = "config-note";
       note.textContent =
-        "Nessun llms.json configurato. Crealo a mano — normalmente in " +
-        "%LOCALAPPDATA%\\dev.lare.terminal\\llms.json, oppure nella cartella di LARE_LOCAL_DIR " +
-        "se impostata — per scegliere un provider diverso da Claude diretto.";
+        "Nessun llms.json configurato. Crealo a mano — vive nella cartella di " +
+        "configurazione (--config-dir, di default Configuration\\ accanto " +
+        "all'eseguibile) — per scegliere un provider diverso da Claude diretto.";
       panel.appendChild(note);
       return { radios: [] };
     }
@@ -801,70 +658,6 @@ export class ConfigDialog {
   }
 
   /**
-   * Build the "Action key" field with a click-to-capture input.
-   *
-   * Clicking the capture button focuses a hidden input; the next key combo
-   * pressed is converted to an accelerator string and shown.  This is safer
-   * than a plain text field because it never captures an invalid string.
-   *
-   * @param {HTMLElement} parent
-   * @param {string}      currentKey
-   * @returns {HTMLElement}  The display element (carries `dataset.accelerator`).
-   */
-  _buildActionKeyField(parent, currentKey) {
-    const row = document.createElement("div");
-    row.className = "config-field-row";
-    parent.appendChild(row);
-
-    const label = document.createElement("label");
-    label.className = "config-field-label";
-    label.textContent = "Tasto azione";
-    row.appendChild(label);
-
-    const right = document.createElement("div");
-    right.className = "config-field-value config-capture-row";
-    row.appendChild(right);
-
-    // Display badge — shows the current/captured accelerator.
-    const display = document.createElement("span");
-    display.className = "config-key-badge";
-    display.textContent = currentKey;
-    display.dataset.accelerator = currentKey;
-    right.appendChild(display);
-
-    const hint = document.createElement("span");
-    hint.className = "config-capture-hint";
-    hint.textContent = "Click then press combo";
-    right.appendChild(hint);
-
-    // Hidden input used only to capture keydown events.
-    const captureInput = document.createElement("input");
-    captureInput.type = "text";
-    captureInput.readOnly = true;
-    captureInput.className = "config-capture-input";
-    captureInput.setAttribute("aria-label", "Key capture input — click then press the key combination");
-    right.appendChild(captureInput);
-
-    // Activate capture on click.
-    display.addEventListener("click", () => captureInput.focus());
-    hint.addEventListener("click",    () => captureInput.focus());
-
-    captureInput.addEventListener("keydown", (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-
-      const accel = keyEventToAccelerator(e);
-      if (!accel) return; // modifier-only — wait for real key
-
-      display.textContent = accel;
-      display.dataset.accelerator = accel;
-      captureInput.blur();
-    });
-
-    return display; // returned so saveBtn can read dataset.accelerator
-  }
-
-  /**
    * Build a simple label + input row.
    *
    * @param {HTMLElement} parent
@@ -946,225 +739,6 @@ export class ConfigDialog {
     });
 
     return { input, getValue: () => Number(input.value) };
-  }
-
-  /**
-   * Build the colour field: a grid of curated swatches plus the native
-   * `<input type="color">` picker for custom colours.
-   *
-   * Swatches are the robust path (fully in-overlay); the native picker opens
-   * the OS colour dialog, which is a bonus but can misbehave over an
-   * always-on-top window — if so, the swatches still work.
-   *
-   * @param {HTMLElement} parent
-   * @param {string}      currentColor  hex string, e.g. "#FFFFFF"
-   * @returns {{ getValue: () => string }}
-   */
-  _buildColorField(parent, currentColor) {
-    const row = document.createElement("div");
-    row.className = "config-field-row";
-    parent.appendChild(row);
-
-    const label = document.createElement("label");
-    label.className = "config-field-label";
-    label.textContent = "Colore";
-    row.appendChild(label);
-
-    const wrap = document.createElement("div");
-    wrap.className = "config-color-wrap";
-    row.appendChild(wrap);
-
-    // Curated terminal-friendly palette.
-    const SWATCHES = [
-      "#FFFFFF", "#C8C8C8", "#00FF66", "#33FF99", "#00E5FF", "#5AA0FF",
-      "#FFB000", "#FF8800", "#FF5555", "#FF55FF", "#FFFF66", "#AAFF33",
-    ];
-
-    let selected = (currentColor || "#FFFFFF").toUpperCase();
-    const swatchEls = [];
-
-    const swatchRow = document.createElement("div");
-    swatchRow.className = "config-swatches";
-    wrap.appendChild(swatchRow);
-
-    const native = document.createElement("input");
-    native.type = "color";
-    native.className = "config-color-native";
-    native.title = "Colore personalizzato";
-
-    const isHex6 = (c) => /^#[0-9A-F]{6}$/i.test(c);
-
-    const setSelected = (color) => {
-      selected = color.toUpperCase();
-      for (const s of swatchEls) {
-        s.classList.toggle("selected", s.dataset.color === selected);
-      }
-      if (isHex6(selected)) native.value = selected.toLowerCase();
-    };
-
-    for (const c of SWATCHES) {
-      const sw = document.createElement("button");
-      sw.type = "button";
-      sw.className = "config-swatch";
-      sw.dataset.color = c;
-      sw.style.background = c;
-      sw.title = c;
-      sw.addEventListener("click", () => setSelected(c));
-      swatchRow.appendChild(sw);
-      swatchEls.push(sw);
-    }
-
-    native.value = isHex6(selected) ? selected.toLowerCase() : "#ffffff";
-    native.addEventListener("input", () => setSelected(native.value));
-    wrap.appendChild(native);
-
-    setSelected(selected);
-
-    return { getValue: () => selected };
-  }
-
-  /**
-   * Build the font field: a dropdown of monospace fonts actually available to
-   * the webview, detected via `document.fonts.check()` over a curated list of
-   * common monospace families.  The current font is always included.
-   *
-   * @param {HTMLElement} parent
-   * @param {string}      currentFont
-   * @returns {HTMLSelectElement}
-   */
-  _buildFontSelect(parent, currentFont) {
-    const row = document.createElement("div");
-    row.className = "config-field-row";
-    parent.appendChild(row);
-
-    const label = document.createElement("label");
-    label.className = "config-field-label";
-    label.htmlFor = "config-font";
-    label.textContent = "Font";
-    row.appendChild(label);
-
-    const select = document.createElement("select");
-    select.id = "config-font";
-    select.className = "config-field-input";
-    row.appendChild(select);
-
-    // Curated monospace candidates across Windows/macOS/Linux.
-    const CANDIDATES = [
-      "Consolas", "Cascadia Code", "Cascadia Mono", "Courier New",
-      "Lucida Console", "JetBrains Mono", "Fira Code", "Fira Mono",
-      "Source Code Pro", "Hack", "Inconsolata", "IBM Plex Mono",
-      "Roboto Mono", "Ubuntu Mono", "DejaVu Sans Mono", "Liberation Mono",
-      "Menlo", "Monaco", "SF Mono", "Noto Sans Mono",
-    ];
-
-    const available = new Set();
-    for (const f of CANDIDATES) {
-      try {
-        if (document.fonts && document.fonts.check(`16px "${f}"`)) available.add(f);
-      } catch {
-        /* document.fonts.check unsupported — skip */
-      }
-    }
-    // Always offer the current font, even if detection missed it.
-    if (currentFont) available.add(currentFont);
-    if (available.size === 0) available.add("Consolas");
-
-    const sorted = [...available].sort((a, b) => a.localeCompare(b));
-    for (const f of sorted) {
-      const opt = document.createElement("option");
-      opt.value = f;
-      opt.textContent = f;
-      opt.style.fontFamily = `"${f}", monospace`;
-      if (f === currentFont) opt.selected = true;
-      select.appendChild(opt);
-    }
-
-    return select;
-  }
-
-  /**
-   * Build the position <select> row.
-   *
-   * @param {HTMLElement} parent
-   * @param {string}      current   snake_case value matching serde enum
-   * @returns {HTMLSelectElement}
-   */
-  _buildPositionSelect(parent, current) {
-    const row = document.createElement("div");
-    row.className = "config-field-row";
-    parent.appendChild(row);
-
-    const label = document.createElement("label");
-    label.className = "config-field-label";
-    label.htmlFor = "config-position";
-    label.textContent = "Posizione";
-    row.appendChild(label);
-
-    const select = document.createElement("select");
-    select.id = "config-position";
-    select.className = "config-field-input";
-    row.appendChild(select);
-
-    // Options match the serde snake_case values of the Position enum.
-    const OPTIONS = [
-      { value: "center",        label: "Centro (default)" },
-      { value: "bottom_center", label: "Basso-centro" },
-      { value: "near_mouse",    label: "Vicino al mouse" },
-    ];
-
-    for (const opt of OPTIONS) {
-      const optEl = document.createElement("option");
-      optEl.value = opt.value;
-      optEl.textContent = opt.label;
-      if (opt.value === current) optEl.selected = true;
-      select.appendChild(optEl);
-    }
-
-    return select;
-  }
-
-  /**
-   * Build the activity indicator <select> row.
-   *
-   * Mirror of `_buildPositionSelect`.  Options match the serde snake_case
-   * values of the `ActivityIndicator` enum in `config.rs`.
-   *
-   * @param {HTMLElement} parent
-   * @param {string}      current   snake_case value matching serde enum
-   * @returns {HTMLSelectElement}
-   */
-  _buildActivitySelect(parent, current) {
-    const row = document.createElement("div");
-    row.className = "config-field-row";
-    parent.appendChild(row);
-
-    const label = document.createElement("label");
-    label.className = "config-field-label";
-    label.htmlFor = "config-activity";
-    label.textContent = "Indicatore";
-    row.appendChild(label);
-
-    const select = document.createElement("select");
-    select.id = "config-activity";
-    select.className = "config-field-input";
-    row.appendChild(select);
-
-    // Options match the serde snake_case values of the ActivityIndicator enum.
-    const OPTIONS = [
-      { value: "title",  label: "Accanto al titolo (default)" },
-      { value: "status", label: "Badge di stato" },
-      { value: "prompt", label: "Prompt pulsante" },
-    ];
-
-    for (const opt of OPTIONS) {
-      const optEl = document.createElement("option");
-      optEl.value = opt.value;
-      optEl.textContent = opt.label;
-      if (opt.value === current) optEl.selected = true;
-      select.appendChild(optEl);
-    }
-
-    return select;
   }
 
   /**

@@ -1,5 +1,150 @@
 # Implementation — crates/ui v0.47.1 (Fix review finale whole-branch: `merge_active` + nota UI)
 
+## Pagina host: overlay F2 rimosso, `host.js`/`host.html`, flag dev `--open` (v2.0.2)
+
+Piano `2026-09-05-piano-1-fondamenta`, Task 7. In 2.0 la shell interattiva vive nel processo
+"lare-shell" ospitato da una finestra Tauri separata (spec §5, spike 2) — l'overlay F2 di v1
+(`app.js` + `index.html`: editor a riga singola, output scrollabile, spinner di attività,
+pulcino idle, diagnosi automatica) non ha più un ruolo. Ma `ui.exe` resta necessario: è
+l'unico proprietario della connessione WebSocket "di default" (`Hello` senza `channel`) verso
+l'orchestrator, l'unico lanciatore di ogni finestra (`invokeCmd("open_*_window")`), e il
+relay che ri-emette `AiChat*`/`Search*`/`Share*`/`OpenPluginWindow` come eventi Tauri globali
+verso AI Chat, `/find`, Library e le finestre plugin. Questo task è un'estrazione chirurgica:
+il "tenere" di `app.js` migra in `host.js` (owner della finestra `main`, ora nascosta e
+chiamata `host.html`), il "cursore" viene cancellato.
+
+### `app.js` (1811 righe) → `host.js` (finestra nascosta) — cosa resta
+
+Estratte **invariate** salvo la rimozione dei riferimenti al DOM del cursore (che non esiste
+più in `host.html`, una pagina senza alcuna UI):
+
+`uuidv4`, `invokeCmd`, `getToken`, `initClient` (`onStatus` ridotto a un `console.info` di
+diagnostica — non c'è più un badge di stato da aggiornare), `handleServerMsg` (solo i `case`
+dei tipi classificati `window`/`relay` da `host-dispatch.mjs` — vedi sotto), `openMarkdownWindow`,
+`openSearchWindow`, `emitToSearch`, `setupSearchEvents`, `openPluginWindow`,
+`openRoutinePreviewWindow`, `emitToPlugin`, `emitToLibrary`, `libraryRosterParticipants`,
+`openAiChatWindow`, `openNoteWindow`, `setupNoteWindowEvents`, `emitToAiChat`, `pushAiChat`,
+`setupAiChatEvents`, `setupPluginEvents`, `setupRoutinePreviewEvents`,
+`setupConfigWindowEvents`, `setupLibraryEvents`, `bootstrap` (senza editor/focus/duck/diagnosi
+— e senza il caricamento della config, che nel cursore v1 serviva solo a vestire il DOM del
+cursore stesso: la pagina host non ha aspetto da applicare).
+
+### `host-dispatch.mjs` (nuovo, TDD) — classificazione pura dei `ServerMsg`
+
+`classifyServerMsg(msg)` — nessun DOM, testabile con `node:test` — sostituisce la necessità di
+mantenere a mano, sincronizzata con lo switch di `handleServerMsg`, la lista dei tipi che la
+pagina host sa gestire. Quattro categorie: `"window"` (apre/aggiorna una finestra),
+`"relay"` (va rigirato a una finestra già aperta), `"ignored"` (era per il cursore v1 — output,
+watchdog, riga cwd, `server_info` — nessuna superficie lo consuma più), `"deny"`
+(`tool_confirm_request`: senza cursore nessuno può rispondere Sì/No, il default sicuro è NO —
+l'orchestratore ha comunque un timeout che nega da solo). `handleServerMsg` chiama
+`classifyServerMsg` PRIMA di entrare nello switch: `"deny"`/`"ignored"` sono gestiti senza
+bisogno di un `case` per ogni tipo, e lo switch contiene solo i tipi che hanno davvero
+qualcosa da fare (`open_screener_picker`, presente nel set `"window"` per completezza, non ha
+mai un `case`: arriva solo sul canale dedicato di `/markets`, mai sulla connessione di
+default).
+
+TDD: `host-dispatch.test.mjs` scritto per primo (i 4 test del brief, verbatim) → `node --test`
+fallisce con `ERR_MODULE_NOT_FOUND` (RED, modulo assente) → `host-dispatch.mjs` → 4/4 GREEN.
+
+### Dipendenze che non tornavano pulite — risolte senza inventare comportamento nuovo
+
+Estrarre non è stato un taglia-incolla meccanico: tre punti di `app.js` dipendevano da
+superfici del cursore che host.js non ha. In ognuno, la scelta è stata "tieni l'azione sul
+wire, togli solo il feedback visivo che non ha più una casa" — mai inventare una nuova
+superficie non richiesta dal brief:
+
+- **`search:open-path`/`library:open-folder`** chiamavano `handleSlashCommand(`/open ${path}`)`
+  — funzione del cursore, cancellata (il routing degli slash digitati migra
+  all'orchestratore nel piano 2). L'UNICA cosa che quella chiamata faceva per `/open` non
+  legata al cursore era `client.sendCommand(input, id, webSearch)`; `host.js` la sostituisce
+  con un piccolo `sendOpenCommand(path)` che fa solo quello (un WS non connesso finisce in
+  console, non più in un banner d'errore nel pannello).
+- **`share_result`/`share_incoming_data`** chiamavano `renderer.systemMessage(...)` — la
+  stessa doc-comment di `share-view.mjs` dice "riga di esito mostrata nel pannello del
+  cursore principale": quella riga non ha più una superficie. `host.js` la sostituisce con un
+  `console.info` (diagnostica, non un nuovo canale verso una finestra — sarebbe stato un
+  comportamento MAI esistito) e mantiene intatta la parte protocollare (`archive_open`/
+  `archive_save` + `sendShareContent(Failed)`/`sendShareWritten`, l'ack che l'orchestratore si
+  aspetta).
+- **`pushAiChat`** accendeva `hasUnseenAiChatActivity` per pilotare un'icona
+  (`updateAiChatNotifyIndicator`) nel DOM del cursore. Senza quell'icona il flag diventa
+  write-only (nessun consumatore): non è "logica di relay" da preservare, è stato rimosso
+  insieme al suo reset in `setupAiChatEvents`.
+- **`setupConfigWindowEvents`** ascoltava `config:saved` per richiamare `applySavedConfig`
+  (riapplicare aspetto/flag al pannello del cursore). La pagina host non ha aspetto da
+  riapplicare — il listener resta registrato (documenta il contratto per le finestre che
+  emettono l'evento) ma con corpo vuoto.
+
+### Rust: rimozione dell'hotkey globale e della clipboard
+
+`main.rs`: tolti `.plugin(tauri_plugin_global_shortcut::Builder::new()...)` (l'handler F2 che
+mostrava/nascondeva l'intera superficie UI), `apply_hotkey`, i comandi `hide_overlay`/
+`show_overlay`/`list_path_completions`/`home_dir` (e i relativi test — `list_path_completions`
+aveva un intero modulo `#[cfg(test)]` in fondo al file), `.plugin(tauri_plugin_clipboard_manager::init())`
+(usato solo da `app.js`). `window.rs` (positioning `Center`/`BottomCenter`/`NearMouse`
+dell'overlay) è stato CANCELLATO per intero — non era nella lista file del brief, ma
+dipendeva solo dall'enum `Position` (rimosso da `config.rs`, sotto) e i suoi unici due
+chiamanti (`show_overlay`, l'handler del global-shortcut) sono entrambi spariti: tenerlo
+avrebbe rotto la build. `set_config` non valida più un tasto d'attivazione né ri-registra un
+hotkey — solo persist + aggiornamento dello stato in memoria. `Cargo.toml`: tolte
+`tauri-plugin-global-shortcut`, `tauri-plugin-clipboard-manager`, e `dirs` (usata solo da
+`home_dir`, anch'esso rimosso — nessun altro punto del crate la usa).
+
+### `Config` ridotto a due campi
+
+`config.rs`: via `action_key`, `cursor_color`, `cursor_font`, `cursor_size`, `position`,
+`activity_indicator`, `idle_duck_minutes` e gli enum `Position`/`ActivityIndicator` che li
+tipavano (con i rispettivi test) — restano `web_search_enabled` e `window_alpha`, entrambi
+`#[serde(default = ...)]` come prima. Nessun `#[serde(deny_unknown_fields)]` su questo
+struct: un `config.json` v1 con i campi rimossi carica lo stesso, ignorando silenziosamente
+le chiavi sconosciute (`legacy_v1_config_json_with_extra_fields_still_loads`, test scritto
+contro il vecchio `Config` a 9 campi — dove sarebbe stato RED per mancanza di campi
+obbligatori — poi verificato GREEN contro il nuovo).
+
+`config-dialog.js`: la tab UI di `/config` mantiene solo Ricerca web e Trasparenza — rimossi
+il campo di cattura del tasto d'attivazione (`_buildActionKeyField`/`keyEventToAccelerator`/
+`codeToToken`, l'intero meccanismo di cattura tasti), la palette colore
+(`_buildColorField`), la selezione font (`_buildFontSelect`), posizione
+(`_buildPositionSelect`) e indicatore di attività (`_buildActivitySelect`) — tutti diventati
+dead code una volta tolti i campi corrispondenti dall'oggetto `newCfg` salvato. Corretto anche
+il testo di aiuto della tab LLM: `llms.json` vive nella cartella di configurazione
+(`--config-dir`, di default `Configuration\` accanto all'eseguibile), non più in
+`%LOCALAPPDATA%\dev.lare.terminal`/`LARE_LOCAL_DIR` (riferimento v1 mai aggiornato).
+
+### `tauri.conf.json` — finestra `main` diventa la pagina host, nascosta
+
+`"url": "host.html"`, `"visible": false` (era già `false` — cambia il significato: prima
+"nascosta finché F2 non la mostra", ora "nascosta per tutta la vita del processo"),
+`"skipTaskbar": true`, `"transparent": false`, `"decorations": true`, `"alwaysOnTop": false`,
+`200×100` (era `1064×140`, la dimensione compatta del pannello cursore — non ha più senso per
+una finestra che non si vede mai). `capabilities/default.json`: tolte le permission
+`global-shortcut:*`/`clipboard-manager:*`; le capability delle altre finestre (`aichat-window.json`
+… `search-window.json`) restano invariate.
+
+### Flag di sviluppo `--open config|library` (TEMPORANEO, piano 1 → rimosso nel piano 3)
+
+`DevOpenRequest(Option<String>)`, stato gestito popolato una volta in `main()` leggendo argv
+reali (stesso pattern di `--config-dir`), letto dal comando `dev_open_request`. Senza overlay
+né canale shell nessuna superficie può ancora chiedere l'apertura di `/config` o Library da
+sola: `host.js::bootstrap` chiama `dev_open_request` una volta all'avvio e invoca
+`open_config_window`/`open_library_window` di conseguenza. Un valore diverso da
+`"config"`/`"library"` (o l'assenza del flag) risolve silenziosamente a `None`: nessuna
+finestra si apre da sola, comportamento invariato rispetto a prima dell'introduzione del
+flag. Il piano 3 lo rimuove quando l'orchestratore guiderà l'apertura delle finestre.
+
+### Verifica manuale (nessun overlay, nessuna hotkey)
+
+`cargo run -p ui -- --config-dir <tempdir-con-token> --open config` per ~10s: nessun crash,
+nessun panic (`timeout` termina il processo con exit 124 = ancora in esecuzione). stdout mostra
+la cartella di configurazione, la config caricata (solo `web_search_enabled`/`window_alpha`),
+l'avvio del watch della Library e la versione — niente più "Press <tasto> to toggle". Nessuna
+finestra overlay appare, nessuna hotkey è registrata (il plugin non è più nel builder).
+`--open library` risulta nello stesso comportamento. Nota: l'output di `console.*` lato
+JS/WebView2 (incluso il log di retry di `ws-client.js`) non è mai stato inoltrato allo
+stdout/stderr del processo host — né in v1 né qui — quindi il tentativo di connessione WS
+verso un orchestratore assente si osserva in DevTools, non nel terminale.
+
 ## Configurazione 2.0: `ConfigDirState`, `get_ws_endpoint`, un solo risolutore (v2.0.1)
 
 Piano `2026-09-05-piano-1-fondamenta`, Task 6. Il fork v1 di questo crate leggeva

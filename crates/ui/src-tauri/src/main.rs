@@ -26,7 +26,6 @@ mod llm_settings;
 mod market_data_settings;
 mod plugins_view;
 mod search_settings;
-mod window;
 
 /// Riconosce il comando di uscita pulita digitato sullo stdin interattivo ("Q"/"quit",
 /// case-insensitive, spazi ai bordi ignorati). Vedi il thread stdin-reader in `.setup()`:
@@ -43,9 +42,8 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
-use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 use ui_lib::archive;
-use ui_lib::config::{self, Config, Position};
+use ui_lib::config::{self, Config};
 use ui_lib::library_watch;
 
 // ---------------------------------------------------------------------------
@@ -166,89 +164,6 @@ fn diagnose_connection(app: AppHandle, state: State<'_, ConfigDirState>) -> Conn
     }
 }
 
-/// Return the user's home directory as a string.
-///
-/// Used by the frontend to perform `~` substitution in the cwd display line
-/// (via `formatCwd(path, home)`).  Returns an empty string when the home
-/// directory cannot be resolved — `formatCwd` handles this gracefully by
-/// skipping the `~` replacement.
-#[tauri::command]
-fn home_dir() -> String {
-    dirs::home_dir()
-        .map(|p| p.display().to_string())
-        .unwrap_or_default()
-}
-
-/// Elenca le voci di una directory che iniziano con `prefix`, per
-/// l'autocompletamento Tab della riga di comando principale (2026-07-19).
-/// `dir_part` può essere relativo (unito a `cwd` tramite `Path::join` — che
-/// gestisce già correttamente `..`/`.`) o assoluto (sostituisce interamente
-/// `cwd`, stessa semantica di `Path::join` quando l'argomento è assoluto).
-/// Le directory nel risultato terminano con `std::path::MAIN_SEPARATOR`,
-/// per distinguerle dai file senza una seconda chiamata. Directory
-/// inesistente o inaccessibile → lista vuota (mai un errore: un Tab senza
-/// corrispondenze deve solo non fare nulla, non mostrare un problema).
-#[tauri::command]
-fn list_path_completions(cwd: String, dir_part: String, prefix: String) -> Vec<String> {
-    let base = std::path::Path::new(&cwd).join(&dir_part);
-    let Ok(entries) = std::fs::read_dir(&base) else {
-        return Vec::new();
-    };
-
-    let matches_prefix = |name: &str| -> bool {
-        #[cfg(windows)]
-        {
-            name.to_lowercase().starts_with(&prefix.to_lowercase())
-        }
-        #[cfg(not(windows))]
-        {
-            name.starts_with(&prefix)
-        }
-    };
-
-    let mut matches: Vec<String> = entries
-        .filter_map(|e| e.ok())
-        .filter_map(|entry| {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            if !matches_prefix(&name) {
-                return None;
-            }
-            let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
-            Some(if is_dir {
-                format!("{name}{}", std::path::MAIN_SEPARATOR)
-            } else {
-                name
-            })
-        })
-        .collect();
-    matches.sort_by_key(|s| s.to_lowercase());
-    matches
-}
-
-/// Hide the overlay window.
-///
-/// Called from JS on Esc key.
-#[tauri::command]
-fn hide_overlay(app: AppHandle) {
-    if let Some(win) = app.get_webview_window("main") {
-        if let Err(e) = win.hide() {
-            eprintln!("[ui] hide_overlay error: {e}");
-        }
-    }
-}
-
-/// Show the overlay (position from current config), center it, and steal focus.
-///
-/// Primarily called by the Rust global-shortcut handler; also invokable from JS.
-#[tauri::command]
-fn show_overlay(app: AppHandle, state: State<'_, ConfigState>) {
-    let position = {
-        let cfg = state.0.lock().unwrap();
-        cfg.position.clone()
-    };
-    window::show_and_focus(&app, &position);
-}
-
 /// Return a copy of the current config to the frontend.
 ///
 /// The frontend uses this to populate the /config dialog and apply CSS vars
@@ -258,16 +173,12 @@ fn get_config(state: State<'_, ConfigState>) -> Config {
     state.0.lock().unwrap().clone()
 }
 
-/// Validate, persist, and hot-apply a new config.
+/// Persist and hot-apply a new config.
 ///
-/// Steps (all-or-nothing on validation failure):
-///   1. Validate `new_cfg.action_key` — return Err if invalid (nothing changes).
-///   2. Persist the new config to disk.
-///   3. Update in-memory state.
-///   4. Re-register the global shortcut (unregister all → register new).
-///
-/// The appearance (color/font/size) is applied by the frontend via CSS vars.
-/// The position is used by the next `show_overlay` call.
+/// Task 7 (piano 1): senza overlay non c'è più un tasto d'attivazione da
+/// validare né un hotkey globale da ri-registrare — questo comando è ora
+/// solo persist + aggiornamento dello stato in memoria. L'aspetto (alpha) e
+/// il flag di ricerca web sono letti dalle finestre via `get_config`.
 ///
 /// Returns `Ok(())` on success or `Err(human-readable message)` on any failure.
 #[tauri::command]
@@ -276,23 +187,27 @@ fn set_config(
     app: AppHandle,
     state: State<'_, ConfigState>,
 ) -> Result<(), String> {
-    // Step 1 — validate action_key FIRST; bail without touching anything if bad.
-    config::validate_action_key(&new_cfg.action_key)?;
-
-    // Step 2 — persist.
+    // Persist.
     let config_path = config_file_path(&app)?;
     config::save_to(&new_cfg, &config_path)?;
 
-    // Step 3 — update in-memory state.
-    {
-        let mut guard = state.0.lock().unwrap();
-        *guard = new_cfg.clone();
-    }
-
-    // Step 4 — re-register global shortcut.
-    apply_hotkey(&app, &new_cfg.action_key)?;
+    // Update in-memory state.
+    let mut guard = state.0.lock().unwrap();
+    *guard = new_cfg;
 
     Ok(())
+}
+
+/// Flag di sviluppo TEMPORANEO (piano 1 → rimosso nel piano 3): `--open
+/// config|library` apre subito quella finestra, perché senza overlay né
+/// canale shell nessuna superficie può chiederlo da sola. Letto una volta da
+/// argv in `main()` e tenuto in stato gestito; `host.js` lo legge una sola
+/// volta al bootstrap.
+pub struct DevOpenRequest(pub Option<String>);
+
+#[tauri::command]
+fn dev_open_request(state: tauri::State<DevOpenRequest>) -> Option<String> {
+    state.0.clone()
 }
 
 // ---------------------------------------------------------------------------
@@ -713,34 +628,6 @@ fn resize_self(webview: tauri::WebviewWindow, width: f64, height: f64) -> Result
     webview
         .set_size(tauri::LogicalSize::new(width, height))
         .map_err(|e| format!("resize_self error: {e}"))
-}
-
-// ---------------------------------------------------------------------------
-// Shortcut helpers
-// ---------------------------------------------------------------------------
-
-/// Parse `key` into a `Shortcut`, unregister all current shortcuts, and
-/// register the new one.
-///
-/// If `register` fails after `unregister_all`, the app will be without a
-/// hotkey — an error is returned so the caller can surface it to the user.
-fn apply_hotkey(app: &AppHandle, key: &str) -> Result<(), String> {
-    use std::str::FromStr;
-    use ui_lib::config::Shortcut;
-
-    let shortcut =
-        Shortcut::from_str(key).map_err(|e| format!("cannot parse accelerator {:?}: {e}", key))?;
-
-    // Unregister all first to avoid duplicate registrations.
-    app.global_shortcut()
-        .unregister_all()
-        .map_err(|e| format!("unregister_all failed: {e}"))?;
-
-    app.global_shortcut()
-        .register(shortcut)
-        .map_err(|e| format!("cannot register {:?}: {e}", key))?;
-
-    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -1351,91 +1238,36 @@ fn main() {
     }
     println!("[ui] config dir: {}", cfg_state.config_dir.display());
 
+    // ── Flag di sviluppo TEMPORANEO `--open config|library` (Task 7, piano 1
+    //    → rimosso nel piano 3): letto una volta da argv reali, come
+    //    `--config-dir` sopra. Senza overlay né canale shell nessuna
+    //    superficie può ancora chiedere l'apertura di una finestra da sola —
+    //    questo flag la apre subito, per poter verificare le finestre a mano
+    //    durante lo sviluppo. Un valore diverso da "config"/"library" (o
+    //    l'assenza del flag) è silenziosamente `None`: nessuna finestra si
+    //    apre da sola, comportamento identico a prima dell'introduzione del
+    //    flag.
+    let args: Vec<String> = std::env::args().collect();
+    let open = args
+        .iter()
+        .position(|a| a == "--open")
+        .and_then(|i| args.get(i + 1))
+        .filter(|v| *v == "config" || *v == "library")
+        .cloned();
+
     tauri::Builder::default()
         // Stato gestito: cartella di configurazione + startup.json, risolti
         // una volta sopra — nessun comando/modulo li ri-deriva da solo.
         .manage(cfg_state)
-        // -----------------------------------------------------------------
-        // Clipboard plugin: enables read/write of the system clipboard from
-        // the JS frontend via window.__TAURI__.clipboardManager.
-        // Permissions granted in capabilities/default.json:
-        //   "clipboard-manager:allow-read-text"
-        //   "clipboard-manager:allow-write-text"
-        // -----------------------------------------------------------------
-        .plugin(tauri_plugin_clipboard_manager::init())
-        // -----------------------------------------------------------------
-        // Global-shortcut plugin: toggle handler.
-        //
-        // The handler fires for both Pressed and Released; filter to Pressed.
-        // We no longer hard-code F2: we compare against the registered shortcut
-        // by using `unregister_all` + re-register, so the handler sees exactly
-        // one registered shortcut.  The identity check is removed — any fire
-        // is the configured key.
-        // -----------------------------------------------------------------
-        .plugin(
-            tauri_plugin_global_shortcut::Builder::new()
-                .with_handler(move |app, _shortcut, event| {
-                    if event.state() != ShortcutState::Pressed {
-                        return;
-                    }
-
-                    let Some(win) = app.get_webview_window("main") else {
-                        return;
-                    };
-
-                    let is_visible = win.is_visible().unwrap_or(false);
-                    if is_visible {
-                        // BUG-003 fix: hide the main window AND all open Markdown
-                        // windows (label starts with "md-") together, so F2 cleanly
-                        // hides the entire UI surface.  The library window and all
-                        // plugin windows (label starts with "plugin-") are included
-                        // so the entire Lare UI surface hides together.
-                        for (label, w) in app.webview_windows() {
-                            if label == "main"
-                                || label.starts_with("md-")
-                                || label == "library"
-                                || label == "note-compose"
-                                || label.starts_with("plugin-")
-                            {
-                                if let Err(e) = w.hide() {
-                                    eprintln!("[ui] hotkey hide error ({label}): {e}");
-                                }
-                            }
-                        }
-                    } else {
-                        // BUG-003 fix: show Markdown windows, the library window, and
-                        // plugin windows first (they are always_on_top), then
-                        // show+focus the main window which is also always_on_top.
-                        for (label, w) in app.webview_windows() {
-                            if label.starts_with("md-")
-                                || label == "library"
-                                || label == "note-compose"
-                                || label.starts_with("plugin-")
-                            {
-                                if let Err(e) = w.show() {
-                                    eprintln!("[ui] hotkey show error ({label}): {e}");
-                                }
-                            }
-                        }
-                        // Show: retrieve position from managed state, then show.
-                        let position = app
-                            .try_state::<ConfigState>()
-                            .map(|s| s.0.lock().unwrap().position.clone())
-                            .unwrap_or(Position::Center);
-                        window::show_and_focus(app, &position);
-                    }
-                })
-                .build(),
-        )
+        .manage(DevOpenRequest(open))
         // Register Tauri commands callable from JS.
         .invoke_handler(tauri::generate_handler![
-            hide_overlay,
-            show_overlay,
             get_lare_token,
             get_ws_endpoint,
             diagnose_connection,
             get_config,
             set_config,
+            dev_open_request,
             search_settings::get_search_settings,
             search_settings::set_search_settings,
             aichat_settings::get_aichat_settings,
@@ -1445,8 +1277,6 @@ fn main() {
             market_data_settings::get_market_data_settings,
             market_data_settings::set_market_data_settings,
             plugins_view::list_plugins,
-            home_dir,
-            list_path_completions,
             open_markdown_window,
             open_search_window,
             open_screener_picker_window,
@@ -1495,17 +1325,10 @@ fn main() {
             });
 
             let cfg = config::load_from(&config_path);
-            println!("[ui] Loaded config: action_key={:?}", cfg.action_key);
-
-            // ── Register the configured hotkey. ────────────────────────────
-            let action_key = cfg.action_key.clone();
-            apply_hotkey(app.handle(), &action_key).unwrap_or_else(|e| {
-                eprintln!("[ui] hotkey registration error: {e}  — falling back to F2");
-                // Try the default as a last resort.
-                if let Err(e2) = apply_hotkey(app.handle(), "F2") {
-                    eprintln!("[ui] F2 fallback also failed: {e2}");
-                }
-            });
+            println!(
+                "[ui] Loaded config: web_search_enabled={:?} window_alpha={:?}",
+                cfg.web_search_enabled, cfg.window_alpha
+            );
 
             // ── Store config in managed state. ─────────────────────────────
             app.manage(ConfigState(Mutex::new(cfg)));
@@ -1625,10 +1448,9 @@ fn main() {
                 });
             }
 
-            println!(
-                "[ui] Lare Terminal v{} started. Press {action_key} to toggle.",
-                env!("CARGO_PKG_VERSION")
-            );
+            // Niente più "Press <tasto> to toggle": l'overlay F2 è sparito, la
+            // finestra host è nascosta per tutta la vita del processo.
+            println!("[ui] Lare Terminal v{} started.", env!("CARGO_PKG_VERSION"));
             Ok(())
         })
         .run(tauri::generate_context!())
@@ -1656,75 +1478,5 @@ mod quit_command_tests {
         assert!(!is_quit_command(""));
         assert!(!is_quit_command("quitter"));
         assert!(!is_quit_command("dir"));
-    }
-}
-
-#[cfg(test)]
-mod list_path_completions_tests {
-    use super::*;
-
-    #[test]
-    fn lists_entries_matching_prefix_case_insensitively_on_windows() {
-        let dir = tempfile_dir_with(&["Documents", "Downloads", "readme.txt"]);
-        let cwd = dir.path().to_string_lossy().into_owned();
-        let mut result = list_path_completions(cwd, String::new(), "do".to_string());
-        result.sort();
-        #[cfg(windows)]
-        assert_eq!(
-            result,
-            vec!["Documents\\".to_string(), "Downloads\\".to_string()]
-        );
-        #[cfg(not(windows))]
-        assert!(
-            result.is_empty(),
-            "case-sensitive on non-Windows: 'do' must not match 'Documents'/'Downloads'"
-        );
-    }
-
-    #[test]
-    fn directories_get_a_trailing_separator_files_do_not() {
-        let dir = tempfile_dir_with(&["sub", "file.txt"]);
-        let cwd = dir.path().to_string_lossy().into_owned();
-        let mut result = list_path_completions(cwd, String::new(), String::new());
-        result.sort();
-        let expected_dir = format!("sub{}", std::path::MAIN_SEPARATOR);
-        assert!(result.contains(&expected_dir), "got: {result:?}");
-        assert!(result.contains(&"file.txt".to_string()), "got: {result:?}");
-    }
-
-    #[test]
-    fn nonexistent_directory_returns_empty_not_a_panic() {
-        let result = list_path_completions(
-            "Z:\\definitely\\does\\not\\exist".to_string(),
-            String::new(),
-            String::new(),
-        );
-        assert!(result.is_empty());
-    }
-
-    #[test]
-    fn dir_part_relative_is_joined_onto_cwd() {
-        let dir = tempfile_dir_with(&["sub"]);
-        std::fs::create_dir_all(dir.path().join("sub").join("nested")).unwrap();
-        let cwd = dir.path().to_string_lossy().into_owned();
-        let sep = std::path::MAIN_SEPARATOR;
-        let result = list_path_completions(cwd, format!("sub{sep}"), String::new());
-        assert_eq!(result, vec![format!("nested{sep}")]);
-    }
-
-    /// Creates a temp dir containing the given entries (files, since we only
-    /// need names to test `read_dir`+prefix filtering — `sub`/`nested` are
-    /// created as real directories by the tests above that need `is_dir`
-    /// to actually be true).
-    fn tempfile_dir_with(names: &[&str]) -> tempfile::TempDir {
-        let dir = tempfile::tempdir().expect("create temp dir");
-        for name in names {
-            if *name == "sub" || *name == "Documents" || *name == "Downloads" {
-                std::fs::create_dir(dir.path().join(name)).expect("create subdir");
-            } else {
-                std::fs::write(dir.path().join(name), b"").expect("create file");
-            }
-        }
-        dir
     }
 }
