@@ -229,19 +229,13 @@ impl ToolConfirmer for LocalUiConfirmer {
 /// Non aggiunge campi: tenere qui la `LocalUiConfirmer` interna evita di
 /// duplicare `confirm()` (che è l'unica parte con logica vera).
 ///
-/// `#[allow(dead_code)]`: nessun canale collega ancora `ShellConfirmer` (lo
-/// farà il Task 8, che instrada la sessione shell) — finché non esiste quel
-/// filo, `cargo build`/`clippy` (senza i test, che invece la usano) la
-/// vedrebbero come mai costruita.
-#[allow(dead_code)]
+/// Usata da `shell_turn::run_ai_turn` (Task 8): un `ExecInShell` per turno
+/// shell passa sempre da qui prima di essere mandato alla host.
 pub(crate) struct ShellConfirmer {
     inner: LocalUiConfirmer,
 }
 
 impl ShellConfirmer {
-    // `#[allow(dead_code)]` anche qui: senza, clippy segnala `new` come "mai
-    // usata" nella build senza test (vedi doc-comment dello struct sopra).
-    #[allow(dead_code)]
     pub(crate) fn new(
         out_tx: UnboundedSender<ServerMsg>,
         pending: PendingConfirms,

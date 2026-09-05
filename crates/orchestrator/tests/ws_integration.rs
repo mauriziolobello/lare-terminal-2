@@ -132,7 +132,7 @@ async fn spawn_server(token: &str) -> String {
 
         // Pass the addr string to ws::serve so it binds the ephemeral port.
         // `None` = canale AI Chat non attivo in questo helper di test generico.
-        ws::serve(&addr_str_clone, Arc::new(token_str), ai, tools, cwd_state, search, plugin_host, plugin_commands, None, tokio_util::sync::CancellationToken::new(), test_rt())
+        ws::serve(&addr_str_clone, Arc::new(token_str), ai, tools, cwd_state, search, plugin_host, plugin_commands, None, tokio_util::sync::CancellationToken::new(), test_rt(), orchestrator::connections::Registry::shared())
             .await
             .ok();
     });
@@ -721,7 +721,7 @@ async fn spawn_server_with_cwd(token: &str, initial_cwd: &str, fake_cwd: &str) -
         let plugin_commands: Arc<Vec<(String, String)>> = Arc::new(vec![]);
 
         // `None` = canale AI Chat non attivo in questo helper.
-        ws::serve(&addr_str_clone, Arc::new(token_str), ai, tools, Arc::clone(&cwd_state_clone), search, plugin_host, plugin_commands, None, tokio_util::sync::CancellationToken::new(), test_rt())
+        ws::serve(&addr_str_clone, Arc::new(token_str), ai, tools, Arc::clone(&cwd_state_clone), search, plugin_host, plugin_commands, None, tokio_util::sync::CancellationToken::new(), test_rt(), orchestrator::connections::Registry::shared())
             .await
             .ok();
     });
@@ -1021,6 +1021,7 @@ async fn spawn_server_with_aichat(
             Some(aichat_tx),
             tokio_util::sync::CancellationToken::new(),
             test_rt(),
+            orchestrator::connections::Registry::shared(),
         )
         .await
         .ok();
@@ -1135,6 +1136,7 @@ async fn serve_returns_when_shutdown_token_is_cancelled() {
             None,
             shutdown_clone,
             test_rt(),
+            orchestrator::connections::Registry::shared(),
         )
         .await
     });

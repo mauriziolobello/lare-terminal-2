@@ -55,6 +55,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// * `search`         — Search context (engine + path config).
 /// * `plugin_host`    — Shared plugin host (Task 5): routes plugin events + manages writers.
 /// * `plugin_commands`— List of `(slash_command, plugin_id)` pairs for command dispatch.
+/// * `registry`       — registro delle connessioni vive (2.0)
 ///
 /// # Errors
 /// Returns if the TCP listener cannot be bound (port in use, permission denied, …).
@@ -86,6 +87,7 @@ pub async fn serve(
     // (canali nmap/python) e per il test manuale "fonte dati mercato" — mai
     // ri-derivato qui.
     rt: Arc<crate::runtime_config::RuntimeConfig>,
+    registry: crate::connections::SharedRegistry,
 ) -> Result<()> {
     let listener = TcpListener::bind(addr).await?;
     info!("Lare Terminal orchestrator listening on ws://{addr}");
@@ -106,9 +108,10 @@ pub async fn serve(
                         // UnboundedSender è Clone, quindi Option<UnboundedSender<_>> lo è anch'esso.
                         let aichat = aichat.clone();
                         let rt = Arc::clone(&rt);
+                        let registry = Arc::clone(&registry);
                         tokio::spawn(async move {
                             if let Err(e) =
-                                handle_connection(stream, token, ai, tools, cwd_state, search, plugin_host, plugin_commands, aichat, rt).await
+                                handle_connection(stream, token, ai, tools, cwd_state, search, plugin_host, plugin_commands, aichat, rt, registry).await
                             {
                                 error!("connection error from {peer_addr}: {e}");
                             }
@@ -157,6 +160,7 @@ async fn handle_connection(
     aichat: Option<tokio::sync::mpsc::UnboundedSender<ServiceEvent>>,
     // `RuntimeConfig` (see `serve` above for documentation).
     rt: Arc<crate::runtime_config::RuntimeConfig>,
+    registry: crate::connections::SharedRegistry,
 ) -> Result<()> {
     let ws_stream = accept_async(stream).await?;
     let (mut sink, mut source) = ws_stream.split();
@@ -177,8 +181,8 @@ async fn handle_connection(
     };
 
     // Parse the first message.
-    let (client_token, requested_channel) = match parse_hello(&first) {
-        Some(pair) => pair,
+    let hello = match parse_hello(&first) {
+        Some(h) => h,
         None => {
             warn!("invalid handshake message; closing connection");
             let _ = sink.close().await;
@@ -187,7 +191,7 @@ async fn handle_connection(
     };
 
     // Validate the token.
-    if client_token != token.as_str() {
+    if hello.token != token.as_str() {
         warn!("invalid token; closing connection");
         let _ = sink.close().await;
         return Ok(());
@@ -202,7 +206,7 @@ async fn handle_connection(
     // alla firma di `handle_connection` — `tools_clone` più sotto (invariato)
     // clona automaticamente questo binding, non più il parametro condiviso.
     let (tools, format_invocation, system_prompt_override) = match crate::external_channel::resolve_channel_tools(
-        requested_channel.as_deref(),
+        hello.channel.as_deref(),
         crate::external_channel::EXTERNAL_TOOL_CHANNELS,
         &tools,
         &rt,
@@ -232,11 +236,15 @@ async fn handle_connection(
     // ── Emit initial cwd (Task 3 / Step 5) ────────────────────────────────────
     // Read the shared cwd_state and emit ServerMsg::Cwd immediately after
     // ServerInfo so the UI can display the current directory from the start.
-    let initial_cwd = cwd_state.lock().await.clone();
-    if !initial_cwd.is_empty() {
-        send_msg(&mut sink, &ServerMsg::Cwd { path: initial_cwd.clone() }).await?;
+    // 2.0: solo per una connessione `ui` — la shell possiede la propria cwd
+    // (`ShellSessionState`, sotto), non quella tracciata globalmente da v1.
+    if hello.role == protocol::Role::Ui {
+        let initial_cwd = cwd_state.lock().await.clone();
+        if !initial_cwd.is_empty() {
+            send_msg(&mut sink, &ServerMsg::Cwd { path: initial_cwd.clone() }).await?;
+        }
+        let _last_cwd = initial_cwd;
     }
-    let _last_cwd = initial_cwd;
 
     // ── Canale d'uscita persistente ────────────────────────────────────────────
     // Un solo task scrittore possiede il `sink`; tutto ciò che va al client passa da
@@ -247,25 +255,37 @@ async fn handle_connection(
     // sul sink, sopra.)
     let (out_tx, mut out_rx) = unbounded_channel::<ServerMsg>();
 
-    // Connette il plugin host al canale WS di questa connessione (Task 5) —
-    // SOLO se questa è la connessione del cursore principale, non di un canale
-    // esterno (`connection_owns_plugin_sink`, vedi doc-comment: PluginHost è
-    // condiviso da ogni connessione, una connessione di canale non deve
-    // rubare il sink alla finestra principale).
-    // I pump task dei plugin lazy attivati DOPO questa riga riceveranno una copia
-    // di `out_tx` e potranno forwardare ServerMsg al client WS.
-    // I pump degli eager (avviati prima della connessione) avevano server_tx = None
-    // e continuano a scartare silenziosamente i messaggi (comportamento by-design).
-    if connection_owns_plugin_sink(requested_channel.as_deref()) {
+    // ── Ruolo della connessione (2.0, spec §4.1/§5) ─────────────────────────
+    // Il sink `ui` (finestre, plugin, AI Chat) è UNA connessione per macchina:
+    // `role: Ui` senza canale — stesso predicato del sink dei plugin v1. Una
+    // sessione shell non deve mai rubarlo (spec: "le sessioni shell non
+    // ricevono SetServerTx").
+    let is_ui_sink = hello.role == protocol::Role::Ui && connection_owns_plugin_sink(hello.channel.as_deref());
+    if is_ui_sink {
         plugin_host.lock().await.set_server_tx(out_tx.clone());
+        registry.lock().await.set_ui_sink(out_tx.clone());
     }
-
-    // Notifica il servizio AI Chat che questa UI è ora connessa, passandogli
-    // una copia del canale d'uscita WS. Da questo momento il servizio può
-    // pushare ServerMsg direttamente al client.
-    if let Some(h) = &aichat {
-        let _ = h.send(ServiceEvent::SetServerTx(out_tx.clone()));
+    if hello.role == protocol::Role::Ui {
+        if let Some(h) = &aichat {
+            let _ = h.send(ServiceEvent::SetServerTx(out_tx.clone()));
+        }
     }
+    // Sessione shell: il suo `ToolClient` è la shell dell'utente (Task 4);
+    // `tools` (McpToolClient condiviso) resta per `open_target`/routine.
+    let shell: Option<Arc<crate::shell_session::ShellSessionState>> = if hello.role == protocol::Role::Shell {
+        let session_id = hello.session_id.clone().unwrap_or_else(|| format!("{:08x}", rand::random::<u32>()));
+        registry.lock().await.register_shell(&session_id, out_tx.clone());
+        info!("sessione shell {session_id} connessa (versione {:?})", hello.version);
+        Some(Arc::new(crate::shell_session::ShellSessionState::new(
+            session_id,
+            out_tx.clone(),
+            hello.cwd.clone().unwrap_or_default(),
+            Arc::clone(&tools),
+            rt.config_dir.clone(),
+        )))
+    } else {
+        None
+    };
 
     let writer = tokio::spawn(async move {
         while let Some(msg) = out_rx.recv().await {
@@ -372,6 +392,11 @@ async fn handle_connection(
                 // No-op se il comando è già terminato o l'id è sconosciuto.
                 if let Some(cmd_token) = commands.remove(&id) {
                     cmd_token.cancel();
+                }
+                // Shell: Ctrl+C ha già fermato la pipeline lì (spec §4.4) —
+                // nessun ExecResult arriverà: sblocca il run_in_session pendente.
+                if let Some(s) = &shell {
+                    s.abort_turn(&id).await;
                 }
             }
 
@@ -518,6 +543,27 @@ async fn handle_connection(
                         }
                     });
                     continue; // Salto il resto del Command arm: id e' già mosso nel task.
+                }
+
+                // ── Sessione shell (2.0, spec §3/§4): pre-router + turno con finestra ──
+                // Tutto in `shell_turn.rs`; qui solo il cancel token (per
+                // `CancelCommand`, come i comandi v1) e lo spawn.
+                if let Some(shell) = &shell {
+                    let cancel = CancellationToken::new();
+                    commands.insert(id.clone(), cancel.clone());
+                    let deps = crate::shell_turn::ShellTurnDeps {
+                        ai: Arc::clone(&ai),
+                        history: Arc::clone(&history),
+                        pending_confirms: pending_confirms.clone(),
+                        registry: Arc::clone(&registry),
+                        plugin_host: Arc::clone(&plugin_host),
+                        rt: Arc::clone(&rt),
+                        shell: Arc::clone(shell),
+                        out_tx: out_tx.clone(),
+                        shell_version: hello.version.clone(),
+                    };
+                    tokio::spawn(crate::shell_turn::run_shell_command(deps, id, input, cwd, web_search, cancel));
+                    continue;
                 }
 
                 if let Some(query) = parse_find(&input) {
@@ -723,13 +769,17 @@ async fn handle_connection(
                 }
             }
 
-            // ── Piano 2a (Task 1): varianti additive del canale shell ──────
-            // Il dispatch vero (correlare `turn_id`/`exec_id`, riprendere il
-            // turno sospeso su `ExecResult`; girare `UiPong` alla logica di
-            // `/ping`) arriva in un task successivo del piano. Qui bastano
-            // arm che compilano: nessun comportamento nuovo in questo task.
-            ClientMsg::ExecResult { .. } => {}
-            ClientMsg::UiPong { .. } => {}
+            // Esito di un ExecInShell (solo sessioni shell; da una ui è un no-op).
+            ClientMsg::ExecResult { turn_id: _, exec_id, exit_code, output, cwd } => {
+                if let Some(s) = &shell {
+                    s.resolve_exec(&exec_id, crate::shell_session::ExecReply { exit_code, output, cwd }).await;
+                }
+            }
+
+            // Risposta di ui.exe a UiPing (built-in /ping): risolta nel registro.
+            ClientMsg::UiPong { id, version } => {
+                registry.lock().await.resolve_ui_ping(&id, version);
+            }
         }
     }
 
@@ -740,6 +790,14 @@ async fn handle_connection(
     for (_, cmd_token) in commands.drain() {
         cmd_token.cancel();
     }
+
+    // Registro (2.0): la sessione shell sparisce; il sink ui viene azzerato
+    // SOLO se è ancora il nostro (una ui nuova può averlo già sostituito).
+    if let Some(s) = &shell {
+        s.abort_all().await;
+        registry.lock().await.unregister_shell(s.session_id());
+    }
+    registry.lock().await.clear_ui_sink_if(&out_tx);
 
     // Chiude il ToolClient di questa connessione (default no-op per
     // cursore/Telegram — mcp-server è un singleton gestito altrove, non
@@ -756,8 +814,12 @@ async fn handle_connection(
     // Fix 2026-07-29: questo è ora l'UNICO punto che manda `UiClosed` — vedi
     // il commento nell'arm `ClientMsg::AiChatClosed` sopra per il perché
     // quell'arm NON lo manda più.
-    if let Some(h) = &aichat {
-        let _ = h.send(ServiceEvent::UiClosed);
+    // 2.0: solo per una connessione `ui` — la chiusura di UNA sessione shell
+    // non è "l'intera UI che sparisce" (più sessioni shell coesistono).
+    if hello.role == protocol::Role::Ui {
+        if let Some(h) = &aichat {
+            let _ = h.send(ServiceEvent::UiClosed);
+        }
     }
 
     drop(out_tx);
@@ -793,13 +855,26 @@ fn parse_find(input: &str) -> Option<String> {
     Some(parts.next().unwrap_or("").trim().to_string())
 }
 
-/// Attempt to parse a WS frame as a `ClientMsg::Hello` and return
-/// `(token, channel)`.
-fn parse_hello(msg: &Message) -> Option<(String, Option<String>)> {
+/// Tutto ciò che la `Hello` dichiara (2.0, spec §4.1). Sostituisce la tupla
+/// `(token, channel)` v1: con quattro campi in più una tupla non si legge.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HelloInfo {
+    pub token: String,
+    pub channel: Option<String>,
+    pub role: protocol::Role,
+    pub session_id: Option<String>,
+    pub cwd: Option<String>,
+    pub version: Option<String>,
+}
+
+/// Attempt to parse a WS frame as a `ClientMsg::Hello`.
+fn parse_hello(msg: &Message) -> Option<HelloInfo> {
     let text = msg.to_text().ok()?;
     let client_msg: ClientMsg = serde_json::from_str(text).ok()?;
     match client_msg {
-        ClientMsg::Hello { token, channel, .. } => Some((token, channel)),
+        ClientMsg::Hello { token, channel, role, session_id, cwd, version } => {
+            Some(HelloInfo { token, channel, role, session_id, cwd, version })
+        }
         _ => None,
     }
 }
@@ -943,5 +1018,26 @@ mod tests {
             !connection_owns_plugin_sink(Some("nmap")),
             "una connessione di canale non deve mai rubare il sink di PluginHost al cursore principale"
         );
+    }
+
+    use super::parse_hello;
+    use tokio_tungstenite::tungstenite::Message;
+
+    #[test]
+    fn parse_hello_reads_role_session_cwd_version_with_ui_defaults() {
+        let v1 = Message::Text(r#"{"type":"hello","token":"t","channel":"nmap"}"#.into());
+        let h = parse_hello(&v1).unwrap();
+        assert_eq!((h.token.as_str(), h.channel.as_deref(), h.role), ("t", Some("nmap"), protocol::Role::Ui));
+        assert!(h.session_id.is_none() && h.cwd.is_none() && h.version.is_none());
+
+        let shell = Message::Text(
+            r#"{"type":"hello","token":"t","role":"shell","session_id":"s1","cwd":"C:\\w","version":"2.0.0"}"#.into(),
+        );
+        let h = parse_hello(&shell).unwrap();
+        assert_eq!(h.role, protocol::Role::Shell);
+        assert_eq!(h.session_id.as_deref(), Some("s1"));
+        assert_eq!(h.cwd.as_deref(), Some("C:\\w"));
+        assert_eq!(h.version.as_deref(), Some("2.0.0"));
+        assert!(parse_hello(&Message::Text(r#"{"type":"ping","ts":1}"#.into())).is_none());
     }
 }

@@ -688,6 +688,7 @@ async fn main() -> Result<()> {
     // risultato prima di fare shutdown: anche se serve()
     // restituisce Err, i plugin vengono fermati correttamente (kill_on_drop li termina).
     let listen = format!("127.0.0.1:{}", rt.startup.ws_port);
+    let registry = orchestrator::connections::Registry::shared();
     let serve_result = ws::serve(
         &listen,
         Arc::new(token),
@@ -700,6 +701,7 @@ async fn main() -> Result<()> {
         aichat_inbox,
         shutdown,
         Arc::clone(&rt),
+        registry,
     )
     .await;
     plugin_host.lock().await.shutdown().await;
