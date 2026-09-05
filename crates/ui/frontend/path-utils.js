@@ -111,8 +111,8 @@ export function replaceRange(text, rangeStart, rangeEnd, replacement) {
 
 /**
  * Builds the final text to insert for a Tab-completion candidate:
- * re-prepends `dirPart` (`list_path_completions` only ever returns bare
- * basenames — it never echoes `dirPart` back) and wraps the whole thing in
+ * re-prepends `dirPart` (completion candidates are always bare basenames —
+ * the source never echoes `dirPart` back) and wraps the whole thing in
  * `quoteChar` if the original token had a leading quote (`null` when it
  * didn't). Without re-prepending `dirPart` here, a typed subdirectory
  * silently vanishes from the line on completion — found in review,

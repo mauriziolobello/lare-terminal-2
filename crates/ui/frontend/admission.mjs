@@ -1,7 +1,7 @@
 // admission.mjs — logica PURA del flusso di ammissione in AI Chat (gate 1:
 // "vuoi entrare in chat?", e cooldown del pulsante di re-request dopo un
 // rifiuto). Niente DOM, niente Tauri → testabile con `node:test` senza
-// dipendenze. Il DOM/routing vive in aichat-window.js + app.js (Task 10).
+// dipendenze. Il DOM/routing vive in aichat-window.js + host.js (Task 10).
 
 /**
  * Testo del gate 1 mostrato a chi sta per entrare in una chat già popolata.

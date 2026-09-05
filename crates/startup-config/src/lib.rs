@@ -22,6 +22,11 @@ use std::path::{Path, PathBuf};
 pub const CONFIG_DIR_FLAG: &str = "--config-dir";
 pub const DEFAULT_CONFIG_DIR_NAME: &str = "Configuration";
 pub const STARTUP_FILE_NAME: &str = "startup.json";
+/// Nome del file token (`<config_dir>/token`) — condiviso da orchestrator
+/// (che lo genera) e ui (che lo legge soltanto): prima di questa costante
+/// ciascuno dei due crate scriveva la stringa `"token"` per conto proprio,
+/// due copie della stessa "magic string" da tenere sincronizzate a mano.
+pub const TOKEN_FILE_NAME: &str = "token";
 
 /// Estrae `--config-dir <path>` oppure `--config-dir=<path>` da `args`
 /// (argv completo, `args[0]` = eseguibile). Ignora ogni altro argomento.
@@ -55,12 +60,45 @@ pub fn resolve_config_dir(flag: Option<PathBuf>, exe_dir: &Path) -> PathBuf {
     flag.unwrap_or_else(|| exe_dir.join(DEFAULT_CONFIG_DIR_NAME))
 }
 
-/// Comodità per i `main`: argv reali + cartella dell'eseguibile reale.
-/// Se `current_exe()` fallisce (caso rarissimo) cade sulla cwd.
+/// Rende `p` assoluto rispetto a `cwd` se è relativo; se `p` è già assoluto
+/// lo ritorna invariato. Funzione pura (nessun I/O, nessuna lettura della
+/// cwd reale) così è testabile senza dover spostare la cwd del processo di
+/// test — usata da `config_dir_from_process` qui sotto, che le passa la cwd
+/// vera al momento della chiamata.
+pub fn absolutize(p: PathBuf, cwd: &Path) -> PathBuf {
+    if p.is_absolute() {
+        p
+    } else {
+        cwd.join(p)
+    }
+}
+
+/// Comodità per i `main`: argv reali + cartella dell'eseguibile reale,
+/// SEMPRE assolutizzata rispetto alla cwd del processo al momento della
+/// chiamata. Se `current_exe()` fallisce (caso rarissimo) cade sulla cwd.
+///
+/// Perché l'assolutizzazione vive QUI e non nel singolo `main()` di un
+/// binario (come faceva prima solo `orchestrator/src/main.rs`): l'unico
+/// caso in cui `--config-dir` relativo è ambiguo è quando la cwd del
+/// processo cambia DOPO l'avvio (l'orchestrator fa `set_current_dir(home)`
+/// per dare al cursore un cwd iniziale sensato) — un `--config-dir`
+/// relativo letto una seconda volta dopo quel cambio risolverebbe contro
+/// `home`, non contro la cartella di lancio: due risultati diversi per lo
+/// stesso flag. Prima questo fix viveva solo nell'orchestrator: `ui` e
+/// `mcp-server`, che chiamano questa stessa funzione, non ne beneficiavano.
+/// Risolvendo in assoluto qui, alla fonte condivisa, tutti i binari sono al
+/// sicuro senza doverselo ricordare ciascuno per conto proprio. In caso di
+/// errore nel leggere la cwd (rarissimo) si lascia il path relativo
+/// invariato: meglio funzionante-finché-la-cwd-non-cambia che un errore
+/// fatale all'avvio per un dettaglio secondario.
 pub fn config_dir_from_process() -> PathBuf {
     let args: Vec<String> = std::env::args().collect();
     let exe = exe_dir().unwrap_or_else(|_| PathBuf::from("."));
-    resolve_config_dir(parse_config_dir(&args), &exe)
+    let dir = resolve_config_dir(parse_config_dir(&args), &exe);
+    match std::env::current_dir() {
+        Ok(cwd) => absolutize(dir, &cwd),
+        Err(_) => dir,
+    }
 }
 
 /// Cartella dell'eseguibile in esecuzione (invariata dalla v1): `current_exe()`
@@ -255,6 +293,39 @@ mod tests {
             PathBuf::from("C:/Lare")
         );
     }
+    #[test]
+    fn deploy_root_of_config_dir_directly_under_a_drive_root() {
+        // Caso limite: `Configuration\` è direttamente sotto la radice
+        // dell'unità (nessuna cartella intermedia) — `Path::parent()` di
+        // `C:/Configuration` è `C:/`, non `C:` senza slash: il deploy root
+        // resta un path valido da usare con `.join(...)`.
+        assert_eq!(
+            deploy_root(Path::new("C:/Configuration")),
+            PathBuf::from("C:/")
+        );
+    }
+
+    // ── absolutize ───────────────────────────────────────────────────────
+    // Funzione pura estratta da `config_dir_from_process` (fix wave finale,
+    // review): un `--config-dir` relativo letto PRIMA che l'orchestrator
+    // faccia `set_current_dir(home)` risolverebbe diversamente se qualcosa
+    // lo rileggesse dopo quel cambio di cwd — assolutizzarlo qui, alla
+    // fonte condivisa da ogni binario (orchestrator/ui/mcp-server), evita il
+    // bug per tutti senza che ciascun `main()` debba ricordarselo da solo.
+    #[test]
+    fn absolutize_relative_path_is_joined_to_cwd() {
+        assert_eq!(
+            absolutize(PathBuf::from("Configuration"), Path::new("C:/work")),
+            PathBuf::from("C:/work/Configuration")
+        );
+    }
+    #[test]
+    fn absolutize_absolute_path_is_left_unchanged() {
+        assert_eq!(
+            absolutize(PathBuf::from("D:/cfg"), Path::new("C:/work")),
+            PathBuf::from("D:/cfg")
+        );
+    }
 
     // ── StartupConfig::load ──────────────────────────────────────────────
     #[test]
@@ -310,6 +381,25 @@ mod tests {
     fn resolve_path_with_nested_config_dir() {
         let p = StartupConfig::resolve_path(Path::new("C:/a/b/Configuration"), "plugins");
         assert_eq!(p, Path::new("C:/a/b").join("plugins"));
+    }
+    #[test]
+    fn resolve_path_rooted_without_drive_on_windows_drops_the_middle_of_the_base() {
+        // Debito noto #2 (HANDOFF): `/x` non ha una lettera di unità, quindi
+        // `Path::is_absolute()` su Windows ritorna `false` (richiede un
+        // prefisso tipo `C:`) — `resolve_path` lo tratta come relativo e lo
+        // passa a `deploy_root(config_dir).join(p)`. Ma `PathBuf::join` con
+        // un path "rooted" (`has_root()==true`, inizia con `\`/`/`) SOSTITUISCE
+        // la parte radice della base mantenendone solo il prefisso (l'unità):
+        // `C:/Lare`.join("/x") == `C:/x`, NON `C:/Lare/x` — la cartella
+        // intermedia sparisce silenziosamente. Comportamento di Windows, non
+        // un bug di questo crate: qui lo fissiamo con un test perché nessuno
+        // se lo scordi. Su Unix `/x` è genuinamente assoluto: nessuna sorpresa.
+        let p = StartupConfig::resolve_path(Path::new("C:/Lare/Configuration"), "/x");
+        if cfg!(windows) {
+            assert_eq!(p, PathBuf::from("C:/x"));
+        } else {
+            assert_eq!(p, PathBuf::from("/x"));
+        }
     }
 
     // ── has_flag ─────────────────────────────────────────────────────────

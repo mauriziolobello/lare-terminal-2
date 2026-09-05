@@ -40,7 +40,8 @@ let client = null;
 // Un tool su questo canale (es. una scansione nmap) può impiegare fino a
 // 900s (vedi NMAP_CALL_TIMEOUT_SECS in nmap_tool_client.rs) prima di
 // rispondere: senza un indicatore visivo la finestra sembra bloccata.
-// Versione ridotta dello spinner "status" di app.js — un solo stile fisso,
+// Versione ridotta dello spinner "status" del cursore v1 (overlay F2,
+// rimosso in 2.0 — host.js non ne ha uno) — un solo stile fisso,
 // nessun watchdog (il timeout vero è lato server, questa finestra non ha
 // un pulsante di stop da mostrare/nascondere).
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -127,7 +128,7 @@ function handleServerMsg(msg) {
 async function init() {
   const token = (await invoke("get_lare_token")) ?? "";
   // Porta WS da startup.json (2.0), letta una volta all'apertura della
-  // finestra — stesso comando usato da app.js.
+  // finestra — stesso comando usato da host.js.
   const url = (await invoke("get_ws_endpoint")) ?? "";
   client = new LareWsClient({
     url,

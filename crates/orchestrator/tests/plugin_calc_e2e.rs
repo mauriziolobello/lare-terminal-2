@@ -106,7 +106,9 @@ async fn calc_round_trip() {
     // poi avvia il pump task, poi invia Activate{window_id:1}.
     // La calcolatrice risponderà con ShowWindow{window_id:1, html: griglia iniziale}.
     let mut make_fn = |p: &orchestrator::plugins::discovery::DiscoveredPlugin| {
-        spawn_plugin(&p.bin_path).map(|(w, r)| {
+        // `tmp.path()` come config_dir: inerte per questo test (nessun plugin
+        // legge argv), ma la firma di `spawn_plugin` lo richiede sempre (spec 2.0).
+        spawn_plugin(&p.bin_path, tmp.path()).map(|(w, r)| {
             (
                 Box::new(w) as Box<dyn PluginWriter>,
                 Box::new(r) as Box<dyn PluginReader>,

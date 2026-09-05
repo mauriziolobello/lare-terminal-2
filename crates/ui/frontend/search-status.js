@@ -1,7 +1,7 @@
 // search-status.js — logica pura della label di stato per la finestra /find.
 //
 // SRP: dato lo stato corrente della ricerca, ritorna la stringa mostrata in
-// #status. Nessun DOM, nessun I/O → testabile con node:test (come line-editor.js).
+// #status. Nessun DOM, nessun I/O → testabile con node:test.
 
 /**
  * @param {{ done?: boolean, stopped?: boolean, paused?: boolean, count?: number, truncated?: boolean }} [state]

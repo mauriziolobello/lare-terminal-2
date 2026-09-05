@@ -121,24 +121,14 @@ async fn main() -> Result<()> {
     // telegramsettings.json, search, plugin, aichat, tutte con la propria
     // risoluzione di `config_dir`).
     let args: Vec<String> = std::env::args().collect();
-    let config_dir = {
-        let dir = startup_config::config_dir_from_process();
-        // Assolutizzato QUI, PRIMA di qualunque uso: più sotto in questa
-        // stessa funzione la cwd del processo cambia (`set_current_dir(home)`,
-        // per dare al cursore un cwd iniziale sensato) — un `--config-dir`
-        // RELATIVO letto una seconda volta dopo quel cambio risolverebbe
-        // contro `home`, non contro la cartella di lancio: due risultati
-        // diversi per lo stesso flag. Risolvendolo in assoluto una volta
-        // sola, alla fonte, il problema non può più presentarsi (nessun
-        // punto di questo crate rilegge `--config-dir`/ricrea `RuntimeConfig`
-        // dopo questa riga — vedi il doc-comment di `agent::dispatch_tool_at`
-        // per il ragionamento gemello sui chiamanti di quella funzione).
-        if dir.is_absolute() {
-            dir
-        } else {
-            std::env::current_dir().map(|cwd| cwd.join(&dir)).unwrap_or(dir)
-        }
-    };
+    // Assolutizzazione (fix wave finale, review): non più fatta qui — la fa
+    // `startup_config::config_dir_from_process()` stessa, così `ui` e
+    // `mcp-server` (che chiamano la stessa funzione) ne beneficiano allo
+    // stesso modo, non solo l'orchestrator. Vedi il doc-comment della
+    // funzione nel crate `startup-config` per il PERCHÉ (in breve: più sotto
+    // in questa funzione la cwd cambia con `set_current_dir(home)` — un
+    // `--config-dir` relativo va risolto PRIMA di quel cambio, alla fonte).
+    let config_dir = startup_config::config_dir_from_process();
     let (startup, startup_warn) = startup_config::StartupConfig::load(&config_dir);
     let rt = Arc::new(RuntimeConfig { config_dir: config_dir.clone(), startup });
 
@@ -412,7 +402,7 @@ async fn main() -> Result<()> {
             orchestrator::plugins::host::PluginHost::start(
                 discovered,
                 |p| {
-                    orchestrator::plugins::transport::spawn_plugin(&p.bin_path)
+                    orchestrator::plugins::transport::spawn_plugin(&p.bin_path, &config_dir)
                         .map(|(w, r)| {
                             (
                                 Box::new(w) as Box<dyn orchestrator::plugins::transport::PluginWriter>,
@@ -688,9 +678,10 @@ async fn main() -> Result<()> {
 
     // ── WebSocket server ──────────────────────────────────────────────────────
     // `listen`: `127.0.0.1:<ws_port>` da `startup.json` (2.0 — sostituisce la
-    // costante `LISTEN_ADDR` fissa a 7331; il default di `StartupConfig` è
-    // comunque 7331, quindi il comportamento di sempre è invariato a config
-    // assente). Cattura il risultato prima di fare shutdown: anche se serve()
+    // vecchia porta fissa 7331 di v1, hard-coded in una costante di questo
+    // modulo; il default di `StartupConfig` è comunque 7331, quindi il
+    // comportamento di sempre è invariato a config assente). Cattura il
+    // risultato prima di fare shutdown: anche se serve()
     // restituisce Err, i plugin vengono fermati correttamente (kill_on_drop li termina).
     let listen = format!("127.0.0.1:{}", rt.startup.ws_port);
     let serve_result = ws::serve(

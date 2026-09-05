@@ -332,10 +332,22 @@ impl PluginReader for ChildPluginReader {
 ///
 /// Sostituisce `ChildPluginTransport::spawn` nel nuovo design split.
 ///
+/// `config_dir` viene passato al plugin come `--config-dir <path>` (spec
+/// 2.0 §6.1: la regola vale per OGNI binario Lare, plugin inclusi, senza
+/// eccezioni) — anche se, verificato, nessun plugin oggi fa parsing di argv
+/// e quindi lo ignora: l'argomento resta inerte finché un plugin non ne ha
+/// bisogno (es. per leggere `startup.json` da solo), ma la regola dello
+/// spec vale comunque da subito, non solo quando servirà davvero.
+///
 /// # Errors
 /// Ritorna `Err` se il binario non esiste o non può essere eseguito.
-pub fn spawn_plugin(bin_path: &Path) -> std::io::Result<(ChildPluginWriter, ChildPluginReader)> {
+pub fn spawn_plugin(
+    bin_path: &Path,
+    config_dir: &Path,
+) -> std::io::Result<(ChildPluginWriter, ChildPluginReader)> {
     let mut child = Command::new(bin_path)
+        .arg(startup_config::CONFIG_DIR_FLAG)
+        .arg(config_dir)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::inherit()) // stderr del plugin → log orchestrator

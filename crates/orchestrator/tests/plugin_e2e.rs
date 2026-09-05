@@ -56,7 +56,9 @@ async fn ping_roundtrips_init_ready_deinit() {
     let mut host = PluginHost::start(
         discovered,
         |p| {
-            spawn_plugin(&p.bin_path)
+            // `tmp.path()` come config_dir: inerte per questo test (nessun
+            // plugin legge argv), ma la firma lo richiede sempre (spec 2.0).
+            spawn_plugin(&p.bin_path, tmp.path())
                 .map(|(w, r)| {
                     (
                         Box::new(w) as Box<dyn PluginWriter>,

@@ -5,6 +5,22 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), versioning: [S
 
 ---
 
+## 2.0.2 — 2026-09-05 — fix wave della review finale (piano 1)
+
+Solo pulizia dopo la review whole-branch, nessun cambio di comportamento visibile:
+
+- Plugin spawnati con `--config-dir <path>` (prima solo orchestrator/mcp-server/ui
+  lo ricevevano) — spec 2.0 §6.1, nessuna eccezione. `spawn_plugin` cambia firma.
+- Assolutizzazione di `--config-dir` spostata in `startup-config` (beneficia anche
+  `ui`/`mcp-server`); il blocco locale ridondante in `main.rs` è stato rimosso.
+- Rimossi: `ws::LISTEN_ADDR` (costante morta) e i commenti che citavano ancora la
+  porta fissa 7331; un residuo `set_var("LARE_PYTOOLS_DIR", …)` in
+  `ws_integration.rs` (test già verde senza, D6 lo rende inerte da tempo).
+- `token_store::resolve_token` usa `startup_config::TOKEN_FILE_NAME`.
+- `external_channel::tests::test_rt()`: fix di una tempdir leak (`.keep()` la
+  rendeva permanente su disco a ogni chiamata, 15 volte per test run) — ora
+  ritorna `(RuntimeConfig, TempDir)`, ripulita al drop.
+
 ## 2.0.1 — 2026-09-05 — `--config-dir`, `RuntimeConfig`, figli con argomento, log su file, nessuna env var
 
 Il crate `startup-config` è stato riscritto (Task 2 del piano "fondamenta") con l'API 2.0:

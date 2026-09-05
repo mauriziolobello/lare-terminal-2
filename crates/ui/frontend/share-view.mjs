@@ -2,7 +2,7 @@
  * share-view.mjs — Modulo puro per la UI della feature "Share with" (Library →
  * AI Chat). Nessuna dipendenza da DOM, Tauri o I/O — testabile con `node:test`.
  *
- * Riusato da tre finestre diverse (library.js, app.js, aichat-window.js) per
+ * Riusato da tre finestre diverse (library.js, host.js, aichat-window.js) per
  * evitare di duplicare la logica di formattazione in ciascuna.
  */
 

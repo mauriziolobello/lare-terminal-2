@@ -1133,22 +1133,18 @@ async fn serve_returns_when_shutdown_token_is_cancelled() {
 /// Task 11: `ClientMsg::TestMarketDataSource` deve echeggiare l'`id` ricevuto
 /// e rispondere con `ServerMsg::MarketDataSourceTestResult` — copre la
 /// wiring dell'arm (id round-trip, un classico punto di copia-incolla
-/// sbagliata) senza dipendere da I/O reale (IB Gateway/rete): `LARE_PYTOOLS_DIR`
-/// punta a una tempdir vuota, quindi `PythonMcpToolClient::resolve()` fallisce
-/// in modo sincrono e deterministico (nessuno spawn Python), un attimo dopo
-/// il fallimento diventa `ok: false` — l'unico ramo testabile senza I/O reale
-/// (il ramo "connessa" richiede TWS/Gateway vero, fuori scope di un test
-/// automatico, vedi task-11-report.md). Il ping successivo dimostra che il
-/// read-loop della connessione resta vivo dopo l'arm (non spawnare il task
-/// avrebbe bloccato l'intera connessione fino al timeout di 30s — vedi
-/// commento sull'arm in `ws.rs`).
+/// sbagliata) senza dipendere da I/O reale (IB Gateway/rete): `test_rt()`
+/// usa un `config_dir` fittizio (vedi sopra), quindi `pytools_dir` risolve
+/// a una cartella che non esiste mai su disco — `PythonMcpToolClient::
+/// resolve()` fallisce in modo sincrono e deterministico (nessuno spawn
+/// Python), un attimo dopo il fallimento diventa `ok: false` — l'unico ramo
+/// testabile senza I/O reale (il ramo "connessa" richiede TWS/Gateway vero,
+/// fuori scope di un test automatico, vedi task-11-report.md). Il ping
+/// successivo dimostra che il read-loop della connessione resta vivo dopo
+/// l'arm (non spawnare il task avrebbe bloccato l'intera connessione fino
+/// al timeout di 30s — vedi commento sull'arm in `ws.rs`).
 #[tokio::test]
 async fn test_market_data_source_echoes_id_and_reports_unreachable_when_venv_missing() {
-    // Tempdir vuota e univoca per questo test: `resolve()` cerca
-    // `<LARE_PYTOOLS_DIR>/financial-markets/venv/...`, che qui non esiste mai.
-    let empty_pytools_dir = tempfile::tempdir().unwrap();
-    std::env::set_var("LARE_PYTOOLS_DIR", empty_pytools_dir.path());
-
     let url = spawn_server("market-data-test-token").await;
     let (ws, _) = connect_async(&url).await.unwrap();
     let (mut sink, mut source) = ws.split();

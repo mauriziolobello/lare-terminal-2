@@ -90,7 +90,9 @@ async fn lc_real_manifest_window_size_reaches_wire() {
     host.set_server_tx(tx);
 
     let mut make_fn = |p: &orchestrator::plugins::discovery::DiscoveredPlugin| {
-        spawn_plugin(&p.bin_path).map(|(w, r)| {
+        // `tmp.path()` come config_dir: inerte per questo test, ma la firma
+        // lo richiede sempre (spec 2.0, ogni binario riceve --config-dir).
+        spawn_plugin(&p.bin_path, tmp.path()).map(|(w, r)| {
             (Box::new(w) as Box<dyn PluginWriter>, Box::new(r) as Box<dyn PluginReader>)
         })
     };
@@ -160,7 +162,9 @@ async fn counter_no_window_omits_size_on_wire() {
     host.set_server_tx(tx);
 
     let mut make_fn = |p: &orchestrator::plugins::discovery::DiscoveredPlugin| {
-        spawn_plugin(&p.bin_path).map(|(w, r)| {
+        // `tmp.path()` come config_dir: inerte per questo test, ma la firma
+        // lo richiede sempre (spec 2.0, ogni binario riceve --config-dir).
+        spawn_plugin(&p.bin_path, tmp.path()).map(|(w, r)| {
             (Box::new(w) as Box<dyn PluginWriter>, Box::new(r) as Box<dyn PluginReader>)
         })
     };

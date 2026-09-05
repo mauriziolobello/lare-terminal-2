@@ -16,7 +16,7 @@
 //   ServerMsg::Heartbeat   → {"type":"heartbeat","id":"..."}
 //
 // All server messages are forwarded to the onMessage callback unconditionally
-// (the switch in app.js handles dispatch by type).
+// (the switch in host.js handles dispatch by type).
 
 const RETRY_INITIAL_MS = 1000;
 const RETRY_MAX_MS = 8000;
@@ -391,7 +391,7 @@ export class LareWsClient {
   /**
    * Slice 2a: la UI non è riuscita a leggere il documento richiesto
    * (ClientMsg::ShareContentFailed). `reason` è sempre la frase fissa
-   * "documento non più disponibile" — vedi app.js per il chiamante.
+   * "documento non più disponibile" — vedi host.js per il chiamante.
    *
    * @param {string} share_id
    * @param {string} reason

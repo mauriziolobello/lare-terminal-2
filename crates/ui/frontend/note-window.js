@@ -8,7 +8,7 @@
 // entrambi per costruzione — v. main.rs `open_note_window`.
 //
 // NON apre una WS propria: parla con l'orchestrator SOLO via eventi Tauri
-// verso/da app.js (connessione WS primaria) — stesso disaccoppiamento delle
+// verso/da host.js (connessione WS primaria) — stesso disaccoppiamento delle
 // finestre AI Chat/plugin. La decisione "cosa mandare al salvataggio" è
 // delegata a `noteEditMessages` (note-view.mjs, testata con node:test):
 // unica logica pura del vecchio dialog, isolata perché un fix reale
@@ -85,9 +85,9 @@ saveBtn.addEventListener("click", async () => {
       originalTitle,
       originalBodyText,
     });
-    // Né l'uno né l'altro cambiato → comunque emesso: app.js non manda nulla
+    // Né l'uno né l'altro cambiato → comunque emesso: host.js non manda nulla
     // all'orchestrator se entrambi i campi sono `undefined` (v. listener
-    // "note-window:save" in app.js), "Salva" si comporta come "Chiudi".
+    // "note-window:save" in host.js), "Salva" si comporta come "Chiudi".
     await emit("note-window:save", { noteId, editText, editTitle });
   } else {
     await emit("note-window:save", { noteId: null, title, text });

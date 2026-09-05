@@ -5,6 +5,20 @@ Versioning: `major.minor.update`.
 
 ---
 
+## 2.0.3 — 2026-09-05 — fix wave della review finale (piano 1)
+
+Solo pulizia, nessun cambio di comportamento:
+
+- Frontend: ~37 commenti in 11 file citavano ancora `app.js` (cancellato in Task 7,
+  v2.0.2) — sostituiti con `host.js`, il suo successore. Rimossi anche i riferimenti
+  morti a `list_path_completions`/`line-editor.js` in `path-utils.js`/`search-status.js`.
+- `config_dir.rs`: `token_path()` usa ora `startup_config::TOKEN_FILE_NAME` invece
+  della stringa letterale `"token"` duplicata con `orchestrator::token_store`.
+- Beneficia anche dell'assolutizzazione di `--config-dir` spostata nel crate condiviso
+  `startup-config` (v2.0.2 di quel crate): `ConfigDirState::from_process()` ora riceve
+  sempre un `config_dir` assoluto, anche con un `--config-dir` relativo sulla riga di
+  comando (prima solo l'orchestrator se ne curava).
+
 ## 2.0.2 — 2026-09-05 — overlay F2 rimosso, pagina host nascosta, flag --open (dev)
 
 Task 7 del piano `2026-09-05-piano-1-fondamenta`. In 2.0 la shell non gira più dentro

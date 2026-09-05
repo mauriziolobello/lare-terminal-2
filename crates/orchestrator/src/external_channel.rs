@@ -209,7 +209,8 @@ pub struct ExternalToolChannel {
     ///
     /// Firma (2.0, Task 4, D6): riceve `&RuntimeConfig` (config_dir +
     /// `startup.json`, risolti una volta in `main()` — MAI ri-derivati qui,
-    /// niente più `LARE_MCP_NMAP`/`LARE_PYTOOLS_DIR`) e `&Arc<dyn ToolClient>`
+    /// niente più le vecchie variabili d'ambiente per-canale della v1, una
+    /// per ogni sidecar) e `&Arc<dyn ToolClient>`
     /// (il `default_tools` condiviso del cursore, per un ipotetico canale
     /// futuro che voglia delegargli/avvolgerlo invece di costruirne uno
     /// nuovo da zero — nessun canale odierno lo usa, ma la factory resta un
@@ -465,13 +466,22 @@ mod tests {
 
     /// `RuntimeConfig` di comodo per i test di questo modulo: `StartupConfig::
     /// default()` + una tempdir vera (2.0, Task 4 — i canali nmap/python
-    /// ricevono `&RuntimeConfig`, non più niente). La tempdir non è tenuta
-    /// viva/ripulita: nessun test qui scrive file, solo `resolve()` che
-    /// calcola path o (per i canali python) tenta `Path::exists()` — un
-    /// fallimento tollerato, non un panic (vedi i test dedicati sotto).
-    fn test_rt() -> crate::runtime_config::RuntimeConfig {
-        let dir = tempfile::tempdir().unwrap().keep();
-        crate::runtime_config::RuntimeConfig::for_test(&dir)
+    /// ricevono `&RuntimeConfig`, non più niente). Nessun test qui scrive
+    /// file, solo `resolve()` che calcola path o (per i canali python) tenta
+    /// `Path::exists()` — un fallimento tollerato, non un panic (vedi i test
+    /// dedicati sotto).
+    ///
+    /// Ritorna anche il `TempDir` (fix wave finale, review, M7): prima questa
+    /// funzione faceva `.keep()` sulla tempdir, che la rende permanente su
+    /// disco (disattiva la pulizia RAII) — ogni chiamata (15 nei test di
+    /// questo modulo) lasciava una cartella orfana in `%TEMP%`, mai ripulita.
+    /// Il chiamante ora tiene vivo il `TempDir` per la durata del test (basta
+    /// non droppandolo, es. legandolo a `_tmp`): al suo drop la cartella
+    /// viene rimossa come dovrebbe.
+    fn test_rt() -> (crate::runtime_config::RuntimeConfig, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let rt = crate::runtime_config::RuntimeConfig::for_test(dir.path());
+        (rt, dir)
     }
 
     /// Secondo parametro placeholder per le factory `tool_client(rt, default)`
@@ -498,7 +508,8 @@ mod tests {
     #[test]
     fn channel_none_uses_default_tools_unchanged() {
         let default_tools: Arc<dyn ToolClient> = Arc::new(FakeToolClient::success("DEFAULT_TOOLCLIENT_OUTPUT"));
-        let (tools, fmt, sys) = resolve_channel_tools(None, &[], &default_tools, &test_rt()).unwrap();
+        let (rt, _tmp) = test_rt();
+        let (tools, fmt, sys) = resolve_channel_tools(None, &[], &default_tools, &rt).unwrap();
         assert!(
             Arc::ptr_eq(&tools, &default_tools),
             "channel:None deve riusare la stessa istanza, non ricostruirla"
@@ -513,7 +524,8 @@ mod tests {
         // Nota: non `.unwrap_err()` — richiederebbe `Debug` sul tipo `Ok`
         // (Arc<dyn ToolClient>), che il trait non implementa. `match` esplicito
         // verifica lo stesso invariante ("è un Err", mai un panic) senza il bound.
-        let err = match resolve_channel_tools(Some("nope"), &[], &default_tools, &test_rt()) {
+        let (rt, _tmp) = test_rt();
+        let err = match resolve_channel_tools(Some("nope"), &[], &default_tools, &rt) {
             Err(e) => e,
             Ok(_) => panic!("atteso Err per un canale sconosciuto"),
         };
@@ -524,7 +536,8 @@ mod tests {
     async fn known_channel_tool_client_produces_channel_output_not_default() {
         let default_tools: Arc<dyn ToolClient> = Arc::new(FakeToolClient::success("DEFAULT_TOOLCLIENT_OUTPUT"));
         let registry = fixture_registry();
-        let (tools, _fmt, _sys) = resolve_channel_tools(Some("fixture"), &registry, &default_tools, &test_rt()).unwrap();
+        let (rt, _tmp) = test_rt();
+        let (tools, _fmt, _sys) = resolve_channel_tools(Some("fixture"), &registry, &default_tools, &rt).unwrap();
         let result = tools.run_in_session("qualsiasi", None).await;
         assert!(result.stdout.contains("CHANNEL_TOOLCLIENT_OUTPUT"));
         assert!(!result.stdout.contains("DEFAULT_TOOLCLIENT_OUTPUT"));
@@ -537,7 +550,8 @@ mod tests {
         // example of an unregistered id — it now IS registered, so this test
         // uses a genuinely unregistered id instead, same principle.
         let default_tools: Arc<dyn ToolClient> = Arc::new(FakeToolClient::success("x"));
-        assert!(resolve_channel_tools(Some("some-future-channel-not-yet-built"), EXTERNAL_TOOL_CHANNELS, &default_tools, &test_rt()).is_err());
+        let (rt, _tmp) = test_rt();
+        assert!(resolve_channel_tools(Some("some-future-channel-not-yet-built"), EXTERNAL_TOOL_CHANNELS, &default_tools, &rt).is_err());
     }
 
     #[test]
@@ -551,7 +565,8 @@ mod tests {
             format_invocation: None,
             system_prompt_override: Some("SEI IL CANALE FIXTURE"),
         }];
-        let (_tools, _fmt, sys) = resolve_channel_tools(Some("fixture"), &registry, &default_tools, &test_rt()).unwrap();
+        let (rt, _tmp) = test_rt();
+        let (_tools, _fmt, sys) = resolve_channel_tools(Some("fixture"), &registry, &default_tools, &rt).unwrap();
         assert_eq!(sys, Some("SEI IL CANALE FIXTURE"));
     }
 
@@ -575,7 +590,8 @@ mod tests {
         // implementa `Debug`, quindi nemmeno `Result<Arc<dyn ToolClient>, _>`
         // lo implementa (stesso vincolo già aggirato sopra in
         // `unknown_channel_is_err_not_panic` con un `match` esplicito).
-        match (EXTERNAL_TOOL_CHANNELS[0].tool_client)(&test_rt(), &test_default_tools()) {
+        let (rt, _tmp) = test_rt();
+        match (EXTERNAL_TOOL_CHANNELS[0].tool_client)(&rt, &test_default_tools()) {
             Ok(_) => {}
             Err(e) => panic!("nmap ToolClient factory should not fail to construct: {e}"),
         }
@@ -589,7 +605,8 @@ mod tests {
 
     #[test]
     fn library_expand_tool_client_has_no_custom_tools() {
-        let client = (EXTERNAL_TOOL_CHANNELS[1].tool_client)(&test_rt(), &test_default_tools()).expect("factory must not fail");
+        let (rt, _tmp) = test_rt();
+        let client = (EXTERNAL_TOOL_CHANNELS[1].tool_client)(&rt, &test_default_tools()).expect("factory must not fail");
         assert!(
             client.tool_defs().is_empty(),
             "il canale library-expand non deve esporre alcun tool custom, solo web_search/web_fetch server-side"
@@ -598,7 +615,8 @@ mod tests {
 
     #[tokio::test]
     async fn library_expand_tool_client_rejects_run_in_session() {
-        let client = (EXTERNAL_TOOL_CHANNELS[1].tool_client)(&test_rt(), &test_default_tools()).expect("factory must not fail");
+        let (rt, _tmp) = test_rt();
+        let client = (EXTERNAL_TOOL_CHANNELS[1].tool_client)(&rt, &test_default_tools()).expect("factory must not fail");
         let result = client.run_in_session("qualsiasi comando", None).await;
         assert_eq!(result.exit_code, -1);
         assert!(result.stderr.contains("non disponibile su questo canale"));
@@ -606,7 +624,8 @@ mod tests {
 
     #[tokio::test]
     async fn library_expand_tool_client_rejects_open_target() {
-        let client = (EXTERNAL_TOOL_CHANNELS[1].tool_client)(&test_rt(), &test_default_tools()).expect("factory must not fail");
+        let (rt, _tmp) = test_rt();
+        let client = (EXTERNAL_TOOL_CHANNELS[1].tool_client)(&rt, &test_default_tools()).expect("factory must not fail");
         let result = client.open_target("qualunque target").await;
         assert!(!result.ok);
         assert!(result.message.contains("non disponibile su questo canale"));
@@ -614,7 +633,8 @@ mod tests {
 
     #[tokio::test]
     async fn library_expand_tool_client_dispatch_rejects_unknown_tool() {
-        let client = (EXTERNAL_TOOL_CHANNELS[1].tool_client)(&test_rt(), &test_default_tools()).expect("factory must not fail");
+        let (rt, _tmp) = test_rt();
+        let client = (EXTERNAL_TOOL_CHANNELS[1].tool_client)(&rt, &test_default_tools()).expect("factory must not fail");
         let outcome = client.dispatch("run_in_session", &serde_json::json!({})).await;
         assert!(outcome.is_error);
         assert!(outcome.output.contains("non disponibile su questo canale"));
@@ -623,7 +643,8 @@ mod tests {
     #[test]
     fn library_expand_system_prompt_is_set() {
         let default_tools: Arc<dyn ToolClient> = Arc::new(crate::tool_client::FakeToolClient::success("x"));
-        let (_tools, _fmt, sys) = resolve_channel_tools(Some("library-expand"), EXTERNAL_TOOL_CHANNELS, &default_tools, &test_rt()).unwrap();
+        let (rt, _tmp) = test_rt();
+        let (_tools, _fmt, sys) = resolve_channel_tools(Some("library-expand"), EXTERNAL_TOOL_CHANNELS, &default_tools, &rt).unwrap();
         assert_eq!(sys, Some(LIBRARY_EXPAND_SYSTEM_PROMPT));
         assert!(sys.unwrap().contains("documento"), "il prompt deve nominare il documento");
     }
@@ -650,7 +671,8 @@ mod tests {
     fn python_ping_channel_tool_client_factory_does_not_panic() {
         // Tollera Err (venv assente in questo momento è uno stato valido, non un
         // bug) — verifica solo che costruire il client non vada in panic.
-        match (EXTERNAL_TOOL_CHANNELS[2].tool_client)(&test_rt(), &test_default_tools()) {
+        let (rt, _tmp) = test_rt();
+        match (EXTERNAL_TOOL_CHANNELS[2].tool_client)(&rt, &test_default_tools()) {
             Ok(_) | Err(_) => {}
         }
     }
@@ -675,7 +697,8 @@ mod tests {
     #[test]
     fn financial_markets_channel_exposes_five_tools() {
         let default_tools: Arc<dyn ToolClient> = Arc::new(crate::tool_client::FakeToolClient::success("x"));
-        match resolve_channel_tools(Some("financial-markets"), EXTERNAL_TOOL_CHANNELS, &default_tools, &test_rt()) {
+        let (rt, _tmp) = test_rt();
+        match resolve_channel_tools(Some("financial-markets"), EXTERNAL_TOOL_CHANNELS, &default_tools, &rt) {
             Ok((tools, _fmt, _sys)) => {
                 let defs = tools.tool_defs();
                 assert_eq!(defs.len(), 5, "atteso search_ticker + stock_report + list_stocks + list_screeners + run_screener: {defs:?}");
@@ -703,7 +726,8 @@ mod tests {
     #[test]
     fn financial_markets_channel_tool_client_factory_does_not_panic() {
         // Tollera Err (venv assente in questo momento è uno stato valido).
-        match (EXTERNAL_TOOL_CHANNELS[3].tool_client)(&test_rt(), &test_default_tools()) {
+        let (rt, _tmp) = test_rt();
+        match (EXTERNAL_TOOL_CHANNELS[3].tool_client)(&rt, &test_default_tools()) {
             Ok(_) | Err(_) => {}
         }
     }
@@ -746,12 +770,14 @@ mod tests {
         // sopra) — questo è il mirror positivo: l'handshake deve superare
         // resolve_channel_tools con Ok, esattamente come "library-expand".
         let default_tools: Arc<dyn ToolClient> = Arc::new(FakeToolClient::success("x"));
-        assert!(resolve_channel_tools(Some("config-market-data-test"), EXTERNAL_TOOL_CHANNELS, &default_tools, &test_rt()).is_ok());
+        let (rt, _tmp) = test_rt();
+        assert!(resolve_channel_tools(Some("config-market-data-test"), EXTERNAL_TOOL_CHANNELS, &default_tools, &rt).is_ok());
     }
 
     #[test]
     fn config_market_data_test_tool_client_has_no_custom_tools() {
-        let client = (EXTERNAL_TOOL_CHANNELS[4].tool_client)(&test_rt(), &test_default_tools()).expect("factory must not fail");
+        let (rt, _tmp) = test_rt();
+        let client = (EXTERNAL_TOOL_CHANNELS[4].tool_client)(&rt, &test_default_tools()).expect("factory must not fail");
         assert!(
             client.tool_defs().is_empty(),
             "il canale config-market-data-test non deve esporre alcun tool custom"

@@ -15,11 +15,13 @@
 //! resolve_path`, relativo alla radice del deploy) che altrimenti andrebbe
 //! ripetuta ad ogni punto di chiamata.
 //!
-//! `config_dir` qui dentro è SEMPRE assoluto (risolto una volta in `main`,
-//! vedi il commento lì su `set_current_dir(home)`): un path relativo
-//! salvato prima del cambio di cwd del processo risolverebbe in modo diverso
-//! a seconda di QUANDO lo si usa — bug latente evitato risolvendolo in
-//! assoluto una volta sola, alla fonte.
+//! `config_dir` qui dentro è SEMPRE assoluto — non lo garantisce più questo
+//! `main()` (fix wave finale, review) ma `startup_config::
+//! config_dir_from_process()`, chiamata da `main` per costruire `config_dir`:
+//! un path relativo salvato prima del cambio di cwd del processo
+//! (`set_current_dir(home)`, più sotto in `main`) risolverebbe in modo
+//! diverso a seconda di QUANDO lo si usa — bug latente evitato risolvendolo
+//! in assoluto una volta sola, alla fonte condivisa da ogni binario.
 
 use std::path::PathBuf;
 #[cfg(test)]

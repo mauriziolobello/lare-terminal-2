@@ -40,7 +40,8 @@
 //! (chiavi dei provider AI, mai in un file di config committabile).
 //!
 //! ## Security (ADR-007)
-//! - WS listens on `127.0.0.1:7331` only (never 0.0.0.0).
+//! - WS listens on `127.0.0.1:<ws_port>` only (never 0.0.0.0) — port from
+//!   `startup.json` (`ws_port`, default 7331).
 //! - First message from client must be `Hello{token}` with the correct token;
 //!   wrong token → connection closed immediately.
 //! - `mcp-server` validates `cwd` (UNC/NTLM guard, Fase 1).

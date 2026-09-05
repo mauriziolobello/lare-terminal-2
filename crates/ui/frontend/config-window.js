@@ -1,8 +1,10 @@
 // config-window.js — runtime della finestra dedicata /config.
 // Ospita la stessa ConfigDialog usata prima nel pannello principale, ma in una
-// finestra a sé. Al salvataggio emette "config:saved" (back-channel verso app.js,
-// che possiede il pannello principale e riapplica l'aspetto). Annulla/Esc/× e il
-// post-save chiudono la finestra via close_self.
+// finestra a sé. Al salvataggio emette "config:saved" (back-channel Tauri
+// globale: nel cursore v1 il pannello principale lo ascoltava e riapplicava
+// l'aspetto — host.js registra lo stesso listener ma non fa nulla, non ha
+// un aspetto da riapplicare: v. setupConfigWindowEvents in host.js). Annulla/
+// Esc/× e il post-save chiudono la finestra via close_self.
 const { invoke } = window.__TAURI__.core;
 const tauriEvent = window.__TAURI__.event;
 

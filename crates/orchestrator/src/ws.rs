@@ -5,7 +5,7 @@
 //! ## Responsibilities (SRP)
 //! This module has one job: **adapt the WebSocket protocol to and from the
 //! transport-agnostic core**.
-//! - Accept TCP connections on `127.0.0.1:7331`.
+//! - Accept TCP connections on `127.0.0.1:<ws_port>` (`startup.json`, default 7331).
 //! - Perform the handshake (`Hello{token}` → validate → send `ServerInfo`).
 //! - Dispatch each `Command` to `core::handle_command`.
 //! - Respond to `Ping` with `Pong`.
@@ -38,9 +38,6 @@ use crate::plugins::host::PluginHost;
 use crate::router::plugin_command;
 use crate::search::{PauseGate, SearchContext};
 use crate::tool_client::ToolClient;
-
-/// The WebSocket listen address (localhost only — ADR-007).
-pub const LISTEN_ADDR: &str = "127.0.0.1:7331";
 
 /// Orchestrator version sent in `ServerInfo`.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -487,6 +484,8 @@ async fn handle_connection(
                     let pid = plugin_id.to_string();
                     let ph = Arc::clone(&plugin_host);
                     let out = out_tx.clone();
+                    // il closure sotto deve essere 'static (vedi commento lì).
+                    let rt = Arc::clone(&rt);
                     // id viene mosso nel task: dopo il `continue` non serve più.
                     let id_for_task = id;
                     tokio::spawn(async move {
@@ -494,7 +493,7 @@ async fn handle_connection(
                         // Definita qui (non fuori dal task) perché `spawn_plugin` ritorna tipi
                         // non-Clone e il closure deve essere 'static.
                         let mut make_fn = |p: &crate::plugins::discovery::DiscoveredPlugin| {
-                            crate::plugins::transport::spawn_plugin(&p.bin_path)
+                            crate::plugins::transport::spawn_plugin(&p.bin_path, &rt.config_dir)
                                 .map(|(w, r)| {
                                     (
                                         Box::new(w) as Box<dyn crate::plugins::transport::PluginWriter>,
@@ -847,7 +846,8 @@ fn connection_owns_plugin_sink(channel: Option<&str>) -> bool {
 ///
 /// `rt` (2.0, Task 4, D6): `RuntimeConfig` risolto una volta in `main()` —
 /// passato esplicitamente a `PythonMcpToolClient::resolve`, mai ri-derivato
-/// qui (niente più `LARE_PYTOOLS_DIR`).
+/// qui (niente più la vecchia variabile d'ambiente della v1 per la cartella
+/// pytools).
 pub async fn test_market_data_source_now(rt: &crate::runtime_config::RuntimeConfig) -> (bool, String) {
     match crate::python_mcp_tool_client::PythonMcpToolClient::resolve(
         &rt.config_dir,

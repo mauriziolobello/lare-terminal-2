@@ -19,7 +19,7 @@
 // deliberatamente: verificato che non è mai emesso dal backend (residuo
 // del vecchio flusso di consenso pairwise pre-Task 8, sostituito da
 // "aichat:join-prompt"). "aichat:reachable-peers" non compare qui perché
-// non passa nemmeno da push()/aiChatGate — il suo case in app.js inoltra
+// non passa nemmeno da push()/aiChatGate — il suo case in host.js inoltra
 // direttamente a emitToLibrary, un canale separato per la finestra Library.
 const NOTIFIABLE_EVENTS = new Set([
   "aichat:msg",

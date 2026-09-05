@@ -260,7 +260,7 @@ async function bootstrap() {
     expandStatusEl.textContent = "🔄 espando…";
 
     const token = (await invokeCmd("get_lare_token")) ?? "";
-    // Porta WS da startup.json (2.0), stesso comando usato da app.js.
+    // Porta WS da startup.json (2.0), stesso comando usato da host.js.
     const url = (await invokeCmd("get_ws_endpoint")) ?? "";
     const requestId = crypto.randomUUID();
     let buffer = "";

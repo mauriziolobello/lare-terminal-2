@@ -1,6 +1,6 @@
 // aichat-window.js — finestra-chat AI Chat (webview Tauri, Slice 1a-ui-B).
-// NON apre una WS propria: riceve aggiornamenti via eventi Tauri da app.js
-// (connessione WS primaria) e gli rimanda input/consenso/chiusura. app.js parla
+// NON apre una WS propria: riceve aggiornamenti via eventi Tauri da host.js
+// (connessione WS primaria) e gli rimanda input/consenso/chiusura. host.js parla
 // col canale `aichat` dell'orchestrator. Stesso disaccoppiamento delle finestre plugin.
 import { messageLine, rosterText, consentPrompt, isSelf, historyEntries, chatWindowTitle, peerLostText } from "./aichat-view.mjs";
 import { shareConsentPrompt } from "./share-view.mjs";
@@ -95,7 +95,7 @@ function addSystemLine(text) {
   transcript.scrollTop = transcript.scrollHeight;
 }
 
-// ── Eventi DA app.js ──────────────────────────────────────────────
+// ── Eventi DA host.js ──────────────────────────────────────────────
 tauriEvent?.listen("aichat:msg", (e) => addLine(e.payload || {}));
 tauriEvent?.listen("aichat:roster", (e) => {
   const participants = e.payload?.participants || [];
@@ -256,7 +256,7 @@ function voteCurrentAdmission(accept) {
 document.getElementById("gate2-yes").addEventListener("click", () => voteCurrentAdmission(true));
 document.getElementById("gate2-no").addEventListener("click", () => voteCurrentAdmission(false));
 
-// ── Input umano → app.js ──────────────────────────────────────────
+// ── Input umano → host.js ──────────────────────────────────────────
 msgInput.addEventListener("keydown", (ev) => {
   if (ev.key === "Enter" && !ev.shiftKey) {
     ev.preventDefault();
@@ -285,7 +285,7 @@ document.getElementById("share-consent-no").addEventListener("click", () => {
 
 async function closeWindow() {
   stopRerequestTimer(); // niente interval orfano dopo la chiusura della webview
-  // Attendi che "aichat:closed" sia DAVVERO arrivato ad app.js prima di
+  // Attendi che "aichat:closed" sia DAVVERO arrivato ad host.js prima di
   // chiedere la distruzione di questa finestra — altrimenti close_self (che
   // tronca il canale IPC di questa webview) può vincere la corsa contro
   // l'emit, prima fire-and-forget: aiChatGate restava bloccato su
@@ -300,7 +300,7 @@ window.addEventListener("beforeunload", () => {
   emit("aichat:closed", {});
 });
 
-// Pronta: app.js rigioca i messaggi bufferizzati prima dell'apertura.
+// Pronta: host.js rigioca i messaggi bufferizzati prima dell'apertura.
 emit("aichat:ready", {});
 msgInput.focus();
 

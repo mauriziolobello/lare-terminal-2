@@ -10,7 +10,7 @@ use std::path::Path;
 
 /// Legge `<config_dir>/token`; se assente o vuoto lo genera e lo scrive.
 pub fn resolve_token(config_dir: &Path) -> String {
-    let token_path = config_dir.join("token");
+    let token_path = config_dir.join(startup_config::TOKEN_FILE_NAME);
     if let Some(t) = read_token_file(&token_path) {
         return t;
     }

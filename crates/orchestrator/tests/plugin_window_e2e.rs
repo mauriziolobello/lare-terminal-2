@@ -107,7 +107,9 @@ async fn counter_activate_and_ui_event_round_trip() {
     // Il counter risponderà con ShowWindow{window_id:1, html:"...Count: 0..."}.
     // Il pump leggerà ShowWindow e lo tradurrà in OpenPluginWindow → server_tx.
     let mut make_fn = |p: &orchestrator::plugins::discovery::DiscoveredPlugin| {
-        spawn_plugin(&p.bin_path).map(|(w, r)| {
+        // `tmp.path()` come config_dir: inerte per questo test, ma la firma
+        // lo richiede sempre (spec 2.0, ogni binario riceve --config-dir).
+        spawn_plugin(&p.bin_path, tmp.path()).map(|(w, r)| {
             (
                 Box::new(w) as Box<dyn PluginWriter>,
                 Box::new(r) as Box<dyn PluginReader>,

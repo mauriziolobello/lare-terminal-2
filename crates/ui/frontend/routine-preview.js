@@ -10,9 +10,9 @@
 //      dall'AI, textContent è intrinsecamente sicuro, nessuna libreria di
 //      sanitizzazione necessaria per questa finestra.
 //   3. Salva/Annulla emettono "routine-preview:decision" sul bus eventi
-//      globale di Tauri — app.js lo inoltra come la STESSA
+//      globale di Tauri — host.js lo inoltra come la STESSA
 //      ClientMsg::ToolConfirmResponse che il banner Sì/No del cursore manda
-//      già oggi (vedi setupRoutinePreviewEvents in app.js).
+//      già oggi (vedi setupRoutinePreviewEvents in host.js).
 //   4. Chiudere la finestra senza cliccare un pulsante (✕, Esc, Alt-F4) è
 //      trattato come Annulla — emette decision(false) prima di chiudersi.
 
@@ -27,7 +27,7 @@ async function emitDecision(accept) {
   decided = true;
   // `await` PRIMA di chiudere: close_self tronca il canale IPC di questa
   // webview, quindi un emit fire-and-forget avviato subito prima della
-  // chiusura rischia di perdere la corsa e non arrivare mai ad app.js —
+  // chiusura rischia di perdere la corsa e non arrivare mai ad host.js —
   // stesso bug osservato dal vivo su AI Chat (2026-07-29, v. closeWindow in
   // aichat-window.js) e già corretto con lo stesso pattern in
   // note-window.js (saveBtn handler). Qui la posta in gioco è più alta:

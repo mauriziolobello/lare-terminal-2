@@ -5,6 +5,22 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), versioning: [S
 
 ---
 
+## 2.0.2 — 2026-09-05 — assolutizzazione condivisa di `--config-dir`, `TOKEN_FILE_NAME`
+
+Fix wave della review finale (piano 1). L'assolutizzazione di un `--config-dir`
+relativo, prima fatta solo dentro `orchestrator/src/main.rs`, è stata spostata in
+`config_dir_from_process()` (nuova funzione pura `absolutize(p, cwd)`, testata):
+ora anche `ui` e `mcp-server`, che chiamano la stessa funzione, ricevono sempre un
+`config_dir` assoluto.
+
+Aggiunta `TOKEN_FILE_NAME` (accanto a `STARTUP_FILE_NAME`), usata da
+`orchestrator::token_store` e `ui::config_dir` al posto della stringa letterale
+`"token"` duplicata nei due crate.
+
+Nuovi test: `absolutize` (relativo/assoluto), `deploy_root` con `config_dir`
+direttamente sotto la radice di un'unità, `resolve_path` con un valore "rooted"
+senza lettera di unità su Windows (comportamento reale documentato con un test).
+
 ## 2.0.1 — 2026-09-05 — `--config-dir`, nuovo schema `startup.json`, via env var
 
 Riscrittura completa dell'API (piano 1 "fondamenta", Task 2). Applica la

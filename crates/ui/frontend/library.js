@@ -131,7 +131,7 @@ const shareState = {
   chosen:   null,
 };
 
-// Ultimo roster ricevuto da app.js (via "library:roster") — aggiornato in
+// Ultimo roster ricevuto da host.js (via "library:roster") — aggiornato in
 // tempo reale se la finestra è aperta quando arriva, e richiesto esplicitamente
 // all'apertura (vedi bootstrap) per non perdere un roster arrivato prima.
 let currentRoster = [];
@@ -141,10 +141,10 @@ let currentRoster = [];
 // Canale separato da "library:roster" sopra: non condivide stato con la chat.
 let currentReachablePeers = [];
 
-// Ultimo snapshot di note ricevuto da app.js (via "library:notes-snapshot" /
+// Ultimo snapshot di note ricevuto da host.js (via "library:notes-snapshot" /
 // "library:note-upserted") — le note NON si caricano via invoke come
 // Markdown/Find/Plugins: arrivano spinte via WS/eventi Tauri (vedi loadNoteTab).
-let currentNotes = []; // ultimo snapshot ricevuto da app.js
+let currentNotes = []; // ultimo snapshot ricevuto da host.js
 
 // La rete peer (network.json, campo `enabled`) è accesa? (FIX 6 della review
 // finale di branch.)
@@ -176,7 +176,7 @@ closeBtnEl.addEventListener("click", closeWindow);
 // ---------------------------------------------------------------------------
 // Open-folder button (#open-dir-btn)
 //
-// Emette un evento Tauri globale `library:open-folder { path }` che app.js
+// Emette un evento Tauri globale `library:open-folder { path }` che host.js
 // gestisce inviando `/open <path>` all'orchestrator.
 // Sicurezza: il path viene dal backend Rust (trusted), non dal DOM.
 // ---------------------------------------------------------------------------
@@ -693,7 +693,7 @@ function openMoveDialog(itemRel, isFolder, displayName) {
 //
 // A differenza di openMoveDialog (che legge l'albero già caricato in memoria),
 // l'elenco macchine viene da currentRoster (aggiornato via evento Tauri da
-// app.js) — non serve un invoke qui, solo lo stato già cablato dal bootstrap.
+// host.js) — non serve un invoke qui, solo lo stato già cablato dal bootstrap.
 // ---------------------------------------------------------------------------
 function openShareDialog(itemRel, displayName) {
   shareState.itemRel = itemRel;
@@ -838,7 +838,7 @@ function wireMoveDialog() {
 //
 // #share-confirm: calcola size_bytes leggendo il documento via archive_open
 // (la Library non tiene la dimensione in memoria — solo titolo/data/rel-path),
-// poi emette "library:share-document" verso app.js e chiude SUBITO il dialog
+// poi emette "library:share-document" verso host.js e chiude SUBITO il dialog
 // (fire-and-forget: l'esito arriva più tardi nel pannello del cursore, non qui).
 // ---------------------------------------------------------------------------
 function wireShareDialog() {
@@ -1272,7 +1272,7 @@ function buildNoteItem(note) {
   editBtn.addEventListener("click", (e) => {
     e.stopPropagation();
     // La finestra "Modifica nota" (Tauri separato, v. main.rs open_note_window)
-    // è aperta dal main tramite app.js, non da qui direttamente — stesso
+    // è aperta dal main tramite host.js, non da qui direttamente — stesso
     // schema hub di ogni altra finestra secondaria in questo file.
     tauriEvent.emit("library:note-window-open", { note });
   });
@@ -1558,7 +1558,7 @@ async function loadPluginsTab() {
 // loadNoteTab — entry point del tab Note (Blocco note).
 //
 // A differenza di Markdown/Find/Plugins (che PULLano via invoke), le note
-// arrivano via WS/eventi Tauri (library:notes-snapshot, spinto da app.js).
+// arrivano via WS/eventi Tauri (library:notes-snapshot, spinto da host.js).
 // Qui: (1) renderizziamo subito quello che già abbiamo in currentNotes, (2)
 // chiediamo un refresh esplicito (nel caso lo snapshot sia arrivato prima che
 // questa finestra si aprisse), (3) leggiamo lo stato `enabled` della rete peer
@@ -1768,9 +1768,10 @@ async function bootstrap() {
   }
 
   // Trasparenza (--window-alpha): applica subito il valore corrente della
-  // config all'avvio, come fa app.js per la finestra principale. Legge
-  // get_config invece di aspettare un evento (questa finestra potrebbe
-  // aprirsi molto dopo l'ultimo salvataggio di /config).
+  // config all'avvio, come faceva il cursore v1 per la sua finestra visibile
+  // (host.js non lo fa più: la sua finestra è nascosta, senza CSS da
+  // applicare). Legge get_config invece di aspettare un evento (questa
+  // finestra potrebbe aprirsi molto dopo l'ultimo salvataggio di /config).
   try {
     const cfg = await invokeCmd("get_config");
     if (cfg && typeof cfg.window_alpha === "number") {
@@ -1863,7 +1864,7 @@ async function bootstrap() {
     });
 
     // Richiede subito il roster corrente — se un AiChatRoster è già arrivato ad
-    // app.js prima che questa finestra si aprisse, altrimenti currentRoster
+    // host.js prima che questa finestra si aprisse, altrimenti currentRoster
     // resterebbe vuoto finché non arriva un aggiornamento live successivo.
     if (tauriEvent?.emit) {
       tauriEvent.emit("library:request-roster", {});

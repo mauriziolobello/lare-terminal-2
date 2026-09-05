@@ -37,7 +37,7 @@ impl ConfigDirState {
 }
 
 pub fn token_path(config_dir: &Path) -> PathBuf {
-    config_dir.join("token")
+    config_dir.join(startup_config::TOKEN_FILE_NAME)
 }
 pub fn config_file_path(config_dir: &Path) -> PathBuf {
     config_dir.join("config.json")

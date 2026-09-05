@@ -6,7 +6,9 @@
 //
 // The dialog is an in-overlay <div> panel (not a second Tauri window).
 // It reads current config via `get_config`, saves via `set_config`, and
-// calls back the parent (app.js) on close so it can re-apply CSS vars.
+// calls back the caller on close via `onClose` (v1: the cursor's overlay
+// used this to re-apply CSS vars in place — that usage is gone with the
+// overlay; the dedicated /config window below just closes itself instead).
 //
 // Usage:
 //   import { ConfigDialog } from "./config-dialog.js";

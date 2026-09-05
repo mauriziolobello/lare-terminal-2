@@ -12,7 +12,7 @@
 //
 //   3. Listens for delegated click events on #plugin-root and converts them
 //      to PluginUiEvent messages emitted via the Tauri global event bus →
-//      app.js picks them up and forwards them over WebSocket.
+//      host.js picks them up and forwards them over WebSocket.
 //
 //   4. Listens for incoming Tauri events:
 //        "plugin:update"  → re-render with new HTML
@@ -25,7 +25,7 @@
 // Back-channel (this window → orchestrator):
 //   tauriEvent.emit("plugin:ui-event",      { window_id, element_id, value })
 //   tauriEvent.emit("plugin:window-closed", { window_id })
-// Both events are received by app.js and forwarded over WebSocket.
+// Both events are received by host.js and forwarded over WebSocket.
 
 // ── Tauri v2 globals ───────────────────────────────────────────────────────
 // Tauri v2 with `withGlobalTauri: true` exposes __TAURI__ on window.
@@ -56,7 +56,7 @@ let calcDisplayHighWaterPx = 0;
 
 /**
  * Invoke a Tauri command via the IPC bridge.
- * Thin wrapper to keep call sites clean (same pattern as app.js).
+ * Thin wrapper to keep call sites clean (same pattern as host.js).
  *
  * @param {string} cmd   - Tauri command name (snake_case).
  * @param {object} [args] - Optional arguments object.
@@ -121,8 +121,8 @@ function render(html) {
 }
 
 /**
- * Emit a Tauri global event to notify app.js that the user interacted with
- * a [data-evt] element.  app.js listens for "plugin:ui-event" and forwards
+ * Emit a Tauri global event to notify host.js that the user interacted with
+ * a [data-evt] element.  host.js listens for "plugin:ui-event" and forwards
  * the payload over WebSocket as ClientMsg::PluginUiEvent.
  *
  * @param {string}      element_id - Value of the clicked element's data-evt.
@@ -137,9 +137,9 @@ function emitUiEvent(element_id, value) {
 }
 
 /**
- * Emit a Tauri global event to notify app.js that this window was closed
+ * Emit a Tauri global event to notify host.js that this window was closed
  * (either by the orchestrator or by the user clicking ✕).
- * app.js listens for "plugin:window-closed" and sends PluginWindowClosed to
+ * host.js listens for "plugin:window-closed" and sends PluginWindowClosed to
  * the orchestrator so it can clean up state.
  */
 function emitWindowClosed() {
