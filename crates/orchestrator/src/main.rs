@@ -108,6 +108,10 @@ fn default_ai_adapter(model: &str, config_dir: &std::path::Path) -> Arc<dyn AiAd
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Forza subito PROCESS_START (LazyLock): l'uptime di `/ping` deve misurare
+    // l'avvio reale del processo, non l'istante del primo ping ricevuto.
+    std::sync::LazyLock::force(&orchestrator::PROCESS_START);
+
     // ── Configurazione (2.0, Task 4, D6): --config-dir + startup.json ──────
     // UNICA fonte di configurazione dell'intero orchestrator: nessuna
     // variabile d'ambiente `LARE_*`/`LOCALAPPDATA`/`APPDATA` viene letta in

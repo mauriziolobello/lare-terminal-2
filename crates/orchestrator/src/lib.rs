@@ -46,6 +46,9 @@
 //!   wrong token → connection closed immediately.
 //! - `mcp-server` validates `cwd` (UNC/NTLM guard, Fase 1).
 
+use std::sync::LazyLock;
+use std::time::Instant;
+
 pub mod agent;
 pub mod ai_adapter;
 pub mod aichat;
@@ -62,6 +65,7 @@ pub mod messages_client;
 pub mod nmap_tool_client;
 pub mod notes;
 pub mod openrouter_backend;
+pub mod ping;
 pub mod plugins;
 pub mod python_mcp_tool_client;
 pub mod router;
@@ -74,6 +78,10 @@ pub mod telegram;
 pub mod token_store;
 pub mod tool_client;
 pub mod ws;
+
+/// Istante di avvio del processo, per l'uptime di `/ping`. `main()` lo forza
+/// subito (`LazyLock::force`), così vale davvero l'avvio e non il primo ping.
+pub static PROCESS_START: LazyLock<Instant> = LazyLock::new(Instant::now);
 
 #[cfg(test)]
 pub(crate) mod test_support;

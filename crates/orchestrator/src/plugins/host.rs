@@ -70,6 +70,11 @@ pub struct PluginHost {
     /// Al primo `activate(id)` il plugin viene spawnato con lo stesso Ready-gate degli eager.
     discovered_lazy: Vec<DiscoveredPlugin>,
 
+    /// TUTTI i plugin scoperti (eager e lazy), per `find`/`probe` (2.0, `/ping`):
+    /// `discovered_lazy` tiene solo i lazy, e gli eager dopo lo spawn non
+    /// lasciavano traccia del loro manifest.
+    discovered_all: Vec<DiscoveredPlugin>,
+
     /// Registro delle finestre aperte: `window_id` → `plugin_id`.
     /// `Arc<Mutex<..>>` (non un semplice `HashMap`) perché il pump task (vedi
     /// `spawn_and_handshake`) deve poterci scrivere SENZA il lock esterno su
@@ -112,6 +117,7 @@ impl PluginHost {
         let mut host = Self {
             writers: HashMap::new(),
             discovered_lazy: Vec::new(),
+            discovered_all: plugins.clone(),
             windows: Arc::new(Mutex::new(HashMap::new())),
             next_window_id: 1,
             storage_root: storage_root.to_path_buf(),
@@ -145,6 +151,14 @@ impl PluginHost {
     /// Usato dai test e dall'e2e per verificare il ciclo di vita senza esporre `writers`.
     pub fn running_count(&self) -> usize {
         self.writers.len()
+    }
+
+    /// Manifest + cartella di storage del plugin `plugin_id` (per `probe`).
+    pub fn find(&self, plugin_id: &str) -> Option<(DiscoveredPlugin, PathBuf)> {
+        self.discovered_all
+            .iter()
+            .find(|p| p.manifest.id == plugin_id)
+            .map(|p| (p.clone(), self.storage_root.join(plugin_id)))
     }
 
     /// Attiva un plugin per finestra: lazy-spawna se necessario, genera un `window_id`,
@@ -332,50 +346,15 @@ impl PluginHost {
         // Questo è il "costruttore validante" del plugin: entra in `writers`
         // solo se la negoziazione del protocollo ha avuto successo.
         //
-        // I2 FIX (robustezza timeout): avvolgiamo recv() in un timeout di 5 secondi.
-        // Senza timeout, un plugin che non invia mai `Ready` (crash pre-invio, deadlock
-        // interno, slow startup) terrebbe bloccato questo metodo per sempre. Poiché
-        // `spawn_and_handshake` è chiamata mentre l'host è in uso (lazy-spawn durante
-        // la gestione di un comando WS), il blocco congelerebbe l'intera connessione.
-        // Con il timeout, l'host rileva il plugin "sordo" entro 5s e lo scarta.
-        // Il plugin sconosciuto non entra in `writers`, quindi un tentativo successivo
-        // può riprovare il lazy-spawn (se il plugin è riapparso).
-        let ready_result = tokio::time::timeout(
-            std::time::Duration::from_secs(5),
-            reader.recv(),
-        )
-        .await;
-
-        match ready_result {
-            // Timeout scaduto: il plugin non ha risposto entro 5 secondi.
-            Err(_timeout) => {
-                eprintln!(
-                    "[plugins] '{}' non ha inviato Ready entro 5s — non avviato",
-                    p.manifest.id
-                );
-                return None;
+        // I2 FIX (robustezza timeout): la logica (timeout 5s + i quattro esiti)
+        // vive ora in `wait_ready`, funzione libera condivisa anche da `probe`
+        // (Task 7, sonda usa-e-getta di `/ping`) — stessa attesa, stessi messaggi.
+        match wait_ready(&mut reader, &p.manifest.id).await {
+            Ok((name, protocol_version)) => {
+                eprintln!("[plugins] '{}' Ready (name={name}, proto={protocol_version})", p.manifest.id);
             }
-            // Ready ricevuto entro il timeout: handshake riuscito.
-            Ok(Ok(Some(PluginToHost::Ready { name, protocol_version }))) => {
-                eprintln!(
-                    "[plugins] '{}' Ready (name={name}, proto={protocol_version})",
-                    p.manifest.id
-                );
-            }
-            // Messaggio non-Ready: il plugin non rispetta il protocollo.
-            Ok(Ok(other)) => {
-                eprintln!(
-                    "[plugins] '{}' non ha riportato Ready (msg={other:?}) — non avviato",
-                    p.manifest.id
-                );
-                return None;
-            }
-            // Errore I/O durante il recv (pipe rotta, processo uscito, …).
-            Ok(Err(e)) => {
-                eprintln!(
-                    "[plugins] '{}' recv Ready fallito: {e} — non avviato",
-                    p.manifest.id
-                );
+            Err(reason) => {
+                eprintln!("[plugins] {reason} — non avviato");
                 return None;
             }
         }
@@ -432,6 +411,44 @@ impl PluginHost {
         self.writers.insert(p.manifest.id.clone(), writer);
         Some(())
     }
+}
+
+/// Ready-gate condiviso da `spawn_and_handshake` e `probe`: il PRIMO
+/// messaggio del plugin deve essere `Ready` entro 5 s. `Err` = motivo
+/// leggibile (timeout, EOF, messaggio diverso, errore I/O).
+async fn wait_ready(reader: &mut Box<dyn PluginReader>, plugin_id: &str) -> Result<(String, u32), String> {
+    match tokio::time::timeout(std::time::Duration::from_secs(5), reader.recv()).await {
+        Err(_timeout) => Err(format!("'{plugin_id}' non ha inviato Ready entro 5s")),
+        Ok(Ok(Some(PluginToHost::Ready { name, protocol_version }))) => Ok((name, protocol_version)),
+        Ok(Ok(other)) => Err(format!("'{plugin_id}' non ha riportato Ready (msg={other:?})")),
+        Ok(Err(e)) => Err(format!("'{plugin_id}' recv Ready fallito: {e}")),
+    }
+}
+
+/// Sonda usa-e-getta per `/ping` (spec §3.1): avvia un'istanza NUOVA del
+/// plugin, misura Init→Ready, manda `Deinit` e la lascia morire (il
+/// transport reale ha `kill_on_drop`). Non passa da `PluginHost` perché
+/// l'istanza eager già viva non ha un handshake da rimisurare e non va
+/// disturbata. `storage_dir`: quella che `PluginHost::find` riporta.
+pub async fn probe<F>(p: &DiscoveredPlugin, storage_dir: &Path, make: &mut F) -> Result<std::time::Duration, String>
+where
+    F: FnMut(&DiscoveredPlugin) -> std::io::Result<(Box<dyn PluginWriter>, Box<dyn PluginReader>)>,
+{
+    let (mut writer, mut reader) = make(p).map_err(|e| format!("spawn fallito: {e}"))?;
+    let start = std::time::Instant::now();
+    writer
+        .send(HostToPlugin::Init {
+            protocol_version: p.manifest.protocol_version,
+            config: serde_json::Value::Null,
+            storage_dir: storage_dir.to_string_lossy().into_owned(),
+        })
+        .await
+        .map_err(|e| format!("Init fallito: {e}"))?;
+    wait_ready(&mut reader, &p.manifest.id).await?;
+    let elapsed = start.elapsed();
+    // Best-effort: il plugin è usa-e-getta, un Deinit fallito non è un errore del ping.
+    let _ = writer.send(HostToPlugin::Deinit {}).await;
+    Ok(elapsed)
 }
 
 // ─── Test ─────────────────────────────────────────────────────────────────────
@@ -982,5 +999,62 @@ mod tests {
             log.lock().unwrap().iter().any(|m| matches!(m, HostToPlugin::Deinit {})),
             "Deinit deve essere inviato a ogni plugin attivo"
         );
+    }
+
+    // ─── Task 7: `/ping` — sonda usa-e-getta, `find` sui plugin scoperti ──────────
+
+    /// `probe`: spawn usa-e-getta → Init → Ready → Deinit, e ritorna il tempo
+    /// Init→Ready. Non tocca `writers` (nessun pump, nessuna finestra).
+    #[tokio::test]
+    async fn probe_measures_init_to_ready_and_sends_deinit() {
+        let log: SentLog = Default::default();
+        let l = log.clone();
+        let p = discovered("ping", Triggers::default());
+        let mut make = move |_p: &DiscoveredPlugin| {
+            let (w, r) = fake_transport(l.clone(), vec![
+                PluginToHost::Ready { name: "ping".into(), protocol_version: 1 },
+            ]);
+            Ok((Box::new(w) as Box<dyn PluginWriter>, Box::new(r) as Box<dyn PluginReader>))
+        };
+        let elapsed = probe(&p, std::path::Path::new("/tmp/storage"), &mut make).await.expect("Ready");
+        assert!(elapsed < std::time::Duration::from_secs(5));
+        let sent = log.lock().unwrap();
+        assert!(matches!(sent[0], HostToPlugin::Init { .. }));
+        assert!(matches!(sent[1], HostToPlugin::Deinit {}), "{sent:?}");
+    }
+
+    /// Plugin che non risponde: errore leggibile entro il timeout, mai un panic.
+    #[tokio::test]
+    async fn probe_reports_error_when_plugin_never_sends_ready() {
+        let p = discovered("dead", Triggers::default());
+        let mut make = move |_p: &DiscoveredPlugin| {
+            let (w, r) = fake_transport(Default::default(), vec![]); // EOF immediato
+            Ok((Box::new(w) as Box<dyn PluginWriter>, Box::new(r) as Box<dyn PluginReader>))
+        };
+        let err = probe(&p, std::path::Path::new("/tmp/storage"), &mut make).await.unwrap_err();
+        assert!(err.contains("Ready"), "{err}");
+    }
+
+    /// `find` conosce anche i plugin eager (che `discovered_lazy` non tiene).
+    #[tokio::test]
+    async fn find_returns_eager_and_lazy_plugins_with_their_storage_dir() {
+        let host = PluginHost::start(
+            vec![
+                discovered("ping", Triggers::default()),
+                discovered("calc", Triggers { command: Some("/calc".into()), interval: None }),
+            ],
+            |_p| {
+                let (w, r) = fake_transport(Default::default(), vec![
+                    PluginToHost::Ready { name: "ping".into(), protocol_version: 1 },
+                ]);
+                Ok((Box::new(w) as Box<dyn PluginWriter>, Box::new(r) as Box<dyn PluginReader>))
+            },
+            std::path::Path::new("/tmp/root"),
+        ).await;
+        let (p, dir) = host.find("ping").expect("eager trovato");
+        assert_eq!(p.manifest.id, "ping");
+        assert_eq!(dir, PathBuf::from("/tmp/root").join("ping"));
+        assert!(host.find("calc").is_some());
+        assert!(host.find("nope").is_none());
     }
 }
