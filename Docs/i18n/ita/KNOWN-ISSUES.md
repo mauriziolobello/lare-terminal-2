@@ -1,9 +1,8 @@
 # Known issues — Lare Terminal 2.0
 
-Problemi noti ereditati dalla v1 e ancora presenti nel codice 2.0 (nessuno dei task del piano 1
-li ha toccati — nessuno dei crate copiati nel Task 1 tocca queste aree). Per lo storico completo
-dei problemi v1 (inclusi quelli già risolti) vedi `C:\Users\Maurizio\Documents\Progetti\Lare
-Terminal\Docs\KNOWN-ISSUES.md` (sola lettura).
+Problemi noti ereditati dalla v1 e ancora presenti nel codice 2.0: nessun task del piano 1 ha
+toccato le aree coinvolte. Per lo storico completo dei problemi v1 (inclusi quelli già risolti)
+vedi `C:\Users\Maurizio\Documents\Progetti\Lare Terminal\Docs\KNOWN-ISSUES.md` (sola lettura).
 
 ---
 

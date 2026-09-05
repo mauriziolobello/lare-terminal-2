@@ -26,17 +26,17 @@ plugin-calc`) e `.\deploy_test_run.ps1 -IncludePlugins` eseguito — vedi `RUN-L
 
 | # | Passo | Atteso | Esito |
 |---|---|---|---|
-| 8 | Con l'orchestrator del passo 1 ancora attivo, da `Test Run\`: `.\Test Run\ui.exe --open library` (o `.\init_tauri.ps1` seguito da avvio manuale con `--open`, a seconda di come preferisci lanciarlo) | Sulla console compare `[ui] config dir: ...\Test Run\Configuration`, poi `[ui] Loaded config: ...`, poi `[ui] Lare Terminal v2.0.x started.`; nessun crash | |
+| 8 | Con l'orchestrator del passo 1 ancora attivo, da `Test Run\`: `.\ui.exe --open library` (nota: `init_tauri.ps1` non passa `--open` — per questa verifica lancia `ui.exe` direttamente) | Sulla console compare `[ui] config dir: ...\Test Run\Configuration`, poi `[ui] Loaded config: ...`, poi `[ui] Lare Terminal v2.0.x started.`; nessun crash | |
 | 9 | Stesso avvio | Si apre la finestra **Library** (non la vecchia finestra overlay/cursore: quella non esiste più — vedi ADR-016) | |
 | 10 | Premi F2 mentre una finestra Lare è in focus | Non succede nulla (l'hotkey globale F2 e il suo overlay sono stati rimossi nel Task 7 — nessun plugin `global-shortcut` registrato) | |
 | 11 | Ripeti il passo 8 con `--open config` al posto di `--open library` | Si apre la finestra **`/config`** (tab Ricerca web + Trasparenza, senza i campi hotkey/posizione/cursore rimossi in v1→2.0) | |
-| 12 | Chiudi `ui.exe` e l'orchestrator (`Stop-Process` sui PID, o `taskkill /F /IM orchestrator.exe /IM ui.exe`) | `Get-Process | Where-Object { $_.Path -like "*Test Run*" }` non ritorna nulla (nessun processo residuo, incluso l'eventuale `ping.exe` del plugin — non confonderlo col `ping` di sistema) | |
+| 12 | Chiudi tutto con un solo comando: `Get-Process | Where-Object { $_.Path -like "*Test Run*" } | Stop-Process -Force` (prende `orchestrator`, `ui` E l'eventuale `ping.exe` del plugin — non confonderlo col `ping` di sistema, che `taskkill /IM ping.exe` colpirebbe anche lui) | Rilanciando lo stesso `Get-Process` subito dopo: nessun risultato (nessun processo residuo) | |
 
 ## Parte 3 — `ui.exe` SENZA orchestrator
 
 | # | Passo | Atteso | Esito |
 |---|---|---|---|
-| 13 | Assicurati che l'orchestrator NON sia in esecuzione, poi da `Test Run\`: `.\Test Run\ui.exe --open library` | Il processo si avvia e resta vivo (nessun crash, nessun panic); stdout mostra comunque `[ui] config dir: ...` e `[ui] Lare Terminal v2.0.x started.` — `ui.exe` non verifica la raggiungibilità dell'orchestrator prima di avviarsi | |
+| 13 | Assicurati che l'orchestrator NON sia in esecuzione, poi da `Test Run\`: `.\ui.exe --open library` | Il processo si avvia e resta vivo (nessun crash, nessun panic); stdout mostra comunque `[ui] config dir: ...` e `[ui] Lare Terminal v2.0.x started.` — `ui.exe` non verifica la raggiungibilità dell'orchestrator prima di avviarsi | |
 | 14 | Osserva la finestra Library appena aperta per qualche secondo | La finestra resta aperta e reattiva (il fallimento della connessione WS è gestito lato JS in `host.js`/`ws-client.js`: retry automatico con backoff crescente, **visibile solo aprendo i DevTools della webview** — non nello stdout/stderr del processo `ui.exe`, verificato nel Task 7) | |
 | 15 | Chiudi `ui.exe` | Il processo termina senza lasciare residui (`Get-Process` come al passo 12) | |
 

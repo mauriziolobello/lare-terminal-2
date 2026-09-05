@@ -28,9 +28,9 @@
 completato il 2026-09-05:
 
 - **Task 0** — Scaffolding del repo: workspace Cargo, `CLAUDE.md`, hook `commit-msg`. Commit `3ab5848`.
-- **Task 1** — Copia dei crate v1 nel workspace 2.0, bump a `2.0.0`, baseline verde (901 test
-  passati). Commit `3c620fc`; fix round 1 `da7a7b8` (fixture di test spostate dentro il crate,
-  non in `Docs/`).
+- **Task 1** — Copia dei crate v1 nel workspace 2.0, bump a `2.0.0`, baseline verde
+  (`orchestrator`: 901 test passati). Commit `3c620fc`; fix round 1 `da7a7b8` (fixture di test
+  spostate dentro il crate, non in `Docs/`).
 - **Task 2** — `startup-config` 2.0: riscrittura completa, `--config-dir`/`startup.json` nuovo
   schema, nessuna variabile d'ambiente. Commit `38a6d39`.
 - **Task 3** — `mcp-server`: migrato a `--config-dir`, niente più env var. Commit `12cc6ee`.

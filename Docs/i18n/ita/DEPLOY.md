@@ -67,9 +67,12 @@ due è disponibile).
 
 ## Passi
 
-1. Compila (`cargo build`, `cargo build -p ui`, `cargo build -p plugin-ping -p plugin-calc` —
-   vedi `RUN-LOCAL.md`), possibilmente `-BuildConfig release` per un deploy reale.
-2. `.\deploy_test_run.ps1 -BuildConfig release -IncludePlugins` popola `Test Run\`.
+1. Compila in release (`cargo build --release`, `cargo build --release -p ui`, `cargo build
+   --release -p plugin-ping -p plugin-calc` — vedi `RUN-LOCAL.md` per gli equivalenti debug usati
+   in sviluppo).
+2. `.\deploy_test_run.ps1 -BuildConfig release -IncludePlugins` popola `Test Run\` da
+   `target\release\` (deve esistere: senza il passo 1 in release, lo script fallisce con "Manca
+   ...\target\release").
 3. Copia `Test Run\` nella cartella di destinazione (qualunque percorso: i path relativi
    ripartono dalla nuova radice).
 4. Se serve un provider AI diverso dal default, crea `Configuration\llms.json` a mano (mai
