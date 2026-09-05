@@ -214,6 +214,53 @@ impl ToolConfirmer for LocalUiConfirmer {
     }
 }
 
+/// Gate di conferma per una sessione **shell** (2.0, spec §4.3 e §8).
+///
+/// Composizione, non ereditarietà: riusa la meccanica di `LocalUiConfirmer`
+/// (id opaco, `ToolConfirmRequest` sulla connessione, `PendingConfirms`,
+/// timeout che nega) e cambia SOLO la politica:
+/// - `should_gate`: **default del trait** — tutto tranne `show_markdown`. Sul
+///   canale shell `run_in_session` esegue nel runspace dell'utente: ogni
+///   `ExecInShell` deve essere preceduto da `[Y/n]` (spec §8).
+/// - `confirm_routine_save`: **default del trait** — la shell non ha una
+///   finestra di anteprima; il corpo della routine viene appiattito nel testo
+///   del prompt `[Y/n]`.
+///
+/// Non aggiunge campi: tenere qui la `LocalUiConfirmer` interna evita di
+/// duplicare `confirm()` (che è l'unica parte con logica vera).
+///
+/// `#[allow(dead_code)]`: nessun canale collega ancora `ShellConfirmer` (lo
+/// farà il Task 8, che instrada la sessione shell) — finché non esiste quel
+/// filo, `cargo build`/`clippy` (senza i test, che invece la usano) la
+/// vedrebbero come mai costruita.
+#[allow(dead_code)]
+pub(crate) struct ShellConfirmer {
+    inner: LocalUiConfirmer,
+}
+
+impl ShellConfirmer {
+    // `#[allow(dead_code)]` anche qui: senza, clippy segnala `new` come "mai
+    // usata" nella build senza test (vedi doc-comment dello struct sopra).
+    #[allow(dead_code)]
+    pub(crate) fn new(
+        out_tx: UnboundedSender<ServerMsg>,
+        pending: PendingConfirms,
+        timeout: Duration,
+        command_id: String,
+    ) -> Self {
+        Self { inner: LocalUiConfirmer::new(out_tx, pending, timeout, command_id) }
+    }
+}
+
+#[async_trait]
+impl ToolConfirmer for ShellConfirmer {
+    async fn confirm(&self, commands: &str) -> bool {
+        self.inner.confirm(commands).await
+    }
+    // `confirm_routine_save` e `should_gate`: default del trait, di proposito
+    // (vedi doc-comment dello struct).
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Tests — TDD: RED poi GREEN
 // ─────────────────────────────────────────────────────────────────────────────
@@ -494,5 +541,62 @@ mod tests {
         assert!(!confirmer.should_gate("open_target"));
         assert!(!confirmer.should_gate("search_routines"));
         assert!(!confirmer.should_gate("qualunque_nome"));
+    }
+
+    // ── ShellConfirmer (2.0, spec §4.3/§8) ─────────────────────────────────
+
+    /// Sul canale shell il gate vale per OGNI tool di sistema: `run_in_session`
+    /// e `open_target` inclusi (a differenza di `LocalUiConfirmer`, che li
+    /// lascia autonomi). `show_markdown` resta libero: apre solo una finestra.
+    #[test]
+    fn shell_confirmer_gates_run_in_session_and_open_target_but_not_show_markdown() {
+        let (out_tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let c = ShellConfirmer::new(out_tx, PendingConfirms::new(), Duration::from_secs(5), "c1".into());
+        assert!(c.should_gate("run_in_session"));
+        assert!(c.should_gate("open_target"));
+        assert!(c.should_gate("nmap_quick_scan"));
+        assert!(c.should_gate("save_routine"));
+        assert!(!c.should_gate("show_markdown"));
+    }
+
+    /// La meccanica è quella di `LocalUiConfirmer`: manda `ToolConfirmRequest`
+    /// sulla connessione e attende la risposta registrata in `PendingConfirms`.
+    #[tokio::test]
+    async fn shell_confirmer_sends_request_and_returns_the_answer() {
+        let (out_tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let pending = PendingConfirms::new();
+        let c = ShellConfirmer::new(out_tx, pending.clone(), Duration::from_secs(5), "c1".into());
+        let confirm = tokio::spawn(async move { c.confirm("$ dir  (interattivo)").await });
+        let req = rx.recv().await.expect("ToolConfirmRequest");
+        let id = match req {
+            ServerMsg::ToolConfirmRequest { id, commands } => {
+                assert_eq!(commands, "$ dir  (interattivo)");
+                id
+            }
+            other => panic!("atteso ToolConfirmRequest, ricevuto {other:?}"),
+        };
+        assert!(pending.resolve(&id, true).await);
+        assert!(confirm.await.unwrap());
+    }
+
+    /// `save_routine` sulla shell non ha una finestra di anteprima: passa dal
+    /// default del trait (testo appiattito → `confirm()` → `[Y/n]` nel terminale),
+    /// quindi arriva un `ToolConfirmRequest`, mai un `RoutineSavePreview`.
+    #[tokio::test]
+    async fn shell_confirmer_routine_save_falls_back_to_plain_confirm() {
+        let (out_tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let pending = PendingConfirms::new();
+        let c = ShellConfirmer::new(out_tx, pending.clone(), Duration::from_secs(5), "c1".into());
+        let req = crate::ai_adapter::RoutineSaveRequest {
+            name: "r".into(), description: "d".into(), tags: vec![], category: "c".into(),
+            script: "Get-Date".into(), replace: None,
+        };
+        let task = tokio::spawn(async move { c.confirm_routine_save(&req).await });
+        let first = rx.recv().await.unwrap();
+        assert!(matches!(first, ServerMsg::ToolConfirmRequest { .. }), "ricevuto {first:?}");
+        if let ServerMsg::ToolConfirmRequest { id, .. } = first {
+            pending.resolve(&id, false).await;
+        }
+        assert!(!task.await.unwrap());
     }
 }

@@ -253,10 +253,16 @@ pub fn markdown_window(input: &serde_json::Value) -> (String, String) {
 /// Etichetta leggibile dell'invocazione, per il `Chunk` di trasparenza.
 pub fn display_invocation(name: &str, input: &serde_json::Value) -> String {
     match name {
-        "run_in_session" => format!(
-            "$ {}",
-            input.get("command").and_then(|v| v.as_str()).unwrap_or("")
-        ),
+        "run_in_session" => {
+            let cmd = input.get("command").and_then(|v| v.as_str()).unwrap_or("");
+            // `interactive` (2.0, spec §4.5): il prompt `[Y/n]` deve dichiarare che
+            // l'output non verrà catturato — l'utente decide sapendolo.
+            if input.get("interactive").and_then(|v| v.as_bool()).unwrap_or(false) {
+                format!("$ {cmd}  (interattivo)")
+            } else {
+                format!("$ {cmd}")
+            }
+        }
         "open_target" => format!(
             "apri: {}",
             input.get("target").and_then(|v| v.as_str()).unwrap_or("")
@@ -655,6 +661,17 @@ mod tests {
         let (title, _) =
             markdown_window(&serde_json::json!({"content": format!("# {long}"), "title": long}));
         assert!(title.chars().count() <= 60);
+    }
+
+    #[test]
+    fn display_invocation_marks_interactive_run_in_session() {
+        let plain = display_invocation("run_in_session", &serde_json::json!({"command": "vim x"}));
+        assert_eq!(plain, "$ vim x");
+        let inter = display_invocation(
+            "run_in_session",
+            &serde_json::json!({"command": "vim x", "interactive": true}),
+        );
+        assert_eq!(inter, "$ vim x  (interattivo)");
     }
 
     #[test]
