@@ -33,16 +33,31 @@ pub struct CwdTrackingToolClient {
     inner: Arc<dyn ToolClient>,
     /// Shared cwd state updated after each command.
     pub cwd_state: Arc<Mutex<String>>,
+    /// Cartella di configurazione (2.0, D6) — riusata SOLO da `dispatch()`
+    /// per `agent::dispatch_tool_at`'s `network_json_path`
+    /// (`set_ai_display_name`), mai ri-derivata: stesso `config_dir` di
+    /// `RuntimeConfig`, ricevuto a costruzione da `main.rs`.
+    config_dir: std::path::PathBuf,
 }
 
 impl CwdTrackingToolClient {
     /// Create a new tracking decorator.
     ///
     /// # Arguments
-    /// * `inner`     — The underlying tool client to delegate to.
-    /// * `cwd_state` — Shared state to update with the cwd from each result.
-    pub fn new(inner: Arc<dyn ToolClient>, cwd_state: Arc<Mutex<String>>) -> Self {
-        Self { inner, cwd_state }
+    /// * `inner`      — The underlying tool client to delegate to.
+    /// * `cwd_state`  — Shared state to update with the cwd from each result.
+    /// * `config_dir` — Config dir (2.0, D6), used only by `dispatch()`'s
+    ///   `set_ai_display_name` branch.
+    pub fn new(inner: Arc<dyn ToolClient>, cwd_state: Arc<Mutex<String>>, config_dir: std::path::PathBuf) -> Self {
+        Self { inner, cwd_state, config_dir }
+    }
+
+    /// Costruttore di comodo per i test di QUESTO file: nessuno di essi
+    /// esercita il ramo `set_ai_display_name` di `dispatch()` (quello che
+    /// legge/scrive `config_dir`), quindi un placeholder basta.
+    #[cfg(test)]
+    fn new_for_test(inner: Arc<dyn ToolClient>, cwd_state: Arc<Mutex<String>>) -> Self {
+        Self::new(inner, cwd_state, std::path::PathBuf::from("/test-config"))
     }
 }
 
@@ -115,12 +130,13 @@ impl ToolClient for CwdTrackingToolClient {
 
     async fn dispatch(&self, name: &str, input: &serde_json::Value) -> crate::tool_client::DispatchOutcome {
         // IMPORTANT: dispatch on `self`, NOT `self.inner` — this re-enters
-        // `agent::dispatch_tool` with THIS decorator as the receiver, so a
+        // `agent::dispatch_tool_at` with THIS decorator as the receiver, so a
         // "run_in_session" tool_use routes back through `self.run_in_session`
         // (the override above that updates `cwd_state`), not straight to the
         // inner client (which would silently skip cwd tracking on the AI
         // tool-use path — found in review of commit 39370d4).
-        crate::agent::dispatch_tool(self as &dyn ToolClient, name, input).await
+        // `self.config_dir` (2.0, D6): niente ri-derivazione qui.
+        crate::agent::dispatch_tool_at(self as &dyn ToolClient, name, input, &self.config_dir.join("network.json")).await
     }
 }
 
@@ -136,7 +152,7 @@ mod tests {
     async fn tracking_updates_cwd_state_when_cwd_non_empty() {
         let fake = Arc::new(FakeToolClient::with_cwd("out", "/home/user/projects"));
         let cwd_state = Arc::new(Mutex::new("/home/user".to_string()));
-        let tracker = CwdTrackingToolClient::new(fake, Arc::clone(&cwd_state));
+        let tracker = CwdTrackingToolClient::new_for_test(fake, Arc::clone(&cwd_state));
 
         tracker.run_in_session("cd projects", None).await;
 
@@ -144,7 +160,7 @@ mod tests {
     }
 
     /// `dispatch("run_in_session", ...)` must ALSO update `cwd_state` — not just
-    /// the direct `run_in_session` call. `dispatch` re-enters `agent::dispatch_tool`
+    /// the direct `run_in_session` call. `dispatch` re-enters `agent::dispatch_tool_at`
     /// with `self` (the tracker), so the resulting `run_in_session` call must land
     /// on THIS decorator's own override (the one that updates `cwd_state`), never
     /// straight on `self.inner` (which would silently skip cwd tracking — the bug
@@ -154,7 +170,7 @@ mod tests {
     async fn dispatch_run_in_session_updates_cwd_state() {
         let fake = Arc::new(FakeToolClient::with_cwd("out", "/home/user/projects"));
         let cwd_state = Arc::new(Mutex::new("/home/user".to_string()));
-        let tracker = CwdTrackingToolClient::new(fake, Arc::clone(&cwd_state));
+        let tracker = CwdTrackingToolClient::new_for_test(fake, Arc::clone(&cwd_state));
 
         tracker
             .dispatch(
@@ -174,7 +190,7 @@ mod tests {
     async fn dispatch_run_routine_updates_cwd_state() {
         let fake = Arc::new(FakeToolClient::with_cwd("out", "/home/user/projects"));
         let cwd_state = Arc::new(Mutex::new("/home/user".to_string()));
-        let tracker = CwdTrackingToolClient::new(fake, Arc::clone(&cwd_state));
+        let tracker = CwdTrackingToolClient::new_for_test(fake, Arc::clone(&cwd_state));
 
         tracker
             .dispatch("run_routine", &serde_json::json!({"name": "list-big-files"}))
@@ -188,7 +204,7 @@ mod tests {
     async fn tracking_does_not_overwrite_cwd_when_result_cwd_is_empty() {
         let fake = Arc::new(FakeToolClient::success("out"));
         let cwd_state = Arc::new(Mutex::new("/original".to_string()));
-        let tracker = CwdTrackingToolClient::new(fake, Arc::clone(&cwd_state));
+        let tracker = CwdTrackingToolClient::new_for_test(fake, Arc::clone(&cwd_state));
 
         tracker.run_in_session("echo hi", None).await;
 
@@ -200,7 +216,7 @@ mod tests {
     async fn tracking_propagates_result_stdout() {
         let fake = Arc::new(FakeToolClient::success("hello\n"));
         let cwd_state = Arc::new(Mutex::new(String::new()));
-        let tracker = CwdTrackingToolClient::new(fake, cwd_state);
+        let tracker = CwdTrackingToolClient::new_for_test(fake, cwd_state);
 
         let result = tracker.run_in_session("echo hello", None).await;
 
@@ -218,13 +234,13 @@ mod tests {
 
         let fake_a = Arc::new(FakeToolClient::with_cwd("", "/a"));
         let tracker_a =
-            CwdTrackingToolClient::new(fake_a, Arc::clone(&cwd_state));
+            CwdTrackingToolClient::new_for_test(fake_a, Arc::clone(&cwd_state));
         tracker_a.run_in_session("cd /a", None).await;
         assert_eq!(*cwd_state.lock().await, "/a");
 
         let fake_b = Arc::new(FakeToolClient::with_cwd("", "/b"));
         let tracker_b =
-            CwdTrackingToolClient::new(fake_b, Arc::clone(&cwd_state));
+            CwdTrackingToolClient::new_for_test(fake_b, Arc::clone(&cwd_state));
         tracker_b.run_in_session("cd /b", None).await;
         assert_eq!(*cwd_state.lock().await, "/b");
     }
@@ -235,7 +251,7 @@ mod tests {
         let fake = Arc::new(FakeToolClient::success("ok"));
         let cwd_state = Arc::new(Mutex::new(String::new()));
         let tracker: Arc<dyn ToolClient> =
-            Arc::new(CwdTrackingToolClient::new(fake, cwd_state));
+            Arc::new(CwdTrackingToolClient::new_for_test(fake, cwd_state));
 
         let result = tracker.run_in_session("any", None).await;
         assert_eq!(result.exit_code, 0);
@@ -246,7 +262,7 @@ mod tests {
     async fn open_target_is_delegated() {
         let fake = Arc::new(FakeToolClient::success(""));
         let cwd_state = Arc::new(Mutex::new(String::new()));
-        let tracker = CwdTrackingToolClient::new(fake, cwd_state);
+        let tracker = CwdTrackingToolClient::new_for_test(fake, cwd_state);
 
         let result = tracker.open_target("http://example.com").await;
         assert!(result.ok);
@@ -261,7 +277,7 @@ mod tests {
     async fn get_routine_content_delegates_to_inner() {
         let fake = Arc::new(FakeToolClient::success(""));
         let cwd_state = Arc::new(Mutex::new(String::new()));
-        let tracker = CwdTrackingToolClient::new(fake, cwd_state);
+        let tracker = CwdTrackingToolClient::new_for_test(fake, cwd_state);
 
         let r = tracker.get_routine_content("x").await;
         assert!(!r.found);
@@ -277,7 +293,7 @@ mod tests {
     async fn save_routine_delegates_to_inner() {
         let fake = Arc::new(FakeToolClient::success(""));
         let cwd_state = Arc::new(Mutex::new(String::new()));
-        let tracker = CwdTrackingToolClient::new(fake, cwd_state);
+        let tracker = CwdTrackingToolClient::new_for_test(fake, cwd_state);
 
         let r = tracker.save_routine("n", "d", vec![], "c", "content", None).await;
         assert!(r.ok, "atteso il default del Fake (ok:true): {r:?}");

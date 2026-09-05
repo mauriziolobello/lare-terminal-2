@@ -24,6 +24,7 @@ use orchestrator::{
         host::PluginHost,
         transport::{PluginWriter, PluginReader},
     },
+    runtime_config::RuntimeConfig,
     search::{
         paths_config::OsPathProvider,
         SearchContext, SearchEngine,
@@ -37,6 +38,20 @@ use tokio::sync::Mutex;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
 // ── Test harness helpers ───────────────────────────────────────────────────────
+
+/// `RuntimeConfig` di comodo per questi test (2.0, Task 4): `StartupConfig::
+/// default()` + un `config_dir` fittizio — questo file non ha accesso a
+/// `RuntimeConfig::for_test` (`#[cfg(test)]` interno al crate `orchestrator`,
+/// non visibile da un binario di test esterno come questo), quindi costruisce
+/// direttamente lo struct pubblico. Nessun test qui esercita i canali esterni
+/// (nmap/python) o `dispatch("set_ai_display_name", ...)`, che sono gli unici
+/// punti che leggono `config_dir` — un path non esistente è innocuo.
+fn test_rt() -> Arc<RuntimeConfig> {
+    Arc::new(RuntimeConfig {
+        config_dir: std::env::temp_dir().join("lare-ws-integration-test-config"),
+        startup: startup_config::StartupConfig::default(),
+    })
+}
 
 /// Writes a minimal `search-paths.json` with empty roots to a unique temp path
 /// and returns that path. Using empty roots ensures that integration tests only
@@ -117,7 +132,7 @@ async fn spawn_server(token: &str) -> String {
 
         // Pass the addr string to ws::serve so it binds the ephemeral port.
         // `None` = canale AI Chat non attivo in questo helper di test generico.
-        ws::serve(&addr_str_clone, Arc::new(token_str), ai, tools, cwd_state, search, plugin_host, plugin_commands, None, tokio_util::sync::CancellationToken::new())
+        ws::serve(&addr_str_clone, Arc::new(token_str), ai, tools, cwd_state, search, plugin_host, plugin_commands, None, tokio_util::sync::CancellationToken::new(), test_rt())
             .await
             .ok();
     });
@@ -661,7 +676,7 @@ async fn spawn_server_with_cwd(token: &str, initial_cwd: &str, fake_cwd: &str) -
         let ai = Arc::new(StubAdapter);
         // Use a fake that reports a specific cwd, wrapped by the tracker.
         let fake = Arc::new(FakeToolClient::with_cwd("fake output\n", &fake_cwd_str));
-        let tools = Arc::new(CwdTrackingToolClient::new(fake, Arc::clone(&cwd_state_clone)));
+        let tools = Arc::new(CwdTrackingToolClient::new(fake, Arc::clone(&cwd_state_clone), std::path::PathBuf::from("/test-config")));
 
         // Stesso approccio di spawn_server: config con radici vuote.
         let cfg_path = make_test_cfg_path();
@@ -686,7 +701,7 @@ async fn spawn_server_with_cwd(token: &str, initial_cwd: &str, fake_cwd: &str) -
         let plugin_commands: Arc<Vec<(String, String)>> = Arc::new(vec![]);
 
         // `None` = canale AI Chat non attivo in questo helper.
-        ws::serve(&addr_str_clone, Arc::new(token_str), ai, tools, Arc::clone(&cwd_state_clone), search, plugin_host, plugin_commands, None, tokio_util::sync::CancellationToken::new())
+        ws::serve(&addr_str_clone, Arc::new(token_str), ai, tools, Arc::clone(&cwd_state_clone), search, plugin_host, plugin_commands, None, tokio_util::sync::CancellationToken::new(), test_rt())
             .await
             .ok();
     });
@@ -985,6 +1000,7 @@ async fn spawn_server_with_aichat(
             plugin_commands,
             Some(aichat_tx),
             tokio_util::sync::CancellationToken::new(),
+            test_rt(),
         )
         .await
         .ok();
@@ -1098,6 +1114,7 @@ async fn serve_returns_when_shutdown_token_is_cancelled() {
             plugin_commands,
             None,
             shutdown_clone,
+            test_rt(),
         )
         .await
     });

@@ -133,6 +133,9 @@ struct NmapInfoOutcomeJson {
 /// impossible to unit-test without a real MCP connection.
 pub struct NmapToolClient {
     mcp_nmap_path: std::path::PathBuf,
+    /// Cartella di configurazione (2.0, D6) — passata al figlio come
+    /// `--config-dir` allo spawn (vedi `ensure_connected`, sotto).
+    config_dir: std::path::PathBuf,
     peer: Arc<Mutex<Option<rmcp::Peer<rmcp::RoleClient>>>>,
     /// PID of the currently-connected `mcp-nmap.exe` child process, if any
     /// — captured in `ensure_connected` right after spawning, so
@@ -144,35 +147,19 @@ pub struct NmapToolClient {
 }
 
 impl NmapToolClient {
-    /// Resolve the `mcp-nmap` binary path — env-var-first (`LARE_MCP_NMAP`),
-    /// then sibling of the current executable, mirroring
-    /// `McpToolClient::resolve`'s exact convention.
-    pub fn resolve() -> anyhow::Result<Self> {
-        if let Ok(path) = std::env::var("LARE_MCP_NMAP") {
-            return Ok(Self {
-                mcp_nmap_path: std::path::PathBuf::from(path),
-                peer: Arc::new(Mutex::new(None)),
-                child_pid: Arc::new(Mutex::new(None)),
-                killer: Arc::new(RealProcessTreeKiller),
-            });
-        }
-
-        let exe = std::env::current_exe()?;
-        let parent = exe
-            .parent()
-            .ok_or_else(|| anyhow::anyhow!("current_exe has no parent directory"))?;
-
-        #[cfg(windows)]
-        let sibling = parent.join("mcp-nmap.exe");
-        #[cfg(not(windows))]
-        let sibling = parent.join("mcp-nmap");
-
-        Ok(Self {
-            mcp_nmap_path: sibling,
+    /// Percorso di `mcp-nmap.exe` da `startup.json` (`paths.mcp_nmap`,
+    /// default: sibling nella radice del deploy). Nessuna env var (D6, 2.0
+    /// — la v1 leggeva `LARE_MCP_NMAP` qui, mirror esatto di
+    /// `McpToolClient::resolve`).
+    pub fn resolve(config_dir: &std::path::Path, cfg: &startup_config::StartupConfig) -> Self {
+        let mcp_nmap_path = startup_config::StartupConfig::resolve_path(config_dir, &cfg.paths.mcp_nmap);
+        Self {
+            mcp_nmap_path,
+            config_dir: config_dir.to_path_buf(),
             peer: Arc::new(Mutex::new(None)),
             child_pid: Arc::new(Mutex::new(None)),
             killer: Arc::new(RealProcessTreeKiller),
-        })
+        }
     }
 
     /// Lazily spawn `mcp-nmap` and perform the MCP handshake on first call;
@@ -189,6 +176,9 @@ impl NmapToolClient {
 
         let child_cmd = {
             let mut c = tokio::process::Command::new(&self.mcp_nmap_path);
+            // `--config-dir`: nessuna env var (D6) — stessa cartella
+            // dell'orchestrator, passata esplicitamente.
+            c.arg(startup_config::CONFIG_DIR_FLAG).arg(&self.config_dir);
             c.stdin(std::process::Stdio::piped())
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::inherit());
@@ -544,6 +534,18 @@ impl ToolClient for NmapToolClient {
 mod tests {
     use super::*;
 
+    /// RED (Task 4, brief Step 3): `NmapToolClient::resolve` prende
+    /// `config_dir`/`StartupConfig` come parametri espliciti — niente più
+    /// `LARE_MCP_NMAP` (D6). Mirror esatto del test analogo per
+    /// `McpToolClient::resolve` in `tool_client.rs`.
+    #[test]
+    fn mcp_nmap_path_comes_from_startup_paths() {
+        let cfg = startup_config::StartupConfig::default();
+        let c = NmapToolClient::resolve(std::path::Path::new("C:/Lare/Configuration"), &cfg);
+        assert_eq!(c.mcp_nmap_path, std::path::Path::new("C:/Lare").join("mcp-nmap.exe"));
+        assert_eq!(c.config_dir, std::path::PathBuf::from("C:/Lare/Configuration"));
+    }
+
     #[derive(Default)]
     struct FakeProcessTreeKiller {
         killed_pids: std::sync::Mutex<Vec<u32>>,
@@ -560,6 +562,7 @@ mod tests {
         let killer = Arc::new(FakeProcessTreeKiller::default());
         let client = NmapToolClient {
             mcp_nmap_path: "unused".into(),
+            config_dir: "unused".into(),
             peer: Arc::new(Mutex::new(None)),
             child_pid: Arc::new(Mutex::new(Some(4242))),
             killer: killer.clone(),
@@ -575,6 +578,7 @@ mod tests {
         let killer = Arc::new(FakeProcessTreeKiller::default());
         let client = NmapToolClient {
             mcp_nmap_path: "unused".into(),
+            config_dir: "unused".into(),
             peer: Arc::new(Mutex::new(None)),
             child_pid: Arc::new(Mutex::new(None)),
             killer: killer.clone(),
@@ -592,6 +596,7 @@ mod tests {
         let killer = Arc::new(FakeProcessTreeKiller::default());
         let client = NmapToolClient {
             mcp_nmap_path: "unused".into(),
+            config_dir: "unused".into(),
             peer: Arc::new(Mutex::new(None)),
             child_pid: Arc::new(Mutex::new(Some(9001))),
             killer: killer.clone(),
@@ -604,6 +609,7 @@ mod tests {
     async fn run_in_session_never_executes_a_real_shell() {
         let client = NmapToolClient {
             mcp_nmap_path: "unused".into(),
+            config_dir: "unused".into(),
             peer: Arc::new(Mutex::new(None)),
             child_pid: Arc::new(Mutex::new(None)),
             killer: Arc::new(FakeProcessTreeKiller::default()),
@@ -617,6 +623,7 @@ mod tests {
     async fn open_target_never_opens_anything() {
         let client = NmapToolClient {
             mcp_nmap_path: "unused".into(),
+            config_dir: "unused".into(),
             peer: Arc::new(Mutex::new(None)),
             child_pid: Arc::new(Mutex::new(None)),
             killer: Arc::new(FakeProcessTreeKiller::default()),
@@ -630,6 +637,7 @@ mod tests {
     fn tool_defs_exposes_exactly_the_seven_nmap_channel_tools() {
         let client = NmapToolClient {
             mcp_nmap_path: "unused".into(),
+            config_dir: "unused".into(),
             peer: Arc::new(Mutex::new(None)),
             child_pid: Arc::new(Mutex::new(None)),
             killer: Arc::new(FakeProcessTreeKiller::default()),

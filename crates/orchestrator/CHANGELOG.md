@@ -5,6 +5,56 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), versioning: [S
 
 ---
 
+## 2.0.1 — 2026-09-05 — `--config-dir`, `RuntimeConfig`, figli con argomento, log su file, nessuna env var
+
+Il crate `startup-config` è stato riscritto (Task 2 del piano "fondamenta") con l'API 2.0:
+niente più `load_from_dir`/`resolve`/`default_local_dir`/`Paths::local_dir`. L'orchestrator non
+compilava più contro la nuova API (13 letture di `env::var("LARE_*")` + 3 `LOCALAPPDATA` sparse
+nel crate). Migrazione completa a `--config-dir` (decisione D6 dello spec 2.0):
+
+- **`RuntimeConfig`** (nuovo modulo `runtime_config.rs`): "context object" immutabile
+  (`config_dir` + `StartupConfig`), risolto UNA volta in `main()` — `config_dir` è SEMPRE
+  assoluto (risolto prima del `set_current_dir(home)` che segue, altrimenti un `--config-dir`
+  relativo risolverebbe diversamente a seconda di quando viene riletto). Metodi derivati
+  (`plugins_dir()`, `mcp_server_exe()`, `mcp_nmap_exe()`, `pytools_dir()`, `log_dir()`,
+  `network_json_path()`) incapsulano `StartupConfig::resolve_path` invece di ripetere la stessa
+  catena di join in ogni punto di chiamata.
+- **Token WS** (`token_store.rs`): riscritto senza `LARE_TOKEN` — vive SOLO in `<config_dir>/token`.
+- **`llms_config::resolve_path`**/**`telegram::settings::resolve_path`**: da 3 parametri
+  (env/file/default) a un solo `config_dir: &Path` — sempre `<config_dir>/llms.json` e
+  `<config_dir>/telegramsettings.json`, nessuna precedenza env/`startup.json` residua.
+  `llms_config::build_adapter` guadagna un parametro `config_dir` (passato a `LlmAdapter`, che
+  ora lo tiene come campo per `memory_file_path`/`needs_ai_name_prompt_at`).
+- **Figli con `--config-dir`**: `McpToolClient::resolve(config_dir, cfg) -> Self` (non più
+  fallibile: legge solo `startup.json.paths.mcp_server`, mai `LARE_MCP_SERVER`/`current_exe()`),
+  `NmapToolClient::resolve(config_dir, cfg)`, `PythonMcpToolClient::resolve(config_dir, cfg,
+  domain_id, script_relpath, tool_specs, call_timeout_secs)` — ciascuno passa `--config-dir
+  <dir>` allo spawn del figlio (6 punti di spawn duplicati in `tool_client.rs`, uno per
+  `nmap_tool_client.rs`/`python_mcp_tool_client.rs`). Rimosso il caso speciale
+  `LARE_PLUGINS_DIR` (v1: nessun trim/empty-check, un'incoerenza deliberata mai più necessaria
+  con un solo risolutore, `rt.plugins_dir()`).
+- **`EXTERNAL_TOOL_CHANNELS`**: le factory dei canali (nmap/python-ping/financial-markets)
+  cambiano firma da `fn() -> anyhow::Result<Arc<dyn ToolClient>>` a `fn(&RuntimeConfig,
+  &Arc<dyn ToolClient>) -> anyhow::Result<Arc<dyn ToolClient>>` — `resolve_channel_tools` (e
+  `ws::serve`/`handle_connection`, che ora ricevono `rt: Arc<RuntimeConfig>`) inoltrano il
+  contesto invece di lasciare che ogni canale lo ri-derivi da solo.
+- **`memory_file_path`**: UNA sola copia (`ai_adapter.rs`, ora `pub fn memory_file_path(config_dir:
+  &Path, label_base: &str)`), riusata da `aichat/service.rs::append_memory_note` — eliminata la
+  duplicazione deliberata della v1 (due resolver indipendenti che avrebbero potuto divergere).
+  `agent::dispatch_tool` (wrapper a 3 parametri che ri-derivava `network.json` da solo) è stato
+  eliminato: `agent::dispatch_tool_at` riceve sempre il path esplicitamente dal chiamante
+  (`McpToolClient`/`CwdTrackingToolClient`, che tengono `config_dir` come campo).
+- **Log su file**: sempre `<log.dir>/orchestrator.log` (default `Configuration/logs`, rotazione
+  giornaliera via `tracing-appender`), più stderr solo con `--console-log` — un orchestrator in
+  autostart non sporca (né si blocca su) un terminale che non ha.
+- **Nessuna eccezione**: `ANTHROPIC_API_KEY`/`OPENROUTER_API_KEY` restano variabili d'ambiente
+  (chiavi dei provider AI, fuori scope D6, come gli `api_keys` di `llms.json`).
+
+Gate di verifica: `grep -rn 'env::var("LARE_' src` e `grep -rn "local_dir" src` vuoti (solo
+commenti storici per il secondo, dove citano la v1). `LOCALAPPDATA`/`APPDATA` restano SOLO in
+`search/paths_config.rs::detect_cloud_impl` (rilevamento della cartella di sync Dropbox
+dell'utente — funzionalità di ricerca file, indipendente dalla configurazione 2.0, fuori scope D6).
+
 ## 2.0.0 — 2026-09-05 — fork da v1 0.41.21
 
 Copia del crate dalla v1 (`mauriziolobello/lare-terminal`) nel repo 2.0. Nessuna modifica

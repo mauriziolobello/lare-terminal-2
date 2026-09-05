@@ -84,6 +84,11 @@ pub async fn serve(
     // torna `Ok(())`. Le connessioni già in corso non vengono chiuse esplicitamente
     // qui: terminano quando il processo esce (i socket TCP si chiudono con l'exit).
     shutdown: CancellationToken,
+    // `RuntimeConfig` (2.0, Task 4, D6): risolto una volta in `main()`,
+    // condiviso da ogni connessione per `resolve_channel_tools`
+    // (canali nmap/python) e per il test manuale "fonte dati mercato" — mai
+    // ri-derivato qui.
+    rt: Arc<crate::runtime_config::RuntimeConfig>,
 ) -> Result<()> {
     let listener = TcpListener::bind(addr).await?;
     info!("Lare Terminal orchestrator listening on ws://{addr}");
@@ -103,9 +108,10 @@ pub async fn serve(
                         let plugin_commands = Arc::clone(&plugin_commands);
                         // UnboundedSender è Clone, quindi Option<UnboundedSender<_>> lo è anch'esso.
                         let aichat = aichat.clone();
+                        let rt = Arc::clone(&rt);
                         tokio::spawn(async move {
                             if let Err(e) =
-                                handle_connection(stream, token, ai, tools, cwd_state, search, plugin_host, plugin_commands, aichat).await
+                                handle_connection(stream, token, ai, tools, cwd_state, search, plugin_host, plugin_commands, aichat, rt).await
                             {
                                 error!("connection error from {peer_addr}: {e}");
                             }
@@ -152,6 +158,8 @@ async fn handle_connection(
     plugin_commands: Arc<Vec<(String, String)>>,
     // Handle opzionale al servizio AI Chat (see `serve` above for documentation).
     aichat: Option<tokio::sync::mpsc::UnboundedSender<ServiceEvent>>,
+    // `RuntimeConfig` (see `serve` above for documentation).
+    rt: Arc<crate::runtime_config::RuntimeConfig>,
 ) -> Result<()> {
     let ws_stream = accept_async(stream).await?;
     let (mut sink, mut source) = ws_stream.split();
@@ -200,6 +208,7 @@ async fn handle_connection(
         requested_channel.as_deref(),
         crate::external_channel::EXTERNAL_TOOL_CHANNELS,
         &tools,
+        &rt,
     ) {
         Ok(triple) => triple,
         Err(message) => {
@@ -336,8 +345,9 @@ async fn handle_connection(
             // sono spawnati invece di eseguiti inline.
             ClientMsg::TestMarketDataSource { id } => {
                 let out = out_tx.clone();
+                let rt = Arc::clone(&rt);
                 tokio::spawn(async move {
-                    let (ok, message) = test_market_data_source_now().await;
+                    let (ok, message) = test_market_data_source_now(&rt).await;
                     let _ = out.send(ServerMsg::MarketDataSourceTestResult { id, ok, message });
                 });
             }
@@ -834,8 +844,14 @@ fn connection_owns_plugin_sink(channel: Option<&str>) -> bool {
 /// non ha oggi una casa più naturale senza aggiungere un terzo file. Se in
 /// futuro questo test cresce (più fonti dati, retry, cache), estrarlo in un
 /// modulo dedicato (es. `market_data_check.rs`) sarebbe la scelta corretta.
-pub async fn test_market_data_source_now() -> (bool, String) {
+///
+/// `rt` (2.0, Task 4, D6): `RuntimeConfig` risolto una volta in `main()` —
+/// passato esplicitamente a `PythonMcpToolClient::resolve`, mai ri-derivato
+/// qui (niente più `LARE_PYTOOLS_DIR`).
+pub async fn test_market_data_source_now(rt: &crate::runtime_config::RuntimeConfig) -> (bool, String) {
     match crate::python_mcp_tool_client::PythonMcpToolClient::resolve(
+        &rt.config_dir,
+        &rt.startup,
         "financial-markets",
         "server.py",
         vec![crate::python_mcp_tool_client::PythonToolSpec {
@@ -849,7 +865,6 @@ pub async fn test_market_data_source_now() -> (bool, String) {
             defer_report_to_turn_end: false,
         }],
         30,
-        "LARE_PYTOOLS_DIR",
     ) {
         Ok(client) => {
             let outcome = client

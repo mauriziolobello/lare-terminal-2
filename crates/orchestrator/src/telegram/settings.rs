@@ -28,26 +28,13 @@ struct TelegramSettingsFile {
     token: String,
 }
 
-/// Risolve il path di `telegramsettings.json`. Precedenza a 3 livelli via
-/// `startup_config::resolve`: `LARE_TELEGRAM_SETTINGS` (env, se impostata
-/// e non vuota dopo trim) > campo `telegram_settings` di `startup.json`
-/// (se presente) > `<exe_dir>/telegramsettings.json`.
-///
-/// `exe_dir` (cartella dell'eseguibile, via `startup_config::exe_dir()`)
-/// sostituisce la precedente `launch_dir` (`std::env::current_dir()`,
-/// catturata prima di qualunque `cd`): un servizio Windows lanciato da SCM
-/// ha spesso una cwd di default (`C:\Windows\System32\`) diversa dalla
-/// cartella di installazione — bug latente reale, mai osservato finora
-/// perché si lancia sempre da `.ps1` con la cwd già corretta, ma un
-/// ancoraggio sbagliato per lo scenario servizio (vedi spec §2).
-pub fn resolve_path(
-    env_override: Option<&str>,
-    file_value: Option<&str>,
-    exe_dir: &Path,
-) -> PathBuf {
-    startup_config::resolve(env_override, file_value, || {
-        exe_dir.join("telegramsettings.json")
-    })
+/// Risolve il path di `telegramsettings.json`: SEMPRE
+/// `<config_dir>/telegramsettings.json`, nessuna variabile d'ambiente né
+/// campo `startup.json` dedicato (D6, 2.0 — la v1 aveva 3 livelli di
+/// precedenza qui, `LARE_TELEGRAM_SETTINGS` compreso). `config_dir` è la
+/// stessa cartella risolta una volta in `main()`.
+pub fn resolve_path(config_dir: &Path) -> PathBuf {
+    config_dir.join("telegramsettings.json")
 }
 
 /// Carica `telegramsettings.json` dal path indicato.
@@ -69,13 +56,12 @@ pub fn load(path: &Path) -> std::io::Result<Option<TelegramSettings>> {
         }
         Ok(content) => {
             // File letto: deserializza.
-            let parsed: TelegramSettingsFile =
-                serde_json::from_str(&content).map_err(|_| {
-                    std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        "telegramsettings.json: JSON malformato o campo 'token' mancante",
-                    )
-                })?;
+            let parsed: TelegramSettingsFile = serde_json::from_str(&content).map_err(|_| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "telegramsettings.json: JSON malformato o campo 'token' mancante",
+                )
+            })?;
 
             if parsed.token.is_empty() {
                 return Err(std::io::Error::new(
@@ -99,41 +85,18 @@ pub fn load(path: &Path) -> std::io::Result<Option<TelegramSettings>> {
 mod tests {
     use super::*;
     use std::io::Write;
-    use std::path::PathBuf;
     use tempfile::NamedTempFile;
 
     // ── resolve_path ──────────────────────────────────────────────────────────
 
-    /// Nessun override → il file è cercato nella cartella dell'eseguibile.
+    /// Sempre `<config_dir>/telegramsettings.json`, nessun override.
     #[test]
-    fn resolve_uses_exe_dir_by_default() {
-        let p = resolve_path(None, None, Path::new("/proj"));
-        assert_eq!(p, Path::new("/proj").join("telegramsettings.json"));
-    }
-
-    /// Override env vuoto o solo spazi → fallback (come override assente).
-    #[test]
-    fn resolve_blank_env_override_falls_back() {
-        let p = resolve_path(Some("   "), None, Path::new("/proj"));
-        assert_eq!(p, Path::new("/proj").join("telegramsettings.json"));
-    }
-
-    /// Override env non vuoto → vince, usato così com'è.
-    #[test]
-    fn resolve_env_override_wins() {
-        let p = resolve_path(Some("D:/custom/tg.json"), None, Path::new("/proj"));
-        assert_eq!(p, PathBuf::from("D:/custom/tg.json"));
-    }
-
-    /// Campo di startup.json → vince quando l'env non è impostata.
-    #[test]
-    fn resolve_file_value_wins_when_env_absent() {
-        let p = resolve_path(
-            None,
-            Some("D:/from-startup-json/tg.json"),
-            Path::new("/proj"),
+    fn resolve_path_is_config_dir_join_telegramsettings_json() {
+        let p = resolve_path(Path::new("/proj/Configuration"));
+        assert_eq!(
+            p,
+            Path::new("/proj/Configuration").join("telegramsettings.json")
         );
-        assert_eq!(p, PathBuf::from("D:/from-startup-json/tg.json"));
     }
 
     /// File valido con token → Ok(Some(token))
@@ -152,8 +115,13 @@ mod tests {
         for key in ["Token", "TOKEN"] {
             let mut f = NamedTempFile::new().unwrap();
             write!(f, r#"{{"{key}":"bot123:abc"}}"#).unwrap();
-            let settings = load(f.path()).unwrap().expect("atteso Some per chiave {key}");
-            assert_eq!(settings.token, "bot123:abc", "chiave {key} deve essere accettata");
+            let settings = load(f.path())
+                .unwrap()
+                .expect("atteso Some per chiave {key}");
+            assert_eq!(
+                settings.token, "bot123:abc",
+                "chiave {key} deve essere accettata"
+            );
         }
     }
 

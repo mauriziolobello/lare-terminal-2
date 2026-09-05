@@ -468,7 +468,10 @@ mod tests {
     #[test]
     fn external_channel_command_matches_registered_trigger() {
         use crate::external_channel::ExternalToolChannel;
-        fn fake_factory() -> anyhow::Result<std::sync::Arc<dyn crate::tool_client::ToolClient>> {
+        fn fake_factory(
+            _rt: &crate::runtime_config::RuntimeConfig,
+            _default: &std::sync::Arc<dyn crate::tool_client::ToolClient>,
+        ) -> anyhow::Result<std::sync::Arc<dyn crate::tool_client::ToolClient>> {
             unreachable!("mai chiamata in questo test")
         }
         let registry = vec![ExternalToolChannel {

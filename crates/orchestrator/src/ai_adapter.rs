@@ -353,36 +353,18 @@ fn memory_block(memory_content: Option<&str>) -> String {
     }
 }
 
-/// Risolve il path di `memory-{label_base}.md` — stesso `%LOCALAPPDATA%\dev.lare.terminal\`
-/// di `llms.json`/`aichat.json` (Slice 5). `label_base` è SENZA il suffisso `-ai` (es.
-/// "rumpleteazer", non "rumpleteazer-ai").
-fn memory_file_path(label_base: &str) -> PathBuf {
-    memory_file_path_with_base(
-        label_base,
-        std::env::var("LARE_LOCAL_DIR").ok(),
-        std::env::var("LOCALAPPDATA").ok(),
-    )
-}
-
-/// Versione testabile di `memory_file_path`, parametrizzata su
-/// `local_dir_override`/`local_appdata` invece di leggere `std::env::var` al proprio
-/// interno — stesso principio di `llms_config::default_path` (Slice 5).
-/// `local_dir_override` (`LARE_LOCAL_DIR`) sostituisce interamente `dev.lare.terminal`,
-/// se impostata (non vuota dopo trim); altrimenti si scende a `LOCALAPPDATA`/
-/// `.lare-data` come oggi.
-fn memory_file_path_with_base(
-    label_base: &str,
-    local_dir_override: Option<String>,
-    local_appdata: Option<String>,
-) -> PathBuf {
-    let base = match local_dir_override {
-        Some(dir) if !dir.trim().is_empty() => PathBuf::from(dir),
-        _ => match local_appdata {
-            Some(local) if !local.is_empty() => PathBuf::from(local).join("dev.lare.terminal"),
-            _ => PathBuf::from(".lare-data"),
-        },
-    };
-    base.join(format!("memory-{label_base}.md"))
+/// Risolve il path di `memory-{label_base}.md`: SEMPRE
+/// `<config_dir>/memory-{label_base}.md`, nessuna variabile d'ambiente (D6,
+/// 2.0 — la v1 risolveva `LARE_LOCAL_DIR`/`LOCALAPPDATA` qui). `label_base` è
+/// SENZA il suffisso `-ai` (es. "rumpleteazer", non "rumpleteazer-ai").
+///
+/// UNICA copia nel crate: `aichat/service.rs` (scrittura, tool `MEMORIA:`)
+/// riusa questa stessa funzione invece di una propria copia quasi identica
+/// (prima di questo fix c'erano due resolver indipendenti che avrebbero
+/// potuto divergere in silenzio — stesso principio già corretto per
+/// `resolve_network_json_path`, vedi `dispatch_tool_at` in `agent.rs`).
+pub fn memory_file_path(config_dir: &std::path::Path, label_base: &str) -> PathBuf {
+    config_dir.join(format!("memory-{label_base}.md"))
 }
 
 /// True se AI Chat è attivo ma l'AI non ha ancora un nome proprio
@@ -392,19 +374,12 @@ fn memory_file_path_with_base(
 /// `set_ai_display_name` lo scrive, questa funzione ricomincia a
 /// restituire `false` dal turno successivo — lettura fresca ad ogni turno,
 /// nessuno stato in memoria da tenere sincronizzato col file.
-fn needs_ai_name_prompt() -> bool {
-    // `resolve_network_json_path()` (in `crate::aichat::config`, condivisa
-    // con `agent::dispatch_tool`) rimpiazza il resolver locale che questo
-    // file aveva prima del fix review finale (Important #4) — quel resolver
-    // non leggeva `startup.json`, quindi su una macchina con
-    // `startup.json{local_dir:...}` impostato senza la env var
-    // corrispondente, questa funzione e il tool `set_ai_display_name`
-    // avrebbero risolto due path DIVERSI in silenzio.
-    needs_ai_name_prompt_at(&crate::aichat::config::resolve_network_json_path())
-}
-
+///
 /// Versione testabile, parametrizzata sul path invece di risolverlo
-/// internamente — stesso principio di `memory_file_path_with_base`.
+/// internamente — stesso principio di `memory_file_path` sopra: il
+/// chiamante reale (`respond`, sotto) passa `self.config_dir.join(
+/// "network.json")`, MAI ri-derivato qui (D6 — vedi il doc-comment di
+/// `agent::dispatch_tool_at` per il perché).
 fn needs_ai_name_prompt_at(path: &std::path::Path) -> bool {
     let Ok(bytes) = std::fs::read(path) else { return false };
     let Ok(cfg) = serde_json::from_slice::<crate::aichat::config::AiChatConfig>(&bytes) else {
@@ -414,7 +389,7 @@ fn needs_ai_name_prompt_at(path: &std::path::Path) -> bool {
 }
 
 /// Addendum one-shot al system prompt del cursore quando AI Chat è attivo ma
-/// l'AI non ha ancora un nome (vedi `needs_ai_name_prompt`). Istruisce l'AI a
+/// l'AI non ha ancora un nome (vedi `needs_ai_name_prompt_at`). Istruisce l'AI a
 /// chiedere all'utente PRIMA di rispondere alla sua richiesta corrente, e a
 /// persistere la scelta col tool `set_ai_display_name` (Task 7) — dopo, questo
 /// addendum smette di comparire (la funzione che lo attiva ricontrolla il file
@@ -435,9 +410,9 @@ const AI_NAME_REQUEST_ADDENDUM: &str = " PRIMA di rispondere alla richiesta sott
 /// trovato dalla review del Task 7 su `display_invocation` — un punto che
 /// assume un contesto "cursore" senza verificarlo per gli altri canali).
 /// Funzione pura (nessun I/O) apposta: `needs_prompt` è già calcolato dal
-/// chiamante (`needs_ai_name_prompt()` in produzione) così questa guardia si
-/// testa senza toccare env/filesystem reali — stesso principio DI di
-/// `needs_ai_name_prompt_at` sopra.
+/// chiamante (`needs_ai_name_prompt_at(&self.config_dir.join("network.json"))`
+/// in `respond`, sotto) così questa guardia si testa senza toccare
+/// env/filesystem reali.
 fn apply_ai_name_addendum(system: String, has_override: bool, needs_prompt: bool) -> String {
     if has_override || !needs_prompt {
         system
@@ -465,11 +440,17 @@ struct PendingReportBuf {
 pub struct LlmAdapter {
     backend: Arc<dyn ChatBackend>,
     provider_name: String,
+    /// Cartella di configurazione (2.0, D6) — risolta una volta in `main()`
+    /// (`RuntimeConfig::config_dir`) e portata qui a costruzione: serve a
+    /// `memory_file_path`/`needs_ai_name_prompt_at` (`chat_reply`/
+    /// `chat_autoparticipate`/`respond`, sotto), MAI ri-derivata da questo
+    /// adapter con una propria lettura di env/`startup.json`.
+    config_dir: PathBuf,
 }
 
 impl LlmAdapter {
-    pub fn new(backend: Arc<dyn ChatBackend>, provider_name: String) -> Self {
-        Self { backend, provider_name }
+    pub fn new(backend: Arc<dyn ChatBackend>, provider_name: String, config_dir: PathBuf) -> Self {
+        Self { backend, provider_name, config_dir }
     }
 }
 
@@ -625,7 +606,7 @@ impl AiAdapter for LlmAdapter {
                 return;
             }
 
-            // `needs_ai_name_prompt()` legge `network.json` fresco, una volta per
+            // `needs_ai_name_prompt_at` legge `network.json` fresco, una volta per
             // iterazione — stesso principio già in uso poco sopra per
             // `self.backend.supports_web_search()`: un controllo economico fatto
             // proprio qui, prima di costruire il prompt, invece di infilare un
@@ -636,10 +617,12 @@ impl AiAdapter for LlmAdapter {
             // mcp-nmap, `opts.system_prompt_override.is_some()`) non ha il tool
             // `set_ai_display_name` nel proprio `tool_defs()` — l'addendum comparirebbe
             // solo sul cursore/Telegram, dove quel tool è sempre disponibile.
+            // `self.config_dir` (2.0, D6): niente ri-derivazione qui, stesso
+            // `config_dir` risolto una volta in `main()` via `RuntimeConfig`.
             let system = apply_ai_name_addendum(
                 agent::system_prompt(opts),
                 opts.system_prompt_override.is_some(),
-                needs_ai_name_prompt(),
+                needs_ai_name_prompt_at(&self.config_dir.join("network.json")),
             );
             let turn_tools = agent::tools_for(opts, tools.tool_defs());
             let snapshot_history = history.to_vec();
@@ -948,7 +931,7 @@ impl AiAdapter for LlmAdapter {
         let mut turns = history.to_vec();
         turns.push(Message::user_text(request));
         let label_base = my_ai_label.strip_suffix("-ai").unwrap_or(my_ai_label);
-        let memory_content = std::fs::read_to_string(memory_file_path(label_base)).ok();
+        let memory_content = std::fs::read_to_string(memory_file_path(&self.config_dir, label_base)).ok();
         let system = chat_system_prompt(my_ai_label, &self.provider_name, memory_content.as_deref());
         let mut noop = |_: &str| {};
         let mut noop_heartbeat = || {};
@@ -974,7 +957,7 @@ impl AiAdapter for LlmAdapter {
         // tutto il contesto — l'AI deve giudicare da sola cosa aggiungere (o se tacere),
         // guidata dal system prompt dedicato.
         let label_base = my_ai_label.strip_suffix("-ai").unwrap_or(my_ai_label);
-        let memory_content = std::fs::read_to_string(memory_file_path(label_base)).ok();
+        let memory_content = std::fs::read_to_string(memory_file_path(&self.config_dir, label_base)).ok();
         let system = autoparticipate_system_prompt(my_ai_label, &self.provider_name, memory_content.as_deref());
         let mut noop = |_: &str| {};
         let mut noop_heartbeat = || {};
@@ -1050,7 +1033,7 @@ mod tests {
     #[tokio::test]
     async fn claude_text_only_end_turn_returns_text() {
         let fake = Arc::new(FakeChatBackend::ok(text_turn("Ciao!")));
-        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string());
+        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string(), std::path::PathBuf::from("/test-config"));
         let mut hist = ConversationHistory::new();
         let tools = FakeToolClient::success("");
         let msgs =
@@ -1071,7 +1054,7 @@ mod tests {
     #[tokio::test]
     async fn heartbeat_from_backend_emits_server_msg_heartbeat() {
         let fake = Arc::new(FakeChatBackend::ok(text_turn("Ciao!")).with_heartbeat());
-        let adapter = LlmAdapter::new(fake, "claude-sonnet-4-6".to_string());
+        let adapter = LlmAdapter::new(fake, "claude-sonnet-4-6".to_string(), std::path::PathBuf::from("/test-config"));
         let mut hist = ConversationHistory::new();
         let tools = FakeToolClient::success("");
         let msgs =
@@ -1094,7 +1077,7 @@ mod tests {
             )),
             Ok(text_turn("Ci sono 3 file.")),
         ]));
-        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string());
+        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string(), std::path::PathBuf::from("/test-config"));
         let mut hist = ConversationHistory::new();
         let tools = FakeToolClient::success("file.txt\n");
 
@@ -1132,7 +1115,7 @@ mod tests {
             Ok(text_turn("Prima risposta")),
             Ok(text_turn("Seconda risposta")),
         ]));
-        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string());
+        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string(), std::path::PathBuf::from("/test-config"));
         let mut hist = ConversationHistory::new();
         let tools = FakeToolClient::success("");
 
@@ -1150,7 +1133,7 @@ mod tests {
         let fake = Arc::new(FakeChatBackend::repeating(Ok(tool_use_turn(
             "tu_x", "run_in_session", serde_json::json!({"command":"loop"}),
         ))));
-        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string());
+        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string(), std::path::PathBuf::from("/test-config"));
         let mut hist = ConversationHistory::new();
         let tools = FakeToolClient::success("out");
 
@@ -1170,7 +1153,7 @@ mod tests {
             status: 401,
             body: "x".to_string(),
         }));
-        let adapter = LlmAdapter::new(fake, "claude-sonnet-4-6".to_string());
+        let adapter = LlmAdapter::new(fake, "claude-sonnet-4-6".to_string(), std::path::PathBuf::from("/test-config"));
         let mut hist = ConversationHistory::new();
         let tools = FakeToolClient::success("");
         let msgs = collect(|tx| adapter.respond(
@@ -1187,7 +1170,7 @@ mod tests {
             blocks: Vec::new(),
             stop: TurnStop::Refused { category: Some("cyber".to_string()) },
         }));
-        let adapter = LlmAdapter::new(fake, "claude-sonnet-4-6".to_string());
+        let adapter = LlmAdapter::new(fake, "claude-sonnet-4-6".to_string(), std::path::PathBuf::from("/test-config"));
         let mut hist = ConversationHistory::new();
         let tools = FakeToolClient::success("");
         let msgs = collect(|tx| adapter.respond(
@@ -1203,7 +1186,7 @@ mod tests {
     async fn provider_reports_model() {
         let fake = Arc::new(FakeChatBackend::ok(text_turn("ok")));
         let adapter: Box<dyn AiAdapter> =
-            Box::new(LlmAdapter::new(fake, "claude-sonnet-4-6".to_string()));
+            Box::new(LlmAdapter::new(fake, "claude-sonnet-4-6".to_string(), std::path::PathBuf::from("/test-config")));
         assert_eq!(adapter.provider(), "claude-sonnet-4-6");
     }
 
@@ -1216,7 +1199,7 @@ mod tests {
             Err(BackendError::Network("boom".to_string())),
             Ok(text_turn("ok")),
         ]));
-        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string());
+        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string(), std::path::PathBuf::from("/test-config"));
         let mut hist = ConversationHistory::new();
         let tools = FakeToolClient::success("");
 
@@ -1244,7 +1227,7 @@ mod tests {
             )),
             Ok(text_turn("Ecco.")),
         ]));
-        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string());
+        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string(), std::path::PathBuf::from("/test-config"));
         let mut hist = ConversationHistory::new();
         let tools = FakeToolClient::success("");
 
@@ -1282,7 +1265,7 @@ mod tests {
             "run_in_session",
             serde_json::json!({"command":"loop"}),
         ))));
-        let adapter = LlmAdapter::new(fake, "claude-sonnet-4-6".to_string());
+        let adapter = LlmAdapter::new(fake, "claude-sonnet-4-6".to_string(), std::path::PathBuf::from("/test-config"));
         let mut hist = ConversationHistory::new();
         let tools = FakeToolClient::success("out");
         collect(|tx| adapter.respond("c1", "vai", &mut hist, &tools, TurnOptions::default(), None, None, tx)).await;
@@ -1302,7 +1285,7 @@ mod tests {
             )),
             Ok(text_turn("C'era una volta il mare.")),
         ]));
-        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string());
+        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string(), std::path::PathBuf::from("/test-config"));
         let mut hist = ConversationHistory::new();
         let tools = FakeToolClient::success("");
 
@@ -1329,7 +1312,7 @@ mod tests {
     #[tokio::test]
     async fn nowin_mode_excludes_show_markdown_tool() {
         let fake = Arc::new(FakeChatBackend::ok(text_turn("ok")));
-        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string());
+        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string(), std::path::PathBuf::from("/test-config"));
         let mut hist = ConversationHistory::new();
         let tools = FakeToolClient::success("");
         collect(|tx| adapter.respond("c1", "storia lunga", &mut hist, &tools, TurnOptions { allow_windows: false, web_search: false, format_invocation: None, system_prompt_override: None }, None, None, tx)).await;
@@ -1350,7 +1333,7 @@ mod tests {
             Ok(empty),
             Ok(text_turn("seconda")),
         ]));
-        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string());
+        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string(), std::path::PathBuf::from("/test-config"));
         let mut hist = ConversationHistory::new();
         let tools = FakeToolClient::success("");
         let first_msgs = collect(|tx| adapter.respond("c1", "prima", &mut hist, &tools, TurnOptions::default(), None, None, tx)).await;
@@ -1368,7 +1351,7 @@ mod tests {
     #[tokio::test]
     async fn web_search_mode_includes_server_tools() {
         let fake = Arc::new(FakeChatBackend::ok(text_turn("ok")));
-        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string());
+        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string(), std::path::PathBuf::from("/test-config"));
         let mut hist = ConversationHistory::new();
         let tools = FakeToolClient::success("");
         collect(|tx| adapter.respond("c1", "che ore sono a Tokyo", &mut hist, &tools,
@@ -1391,7 +1374,7 @@ mod tests {
         let fake = Arc::new(
             FakeChatBackend::ok(text_turn("ok")).with_web_search_supported(false),
         );
-        let adapter = LlmAdapter::new(fake.clone(), "deepseek/deepseek-chat".to_string());
+        let adapter = LlmAdapter::new(fake.clone(), "deepseek/deepseek-chat".to_string(), std::path::PathBuf::from("/test-config"));
         let mut hist = ConversationHistory::new();
         let tools = FakeToolClient::success("");
         collect(|tx| adapter.respond("c1", "che ore sono a Tokyo", &mut hist, &tools,
@@ -1449,7 +1432,7 @@ mod tests {
             )),
             Ok(text_turn("Ok, annullato.")),
         ]));
-        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string());
+        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string(), std::path::PathBuf::from("/test-config"));
         let mut hist = ConversationHistory::new();
         // FakeToolClient con output distintivo — se fosse eseguito apparirebbe nel tool_result.
         let tools = FakeToolClient::success("OUTPUT_DA_NON_VEDERE");
@@ -1501,7 +1484,7 @@ mod tests {
             )),
             Ok(text_turn("fatto")),
         ]));
-        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string());
+        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string(), std::path::PathBuf::from("/test-config"));
         let mut hist = ConversationHistory::new();
         let tools = FakeToolClient::success("output");
 
@@ -1564,7 +1547,7 @@ mod tests {
                 }
             }
             async fn dispatch(&self, name: &str, input: &serde_json::Value) -> crate::tool_client::DispatchOutcome {
-                crate::agent::dispatch_tool(self as &dyn crate::tool_client::ToolClient, name, input).await
+                crate::agent::dispatch_tool_at(self as &dyn crate::tool_client::ToolClient, name, input, std::path::Path::new("network.json")).await
             }
         }
 
@@ -1576,7 +1559,7 @@ mod tests {
             )),
             Ok(text_turn("fatto")),
         ]));
-        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string());
+        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string(), std::path::PathBuf::from("/test-config"));
         let mut hist = ConversationHistory::new();
         let tools = RoutineAwareToolClient;
 
@@ -1642,7 +1625,7 @@ mod tests {
             }),
             Ok(text_turn("fatto")),
         ]));
-        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string());
+        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string(), std::path::PathBuf::from("/test-config"));
         let mut hist = ConversationHistory::new();
         let tools = FakeToolClient::success("output run_routine");
         let confirmer = RoutineAndBatchConfirmer {
@@ -1701,7 +1684,7 @@ mod tests {
             )),
             Ok(text_turn("Ci sono file.")),
         ]));
-        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string());
+        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string(), std::path::PathBuf::from("/test-config"));
         let mut hist = ConversationHistory::new();
         let tools = FakeToolClient::success("file.txt\n");
 
@@ -1731,7 +1714,7 @@ mod tests {
             )),
             Ok(text_turn("Ecco i file.")),
         ]));
-        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string());
+        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string(), std::path::PathBuf::from("/test-config"));
         let mut hist = ConversationHistory::new();
         let tools = FakeToolClient::success("foo.txt\n");
 
@@ -1781,7 +1764,7 @@ mod tests {
             )),
             Ok(text_turn("Ecco i file.")),
         ]));
-        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string());
+        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string(), std::path::PathBuf::from("/test-config"));
         let mut hist = ConversationHistory::new();
         let tools = FakeToolClient::success("foo.txt\n");
         let calls = Arc::new(AtomicUsize::new(0));
@@ -1845,7 +1828,7 @@ mod tests {
             }),
             Ok(text_turn("ok")),
         ]));
-        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string());
+        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string(), std::path::PathBuf::from("/test-config"));
         let mut hist = ConversationHistory::new();
         let tools = FakeToolClient::success("foo.txt\n");
         let confirmer = MixedConfirmer;
@@ -1887,7 +1870,7 @@ mod tests {
             )),
             Ok(text_turn("Ok, non apro.")),
         ]));
-        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string());
+        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string(), std::path::PathBuf::from("/test-config"));
         let mut hist = ConversationHistory::new();
         let tools = FakeToolClient::success("APERTO_DA_NON_VEDERE");
 
@@ -1944,7 +1927,7 @@ mod tests {
     #[tokio::test]
     async fn claude_cancel_before_first_iteration_skips_api_call() {
         let fake = Arc::new(FakeChatBackend::ok(text_turn("mai chiamato")));
-        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string());
+        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string(), std::path::PathBuf::from("/test-config"));
         let mut hist = ConversationHistory::new();
         let tools = FakeToolClient::success("");
 
@@ -1970,7 +1953,7 @@ mod tests {
     #[tokio::test]
     async fn claude_no_cancel_token_behaves_normally() {
         let fake = Arc::new(FakeChatBackend::ok(text_turn("ok normale")));
-        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string());
+        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string(), std::path::PathBuf::from("/test-config"));
         let mut hist = ConversationHistory::new();
         let tools = FakeToolClient::success("");
 
@@ -2016,7 +1999,7 @@ mod tests {
             }),
             Ok(text_turn("ok")),
         ]));
-        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string());
+        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string(), std::path::PathBuf::from("/test-config"));
         let mut hist = ConversationHistory::new();
         let tools = FakeToolClient::success("X");
         let calls = Arc::new(AtomicUsize::new(0));
@@ -2065,7 +2048,7 @@ mod tests {
     #[tokio::test]
     async fn claude_chat_reply_returns_text_only() {
         let fake = Arc::new(FakeChatBackend::ok(text_turn("Ecco un commento.")));
-        let adapter = LlmAdapter::new(fake.clone(), "anthropic".to_string());
+        let adapter = LlmAdapter::new(fake.clone(), "anthropic".to_string(), std::path::PathBuf::from("/test-config"));
 
         let history = vec![
             Message::user_text("skimble-human: ciao"),
@@ -2119,7 +2102,7 @@ mod tests {
     #[tokio::test]
     async fn claude_autoparticipate_silence_maps_to_none() {
         let fake = Arc::new(FakeChatBackend::ok(text_turn("  Silence  ")));
-        let adapter = LlmAdapter::new(fake.clone(), "anthropic".to_string());
+        let adapter = LlmAdapter::new(fake.clone(), "anthropic".to_string(), std::path::PathBuf::from("/test-config"));
 
         let history = vec![Message::user_text("skimble-human: che ore sono?")];
         let reply = adapter.chat_autoparticipate("rumpleteazer-ai", &history, None).await;
@@ -2145,7 +2128,7 @@ mod tests {
     #[tokio::test]
     async fn claude_autoparticipate_silence_with_trailing_punctuation_maps_to_none() {
         let fake = Arc::new(FakeChatBackend::ok(text_turn("SILENCE.")));
-        let adapter = LlmAdapter::new(fake.clone(), "anthropic".to_string());
+        let adapter = LlmAdapter::new(fake.clone(), "anthropic".to_string(), std::path::PathBuf::from("/test-config"));
 
         let history = vec![Message::user_text("skimble-human: che ore sono?")];
         let reply = adapter.chat_autoparticipate("rumpleteazer-ai", &history, None).await;
@@ -2159,7 +2142,7 @@ mod tests {
     async fn claude_autoparticipate_silence_with_other_trailing_punctuation_maps_to_none() {
         for text in ["Silence!", "silence?", "SILENCE.."] {
             let fake = Arc::new(FakeChatBackend::ok(text_turn(text)));
-            let adapter = LlmAdapter::new(fake.clone(), "anthropic".to_string());
+            let adapter = LlmAdapter::new(fake.clone(), "anthropic".to_string(), std::path::PathBuf::from("/test-config"));
             let history = vec![Message::user_text("skimble-human: ciao")];
             let reply = adapter.chat_autoparticipate("rumpleteazer-ai", &history, None).await;
             assert_eq!(reply, None, "\"{text}\" deve mappare a None: {reply:?}");
@@ -2172,7 +2155,7 @@ mod tests {
     #[tokio::test]
     async fn claude_autoparticipate_word_containing_silence_is_not_suppressed() {
         let fake = Arc::new(FakeChatBackend::ok(text_turn("Il silenzioso non è la stessa cosa.")));
-        let adapter = LlmAdapter::new(fake.clone(), "anthropic".to_string());
+        let adapter = LlmAdapter::new(fake.clone(), "anthropic".to_string(), std::path::PathBuf::from("/test-config"));
         let history = vec![Message::user_text("skimble-human: ciao")];
         let reply = adapter.chat_autoparticipate("rumpleteazer-ai", &history, None).await;
         assert_eq!(
@@ -2192,7 +2175,7 @@ mod tests {
         let fake = Arc::new(FakeChatBackend::ok(text_turn(
             "Occhio: quel comando cancella la cartella senza conferma.",
         )));
-        let adapter = LlmAdapter::new(fake.clone(), "anthropic".to_string());
+        let adapter = LlmAdapter::new(fake.clone(), "anthropic".to_string(), std::path::PathBuf::from("/test-config"));
 
         // Riproduce lo scenario reale: la history contiene un'altra AI che si è
         // auto-identificata (correttamente, dal SUO punto di vista) come DeepSeek.
@@ -2226,37 +2209,9 @@ mod tests {
     }
 
     #[test]
-    fn memory_file_path_uses_local_appdata_when_set() {
-        let p = memory_file_path_with_base(
-            "rumpleteazer",
-            None,
-            Some("C:/Users/test/AppData/Local".to_string()),
-        );
-        assert_eq!(
-            p,
-            PathBuf::from("C:/Users/test/AppData/Local")
-                .join("dev.lare.terminal")
-                .join("memory-rumpleteazer.md")
-        );
-    }
-
-    #[test]
-    fn memory_file_path_falls_back_to_lare_data_when_local_appdata_absent() {
-        let p = memory_file_path_with_base("rumpleteazer", None, None);
-        assert_eq!(p, PathBuf::from(".lare-data").join("memory-rumpleteazer.md"));
-    }
-
-    #[test]
-    fn memory_file_path_local_dir_override_wins_over_local_appdata() {
-        let p = memory_file_path_with_base(
-            "rumpleteazer",
-            Some("C:/Lare Terminal/local-data".to_string()),
-            Some("C:/Users/test/AppData/Local".to_string()),
-        );
-        assert_eq!(
-            p,
-            PathBuf::from("C:/Lare Terminal/local-data").join("memory-rumpleteazer.md")
-        );
+    fn memory_file_path_is_config_dir_join_memory_label_md() {
+        let p = memory_file_path(std::path::Path::new("C:/Lare/Configuration"), "rumpleteazer");
+        assert_eq!(p, PathBuf::from("C:/Lare/Configuration").join("memory-rumpleteazer.md"));
     }
 
     #[test]
@@ -2371,7 +2326,7 @@ mod tests {
             Ok(tool_use_turn("tu1", "fixture_tool_a", serde_json::json!({}))),
             Ok(text_turn("fatto")),
         ]));
-        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string());
+        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string(), std::path::PathBuf::from("/test-config"));
         let mut hist = ConversationHistory::new();
         let tools = FixtureChannelToolClient;
 
@@ -2423,7 +2378,7 @@ mod tests {
             Ok(tool_use_turn("tu1", "run_in_session", serde_json::json!({"command": "dir"}))),
             Ok(text_turn("fatto")),
         ]));
-        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string());
+        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string(), std::path::PathBuf::from("/test-config"));
         let mut hist = ConversationHistory::new();
         let tools = FixtureChannelToolClient;
 
@@ -2500,7 +2455,7 @@ mod tests {
             Ok(tool_use_turn("tu1", "produces_report", serde_json::json!({}))),
             Ok(text_turn("fatto")),
         ]));
-        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string());
+        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string(), std::path::PathBuf::from("/test-config"));
         let mut hist = ConversationHistory::new();
         let tools = ReportProducingToolClient;
 
@@ -2585,7 +2540,7 @@ mod tests {
             Ok(tool_use_turn("tu1", "stock_report", serde_json::json!({"ticker": "AAPL"}))),
             Ok(text_turn("## Narrativa di trend\n\nTesto di analisi AI.")),
         ]));
-        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string());
+        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string(), std::path::PathBuf::from("/test-config"));
         let mut hist = ConversationHistory::new();
         let tools = DeferredReportToolClient;
 
@@ -2634,7 +2589,7 @@ mod tests {
             Ok(tool_use_turn("tu1", "stock_report", serde_json::json!({"ticker": "AAPL"}))),
             Err(BackendError::Network("boom".to_string())),
         ]));
-        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string());
+        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string(), std::path::PathBuf::from("/test-config"));
         let mut hist = ConversationHistory::new();
         let tools = DeferredReportToolClient;
 
@@ -2705,7 +2660,7 @@ mod tests {
             Ok(tool_use_turn("tu1", "stock_report", serde_json::json!({"ticker": "AAPL"}))),
             Ok(text_turn("mai raggiunto")),
         ]));
-        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string());
+        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string(), std::path::PathBuf::from("/test-config"));
         let mut hist = ConversationHistory::new();
         let token = CancellationToken::new();
         let tools = CancelingDeferredReportToolClient(token.clone());
@@ -2777,7 +2732,7 @@ mod tests {
             Ok(tool_use_turn("tu1", "list_screeners", serde_json::json!({}))),
             Ok(text_turn("Ecco gli screener disponibili.")),
         ]));
-        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string());
+        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string(), std::path::PathBuf::from("/test-config"));
         let mut hist = ConversationHistory::new();
         let tools = ScreenerListingToolClient;
 
@@ -2842,7 +2797,7 @@ mod tests {
             Ok(tool_use_turn("tu1", "list_screeners", serde_json::json!({}))),
             Ok(text_turn("fatto")),
         ]));
-        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string());
+        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string(), std::path::PathBuf::from("/test-config"));
         let mut hist = ConversationHistory::new();
         let tools = MalformedListingToolClient;
 

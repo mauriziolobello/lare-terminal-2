@@ -300,27 +300,18 @@ pub fn display_invocation(name: &str, input: &serde_json::Value) -> String {
 /// mcp-nmap, popola quel campo, direttamente nel proprio `dispatch()`
 /// override, non tramite questa funzione libera).
 ///
-/// Thin wrapper su `dispatch_tool_at`: risolve il path REALE di
-/// `network.json` via `crate::aichat::config::resolve_network_json_path()`
-/// (env `LARE_LOCAL_DIR` > campo `local_dir` di `startup.json` > default
-/// `%LOCALAPPDATA%`, STESSA funzione condivisa con `ai_adapter::
-/// needs_ai_name_prompt` — fix review finale, Important #4: prima di questo
-/// fix ognuno aveva una propria copia che non leggeva `startup.json`, coi
-/// due path potenzialmente diversi in silenzio) e delega. La firma pubblica
-/// resta a 3 parametri — invariata per tutti i chiamanti esistenti
-/// (`tool_client.rs`, `cwd_tracking.rs`).
-pub async fn dispatch_tool(
-    tools: &dyn ToolClient,
-    name: &str,
-    input: &serde_json::Value,
-) -> crate::tool_client::DispatchOutcome {
-    dispatch_tool_at(tools, name, input, &crate::aichat::config::resolve_network_json_path()).await
-}
-
-/// Versione testabile di `dispatch_tool`, parametrizzata sul path di
-/// `network.json` invece di risolverlo internamente (stesso principio di
-/// `memory_file_path`/`memory_file_path_with_base` in `ai_adapter.rs`) —
-/// usata dai test e da `dispatch_tool` sopra.
+/// `network_json_path` è passato ESPLICITAMENTE dal chiamante (2.0, Task 4
+/// — D6): prima esisteva un wrapper `dispatch_tool` a 3 parametri che
+/// ri-derivava il path da solo (`aichat::config::resolve_network_json_path`,
+/// a sua volta basata su env var/`startup.json` letti di nuovo). Quel
+/// ri-derivare è esattamente il pattern vietato dalla configurazione 2.0:
+/// `config_dir` va risolto UNA volta in `main()` (vedi `RuntimeConfig`) e
+/// portato a chi ne ha bisogno, mai ricalcolato altrove — un `--config-dir`
+/// relativo ricalcolato dopo il cambio di cwd in `main()`
+/// (`set_current_dir(home)`) risolverebbe in modo diverso dalla prima volta.
+/// I chiamanti reali (`McpToolClient`/`CwdTrackingToolClient`) tengono
+/// ormai il proprio `config_dir` come campo, ricevuto da `RuntimeConfig` a
+/// costruzione, e passano `self.config_dir.join("network.json")` qui.
 pub async fn dispatch_tool_at(
     tools: &dyn ToolClient,
     name: &str,
@@ -744,7 +735,7 @@ mod tests {
     #[tokio::test]
     async fn dispatch_run_in_session_returns_stdout() {
         let tools = FakeToolClient::success("file.txt\n");
-        let outcome = dispatch_tool(&tools, "run_in_session", &serde_json::json!({"command":"ls"})).await;
+        let outcome = dispatch_tool_at(&tools, "run_in_session", &serde_json::json!({"command":"ls"}), std::path::Path::new("network.json")).await;
         assert!(outcome.output.contains("file.txt"));
         assert!(!outcome.is_error);
     }
@@ -752,7 +743,7 @@ mod tests {
     #[tokio::test]
     async fn dispatch_run_in_session_marks_error_on_nonzero_exit() {
         let tools = FakeToolClient::failure("boom", 1);
-        let outcome = dispatch_tool(&tools, "run_in_session", &serde_json::json!({"command":"x"})).await;
+        let outcome = dispatch_tool_at(&tools, "run_in_session", &serde_json::json!({"command":"x"}), std::path::Path::new("network.json")).await;
         assert!(outcome.output.contains("boom"));
         assert!(outcome.is_error);
     }
@@ -760,7 +751,7 @@ mod tests {
     #[tokio::test]
     async fn dispatch_open_target_maps_result() {
         let tools = FakeToolClient::success("");
-        let outcome = dispatch_tool(&tools, "open_target", &serde_json::json!({"target":"http://x"})).await;
+        let outcome = dispatch_tool_at(&tools, "open_target", &serde_json::json!({"target":"http://x"}), std::path::Path::new("network.json")).await;
         assert!(outcome.output.contains("http://x"));
         assert!(!outcome.is_error);
     }
@@ -768,7 +759,7 @@ mod tests {
     #[tokio::test]
     async fn dispatch_unknown_tool_is_error() {
         let tools = FakeToolClient::success("");
-        let outcome = dispatch_tool(&tools, "nope", &serde_json::json!({})).await;
+        let outcome = dispatch_tool_at(&tools, "nope", &serde_json::json!({}), std::path::Path::new("network.json")).await;
         assert!(outcome.output.contains("sconosciuto"));
         assert!(outcome.is_error);
     }
@@ -777,7 +768,7 @@ mod tests {
     async fn dispatch_get_routine_content_not_found() {
         // FakeToolClient's default get_routine_content is found:false/error:None (Task 4).
         let tools = FakeToolClient::success("");
-        let outcome = dispatch_tool(&tools, "get_routine_content", &serde_json::json!({"name": "x"})).await;
+        let outcome = dispatch_tool_at(&tools, "get_routine_content", &serde_json::json!({"name": "x"}), std::path::Path::new("network.json")).await;
         assert!(!outcome.is_error);
         assert!(outcome.output.contains("non trovata"));
     }
@@ -786,9 +777,10 @@ mod tests {
     async fn dispatch_save_routine_ok_reports_success() {
         // FakeToolClient's default save_routine is ok:true (Task 4).
         let tools = FakeToolClient::success("");
-        let outcome = dispatch_tool(
+        let outcome = dispatch_tool_at(
             &tools, "save_routine",
             &serde_json::json!({"name": "n", "description": "d", "tags": [], "category": "c", "content": "x"}),
+            std::path::Path::new("network.json"),
         ).await;
         assert!(!outcome.is_error);
         assert!(outcome.output.contains("salvata"));

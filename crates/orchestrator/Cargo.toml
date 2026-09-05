@@ -1,6 +1,6 @@
 [package]
 name = "orchestrator"
-version = "2.0.0"
+version = "2.0.1"
 edition = "2021"
 
 # The orchestrator is the Lare Terminal daemon:
@@ -83,6 +83,9 @@ qr2term = "0.3"
 # --- Logging ---
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# Log su file con rotazione giornaliera (Configuration/logs/orchestrator.log) +
+# writer non bloccante — 2.0.1, vedi main.rs.
+tracing-appender = "0.2"
 
 [dev-dependencies]
 # tokio test macro

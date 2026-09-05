@@ -813,6 +813,12 @@ pub struct AiChatService {
     /// Nickname dell'AI di questa macchina (network.json, Task 1) — stesso ruolo di
     /// `display_name` ma per i messaggi con `from_label` che finisce in "-ai".
     ai_display_name: Option<String>,
+    /// Cartella di configurazione (2.0, D6) — risolta una volta in `main()`
+    /// (`RuntimeConfig::config_dir`) e portata qui a costruzione: usata SOLO
+    /// da `Effect::PersistMemory` (memoria persistente `MEMORIA:`, vedi
+    /// `append_memory_note`/`memory_file_path` sotto), mai ri-derivata da
+    /// questo servizio con una propria lettura di env/`startup.json`.
+    config_dir: std::path::PathBuf,
 }
 
 impl AiChatService {
@@ -832,6 +838,10 @@ impl AiChatService {
     /// i doc-comment dei campi omonimi.
     ///
     /// Come `new()` in OOP: alloca e inizializza lo stato; non fa I/O.
+    // 8 parametri (era 7 prima di `config_dir`, Task 4): stesso compromesso
+    // già accettato in `ws::serve`/`handle_connection` — un builder/struct-
+    // literal di config sarebbe un refactor più ampio, fuori scope qui.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         me: PeerInfo,
         ai_adapter: Arc<dyn AiAdapter>,
@@ -840,6 +850,7 @@ impl AiChatService {
         notes: NotesStore,
         display_name: Option<String>,
         ai_display_name: Option<String>,
+        config_dir: std::path::PathBuf,
     ) -> Self {
         let channel = AiChatChannel::new(me.clone());
 
@@ -907,6 +918,7 @@ impl AiChatService {
             notes_write_lock: Arc::new(Mutex::new(())),
             display_name,
             ai_display_name,
+            config_dir,
         }
     }
 
@@ -922,7 +934,7 @@ impl AiChatService {
     /// quel comportamento specifico.
     #[cfg(test)]
     pub fn new_for_test(me: PeerInfo) -> Self {
-        Self::new(me, Arc::new(crate::ai_adapter::StubAdapter), true, false, NotesStore::empty_in_memory(), None, None)
+        Self::new(me, Arc::new(crate::ai_adapter::StubAdapter), true, false, NotesStore::empty_in_memory(), None, None, "unused".into())
     }
 
     /// Come `new_for_test`, ma con `ai_participates` esplicito — usato dai test di AI
@@ -931,7 +943,7 @@ impl AiChatService {
     /// `false` (non è oggetto di questi test).
     #[cfg(test)]
     pub fn new_for_test_with_participation(me: PeerInfo, ai_participates: bool) -> Self {
-        Self::new(me, Arc::new(crate::ai_adapter::StubAdapter), ai_participates, false, NotesStore::empty_in_memory(), None, None)
+        Self::new(me, Arc::new(crate::ai_adapter::StubAdapter), ai_participates, false, NotesStore::empty_in_memory(), None, None, "unused".into())
     }
 
     /// Come `new_for_test`, ma con `ai_autoparticipate` esplicito — usato dai test di
@@ -939,7 +951,7 @@ impl AiChatService {
     /// `ai_participates` resta `true` (non è oggetto di questi test).
     #[cfg(test)]
     pub fn new_for_test_with_autoparticipate(me: PeerInfo, ai_autoparticipate: bool) -> Self {
-        Self::new(me, Arc::new(crate::ai_adapter::StubAdapter), true, ai_autoparticipate, NotesStore::empty_in_memory(), None, None)
+        Self::new(me, Arc::new(crate::ai_adapter::StubAdapter), true, ai_autoparticipate, NotesStore::empty_in_memory(), None, None, "unused".into())
     }
 
     /// Come `new_for_test`, ma con `display_name`/`ai_display_name` espliciti —
@@ -960,6 +972,7 @@ impl AiChatService {
             NotesStore::empty_in_memory(),
             display_name,
             ai_display_name,
+            "unused".into(),
         )
     }
 
@@ -3782,9 +3795,13 @@ impl AiChatService {
             // stesso motivo degli altri effetti I/O di questo blocco: non blocca l'attore.
             Effect::PersistMemory { label_base, note } => {
                 let lock = Arc::clone(&self.memory_write_lock);
+                // `self.config_dir` (2.0, D6): clonato PRIMA dello spawn (il
+                // task `async move` non può prendere in prestito `self`) —
+                // niente ri-derivazione da env/`startup.json` qui.
+                let config_dir = self.config_dir.clone();
                 tokio::spawn(async move {
                     let _guard = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-                    if let Err(e) = append_memory_note(&label_base, &note) {
+                    if let Err(e) = append_memory_note(&config_dir, &label_base, &note) {
                         tracing::warn!(
                             "aichat: impossibile salvare la memoria di {label_base}: {e}"
                         );
@@ -4643,47 +4660,11 @@ fn extract_memoria_marker(text: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-/// Risolve il path di `memory-{label_base}.md` — stesso `%LOCALAPPDATA%\dev.lare.terminal\`
-/// che `ai_adapter::memory_file_path` risolve per la LETTURA (Task 1): duplicazione
-/// deliberata, stesso principio già in uso fra `llms_config::resolve_path` (orchestrator) e
-/// `llm_settings::llms_json_path` (crate `ui`) — due lati indipendenti che concordano sullo
-/// stesso path senza coordinamento a runtime.
-fn memory_file_path(label_base: &str) -> std::path::PathBuf {
-    memory_file_path_with_base(
-        label_base,
-        std::env::var("LARE_LOCAL_DIR").ok(),
-        std::env::var("LOCALAPPDATA").ok(),
-    )
-}
-
-/// Versione testabile di `memory_file_path`, parametrizzata su
-/// `local_dir_override`/`local_appdata` invece di leggere `std::env::var` al proprio
-/// interno — stesso principio di `ai_adapter::memory_file_path_with_base` (Task 1)/
-/// `llms_config::default_path` (Slice 5). `local_dir_override` (`LARE_LOCAL_DIR`)
-/// sostituisce interamente `dev.lare.terminal`, se impostata (non vuota dopo trim);
-/// altrimenti si scende a `LOCALAPPDATA`/`.lare-data` come oggi.
-fn memory_file_path_with_base(
-    label_base: &str,
-    local_dir_override: Option<String>,
-    local_appdata: Option<String>,
-) -> std::path::PathBuf {
-    let base = match local_dir_override {
-        Some(dir) if !dir.trim().is_empty() => std::path::PathBuf::from(dir),
-        _ => match local_appdata {
-            Some(local) if !local.is_empty() => {
-                std::path::PathBuf::from(local).join("dev.lare.terminal")
-            }
-            _ => std::path::PathBuf::from(".lare-data"),
-        },
-    };
-    base.join(format!("memory-{label_base}.md"))
-}
-
 /// Accoda `note` (una nuova riga) al file indicato da `path`, creando cartella+file se
 /// assenti. Letta-modificata-scritta per intero (non un append a livello di filesystem):
 /// file piccolo, operazione rara, semplicità sopra micro-ottimizzazione. Separata da
 /// `append_memory_note` per essere testabile su un path arbitrario (es. una cartella
-/// temporanea) senza toccare il vero `%LOCALAPPDATA%`.
+/// temporanea) senza toccare la vera `config_dir`.
 fn append_note_at(path: &std::path::Path, note: &str) -> std::io::Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
@@ -4697,10 +4678,13 @@ fn append_note_at(path: &std::path::Path, note: &str) -> std::io::Result<()> {
     std::fs::write(path, updated)
 }
 
-/// Accoda `note` a `memory-{label_base}.md` nel vero `%LOCALAPPDATA%`. Il chiamante
+/// Accoda `note` a `memory-{label_base}.md` in `config_dir`. Il chiamante
 /// (`perform`) tiene `memory_write_lock` per la durata di questa chiamata.
-fn append_memory_note(label_base: &str, note: &str) -> std::io::Result<()> {
-    append_note_at(&memory_file_path(label_base), note)
+/// Riusa `ai_adapter::memory_file_path` (2.0, Task 4) — UNA sola copia nel
+/// crate, invece della duplicazione deliberata della v1 (che qui risolveva
+/// `LARE_LOCAL_DIR`/`LOCALAPPDATA` per conto proprio).
+fn append_memory_note(config_dir: &std::path::Path, label_base: &str, note: &str) -> std::io::Result<()> {
+    append_note_at(&crate::ai_adapter::memory_file_path(config_dir, label_base), note)
 }
 
 #[cfg(test)]
@@ -7308,6 +7292,7 @@ mod tests {
             store,
             None,
             None,
+            "unused".into(),
         );
 
         let effects = s.handle_event(ServiceEvent::NoteCreateRequested {
@@ -7791,6 +7776,7 @@ mod tests {
             NotesStore::empty_in_memory(),
             None,
             None,
+            "unused".into(),
         );
         let (inbox_tx, mut inbox_rx) = tokio::sync::mpsc::unbounded_channel::<ServiceEvent>();
         let (new_link_tx, _new_link_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -8518,6 +8504,7 @@ mod tests {
             NotesStore::empty_in_memory(),
             None,
             None,
+            "unused".into(),
         );
         let (inbox_tx, mut inbox_rx) = tokio::sync::mpsc::unbounded_channel::<ServiceEvent>();
         let (new_link_tx, _new_link_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -10177,39 +10164,17 @@ mod tests {
         assert_eq!(extract_memoria_marker("MEMORIA:    "), None);
     }
 
+    /// `append_memory_note` (2.0, Task 4): compone `ai_adapter::memory_file_path`
+    /// (già testata in `ai_adapter.rs`) + `append_note_at` (già testata sotto)
+    /// — verifica solo che la composizione scriva DAVVERO nel file atteso,
+    /// niente più test duplicati sulla risoluzione del path (rimossi con la
+    /// `LARE_LOCAL_DIR`/`LOCALAPPDATA` che risolvevano qui prima del fix D6).
     #[test]
-    fn memory_file_path_uses_local_appdata_when_set() {
-        let p = memory_file_path_with_base(
-            "rumpleteazer",
-            None,
-            Some("C:/Users/test/AppData/Local".to_string()),
-        );
-        assert_eq!(
-            p,
-            std::path::PathBuf::from("C:/Users/test/AppData/Local")
-                .join("dev.lare.terminal")
-                .join("memory-rumpleteazer.md")
-        );
-    }
-
-    #[test]
-    fn memory_file_path_falls_back_to_lare_data_when_local_appdata_absent() {
-        let p = memory_file_path_with_base("rumpleteazer", None, None);
-        assert_eq!(p, std::path::PathBuf::from(".lare-data").join("memory-rumpleteazer.md"));
-    }
-
-    #[test]
-    fn memory_file_path_local_dir_override_wins_over_local_appdata() {
-        let p = memory_file_path_with_base(
-            "rumpleteazer",
-            Some("C:/Lare Terminal/local-data".to_string()),
-            Some("C:/Users/test/AppData/Local".to_string()),
-        );
-        assert_eq!(
-            p,
-            std::path::PathBuf::from("C:/Lare Terminal/local-data")
-                .join("memory-rumpleteazer.md")
-        );
+    fn append_memory_note_writes_to_config_dir_memory_file() {
+        let dir = tempfile::tempdir().unwrap();
+        append_memory_note(dir.path(), "rumpleteazer", "prima nota").unwrap();
+        let content = std::fs::read_to_string(dir.path().join("memory-rumpleteazer.md")).unwrap();
+        assert_eq!(content, "prima nota\n");
     }
 
     #[test]

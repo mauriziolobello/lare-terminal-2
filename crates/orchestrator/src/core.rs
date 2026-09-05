@@ -1386,7 +1386,7 @@ mod tests {
         let backend_nowin = std::sync::Arc::new(ClaudeBackend::new(
             fake_nowin.clone(), "claude-sonnet-4-6".to_string(), 16000,
         ));
-        let ai_nowin = LlmAdapter::new(backend_nowin, "claude-sonnet-4-6".to_string());
+        let ai_nowin = LlmAdapter::new(backend_nowin, "claude-sonnet-4-6".to_string(), std::path::PathBuf::from("/test-config"));
         let mut hist = ConversationHistory::new();
         crate::test_support::collect(|tx| {
             handle_command(
@@ -1420,7 +1420,7 @@ mod tests {
         let backend_norm = std::sync::Arc::new(ClaudeBackend::new(
             fake_norm.clone(), "claude-sonnet-4-6".to_string(), 16000,
         ));
-        let ai_norm = LlmAdapter::new(backend_norm, "claude-sonnet-4-6".to_string());
+        let ai_norm = LlmAdapter::new(backend_norm, "claude-sonnet-4-6".to_string(), std::path::PathBuf::from("/test-config"));
         let mut hist2 = ConversationHistory::new();
         crate::test_support::collect(|tx| {
             handle_command(
@@ -1670,7 +1670,7 @@ mod tests {
         let backend = std::sync::Arc::new(ClaudeBackend::new(
             fake.clone(), "claude-sonnet-4-6".to_string(), 16000,
         ));
-        let ai = LlmAdapter::new(backend, "claude-sonnet-4-6".to_string());
+        let ai = LlmAdapter::new(backend, "claude-sonnet-4-6".to_string(), std::path::PathBuf::from("/test-config"));
         let tools = FakeToolClient::success("");
         let mut hist = ConversationHistory::new();
         crate::test_support::collect(|tx| {

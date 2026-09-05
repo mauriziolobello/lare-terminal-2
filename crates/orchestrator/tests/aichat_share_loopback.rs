@@ -78,8 +78,8 @@ async fn client_delivers_share_offer_to_server_over_real_tcp() {
         chat_port: 0,
     };
 
-    let a_svc = AiChatService::new(a_info.clone(), Arc::new(StubAdapter), true, false, NotesStore::empty_in_memory(), None, None);
-    let b_svc = AiChatService::new(b_info.clone(), Arc::new(StubAdapter), true, false, NotesStore::empty_in_memory(), None, None);
+    let a_svc = AiChatService::new(a_info.clone(), Arc::new(StubAdapter), true, false, NotesStore::empty_in_memory(), None, None, std::path::PathBuf::from("/test-config"));
+    let b_svc = AiChatService::new(b_info.clone(), Arc::new(StubAdapter), true, false, NotesStore::empty_in_memory(), None, None, std::path::PathBuf::from("/test-config"));
 
     let (a_inbox_tx, a_inbox_rx) = mpsc::unbounded_channel::<ServiceEvent>();
     let (b_inbox_tx, b_inbox_rx) = mpsc::unbounded_channel::<ServiceEvent>();

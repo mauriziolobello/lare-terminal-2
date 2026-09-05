@@ -3,25 +3,31 @@
 //! Lare Terminal daemon.  Wires the token, AI adapter, and tool client
 //! together, then starts the WebSocket server.
 //!
-//! ## Startup sequence
-//! 1. Initialize tracing (stderr only).
-//! 2. Resolve the auth token from `LARE_TOKEN` env var, or generate a
-//!    random one and log it to stderr.
-//! 3. Construct the AI adapter (Fase 1: StubAdapter or LlmAdapter+ClaudeBackend).
-//! 4. Construct the tool client (McpToolClient, resolving the mcp-server path).
-//! 5. Optionally start the Telegram channel (see telegramsettings.json below).
-//! 6. Start the WebSocket server on `127.0.0.1:7331` (blocks until shutdown).
+//! ## Startup sequence (2.0, Task 4 — vedi `RuntimeConfig` sotto)
+//! 1. Risolvi `config_dir` (`--config-dir` o `<exe_dir>/Configuration`) +
+//!    `startup.json` → `RuntimeConfig`, il "context object" condiviso da
+//!    tutto il resto di questo file (nessuna variabile d'ambiente, D6).
+//! 2. Inizializza il tracing: sempre su file (`Configuration/logs/`),
+//!    anche su stderr con `--console-log`.
+//! 3. Resolve the auth token from `<config_dir>/token`, or generate a
+//!    random one and persist it.
+//! 4. Construct the AI adapter (Fase 1: StubAdapter or LlmAdapter+ClaudeBackend).
+//! 5. Construct the tool client (McpToolClient, resolving the mcp-server path
+//!    da `startup.json`, passato al figlio come `--config-dir`).
+//! 6. Optionally start the Telegram channel (see telegramsettings.json below).
+//! 7. Start the WebSocket server on `127.0.0.1:<startup.json.ws_port>` (blocks
+//!    until shutdown).
 //!
 //! ## Telegram channel (ADR-007, v0.11.0)
-//! Attivato se `telegramsettings.json` è presente (o LARE_TELEGRAM_SETTINGS).
+//! Attivato se `<config_dir>/telegramsettings.json` è presente.
 //! Al primo avvio: stampa l'URI TOTP su stderr (aggiungi a Google Authenticator).
 //! Ad ogni avvio senza chat appaiata: stampa un codice `/pair` (valido 10 min).
-//! Lo stato (secret + chat_id) è in `%LOCALAPPDATA%\dev.lare.terminal\telegram-state.json`.
+//! Lo stato (secret + chat_id) è in `<config_dir>/telegram-state.json`.
 //!
 //! ## Security (ADR-007)
 //! - WS binds to `127.0.0.1` only.
-//! - Token: never hard-coded.  If `LARE_TOKEN` is unset, a cryptographically
-//!   random token is generated per run and logged to stderr.
+//! - Token: never hard-coded, mai in una env var (D6). Vive in
+//!   `<config_dir>/token`; generato al primo avvio se assente.
 //! - Telegram token: never in any log output.
 
 use std::sync::Arc;
@@ -34,6 +40,7 @@ use orchestrator::{
     cwd_tracking::CwdTrackingToolClient,
     llms_config,
     messages_client::HttpMessagesClient,
+    runtime_config::RuntimeConfig,
     search::{
         content::ContentConfig,
         paths_config::{OsPathProvider, PathsConfig},
@@ -42,10 +49,10 @@ use orchestrator::{
     telegram::{self, auth::Authenticator, client::HttpTelegramClient, qr::render_terminal_qr},
     token_store,
     tool_client::McpToolClient,
-    ws::{self, LISTEN_ADDR},
+    ws,
 };
 use tokio::sync::Mutex;
-use tracing_subscriber::{fmt, EnvFilter};
+use tracing_subscriber::fmt;
 
 /// Determina l'IP LAN locale tramite il "UDP connect trick":
 /// apre un socket UDP effimero e lo "connette" virtualmente a un IP pubblico (senza inviare nulla).
@@ -76,20 +83,21 @@ fn is_quit_command(line: &str) -> bool {
 
 /// Comportamento AI pre-Slice-4, invariato: chiave Anthropic presente → Claude
 /// diretto; altrimenti `StubAdapter`. Usato come fallback quando `llms/llms.json`
-/// è assente o non valido — retrocompatibilità DURA (spec Slice 4 §6). Stessa
-/// identica logica del branch che sostituisce, solo estratta in una funzione:
-/// nessuna riga di comportamento è cambiata.
-fn default_ai_adapter() -> Arc<dyn AiAdapter> {
+/// è assente o non valido — retrocompatibilità DURA (spec Slice 4 §6).
+///
+/// `model` viene da `rt.startup.ai_model` (2.0, D6): niente più
+/// `LARE_AI_MODEL` letta qui — `startup.json` è l'unica fonte per
+/// impostazioni non segrete. `ANTHROPIC_API_KEY` invece RESTA una variabile
+/// d'ambiente: è la chiave del provider AI, fuori scope D6 esattamente come
+/// gli `api_keys` di `llms.json` (mai scritta in un file di config
+/// committabile/sincronizzabile — stessa cautela di `llms_config.rs`).
+fn default_ai_adapter(model: &str, config_dir: &std::path::Path) -> Arc<dyn AiAdapter> {
     match std::env::var("ANTHROPIC_API_KEY") {
         Ok(key) if !key.is_empty() => {
-            let model = std::env::var("LARE_AI_MODEL")
-                .ok()
-                .filter(|m| !m.is_empty())
-                .unwrap_or_else(|| "claude-sonnet-4-6".to_string());
             tracing::info!("AI provider: Claude (modello: {model})");
             let http = Arc::new(HttpMessagesClient::new(key));
-            let backend = Arc::new(ClaudeBackend::new(http, model.clone(), 16000));
-            Arc::new(LlmAdapter::new(backend, model))
+            let backend = Arc::new(ClaudeBackend::new(http, model.to_string(), 16000));
+            Arc::new(LlmAdapter::new(backend, model.to_string(), config_dir.to_path_buf()))
         }
         _ => {
             tracing::warn!("ANTHROPIC_API_KEY non impostata — uso StubAdapter");
@@ -100,12 +108,69 @@ fn default_ai_adapter() -> Arc<dyn AiAdapter> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    // ── Tracing: all logs to stderr (stdout is reserved for future stdio use) ──
-    fmt()
-        .with_env_filter(EnvFilter::from_default_env().add_directive(tracing::Level::INFO.into()))
-        .with_writer(std::io::stderr)
-        .with_ansi(false)
-        .init();
+    // ── Configurazione (2.0, Task 4, D6): --config-dir + startup.json ──────
+    // UNICA fonte di configurazione dell'intero orchestrator: nessuna
+    // variabile d'ambiente `LARE_*`/`LOCALAPPDATA`/`APPDATA` viene letta in
+    // questo file o altrove nel crate (eccetto `ANTHROPIC_API_KEY`/
+    // `OPENROUTER_API_KEY`, chiavi dei provider AI — fuori scope D6, vedi
+    // `default_ai_adapter`). `RuntimeConfig` è il "context object"
+    // immutabile (analogia OOP: un `ApplicationContext`) costruito qui una
+    // volta sola e condiviso (`Arc`) da tutto il resto di `main()` e da ogni
+    // connessione WS — elimina le 5+ copie quasi identiche della stessa
+    // catena di fallback che c'erano nella v1 (token, llms.json,
+    // telegramsettings.json, search, plugin, aichat, tutte con la propria
+    // risoluzione di `config_dir`).
+    let args: Vec<String> = std::env::args().collect();
+    let config_dir = {
+        let dir = startup_config::config_dir_from_process();
+        // Assolutizzato QUI, PRIMA di qualunque uso: più sotto in questa
+        // stessa funzione la cwd del processo cambia (`set_current_dir(home)`,
+        // per dare al cursore un cwd iniziale sensato) — un `--config-dir`
+        // RELATIVO letto una seconda volta dopo quel cambio risolverebbe
+        // contro `home`, non contro la cartella di lancio: due risultati
+        // diversi per lo stesso flag. Risolvendolo in assoluto una volta
+        // sola, alla fonte, il problema non può più presentarsi (nessun
+        // punto di questo crate rilegge `--config-dir`/ricrea `RuntimeConfig`
+        // dopo questa riga — vedi il doc-comment di `agent::dispatch_tool_at`
+        // per il ragionamento gemello sui chiamanti di quella funzione).
+        if dir.is_absolute() {
+            dir
+        } else {
+            std::env::current_dir().map(|cwd| cwd.join(&dir)).unwrap_or(dir)
+        }
+    };
+    let (startup, startup_warn) = startup_config::StartupConfig::load(&config_dir);
+    let rt = Arc::new(RuntimeConfig { config_dir: config_dir.clone(), startup });
+
+    // ── Tracing (2.0): sempre su file (Configuration/logs/orchestrator.log,
+    // rotazione giornaliera); ANCHE su console solo con --console-log (usato
+    // da init_*.ps1 per il debug interattivo). Un orchestrator avviato in
+    // autostart non deve sporcare (né bloccarsi su) un terminale che non ha.
+    let log_dir = rt.log_dir();
+    let _ = std::fs::create_dir_all(&log_dir);
+    let file_appender = tracing_appender::rolling::daily(&log_dir, "orchestrator.log");
+    let (file_writer, _guard) = tracing_appender::non_blocking(file_appender);
+    let level = rt.startup.log.level.parse::<tracing::Level>().unwrap_or(tracing::Level::INFO);
+    let console = startup_config::has_flag(&args, "--console-log");
+    {
+        use tracing_subscriber::prelude::*;
+        let file_layer = fmt::layer().with_writer(file_writer).with_ansi(false);
+        let registry = tracing_subscriber::registry()
+            .with(tracing_subscriber::filter::LevelFilter::from_level(level))
+            .with(file_layer);
+        if console {
+            registry.with(fmt::layer().with_writer(std::io::stderr)).init();
+        } else {
+            registry.init();
+        }
+    }
+    // `_guard` (sopra) deve vivere fino alla fine di `main`: droppandolo si
+    // interrompe il flush del writer non bloccante — tenuto vivo per tutta
+    // la funzione semplicemente non spostandolo/droppandolo mai.
+    if let Some(w) = startup_warn {
+        tracing::warn!("{w}");
+    }
+    tracing::info!("config dir: {}", config_dir.display());
 
     tracing::info!(
         "Lare Terminal orchestrator v{} starting (protocol v{} · plugin-protocol v{} · mcp-server v{} · mcp-nmap v{})",
@@ -116,50 +181,19 @@ async fn main() -> Result<()> {
         env!("MCP_NMAP_VERSION"),
     );
 
-    // ── Configurazione da startup.json (fase 1) ───────────────────────────
-    // Risolta UNA sola volta qui, passata già pronta a chi ne ha bisogno più
-    // sotto (token, llms.json, telegramsettings.json, search, plugin, aichat)
-    // — elimina le 5 copie quasi identiche della stessa catena di fallback
-    // che c'erano prima (più le 2 risoluzioni locali temporanee di Task 3/4,
-    // rimosse in questo stesso task). `exe_dir` = cartella di
-    // orchestrator.exe (o del binario di debug in sviluppo, dove
-    // startup.json normalmente non c'è: Ok(None), fallback su env
-    // var/default esattamente come oggi). `startup_cfg` = None se il file
-    // non c'è (caso normale) o è illeggibile/malformato (loggato, mai un
-    // crash).
-    let exe_dir = startup_config::exe_dir().ok();
-    // `Err` va loggato, mai scartato in silenzio (contratto del crate
-    // startup-config, stesso fix già applicato in `mcp-server` 0.7.1 —
-    // Task 2 — e nei blocchi temporanei di Task 3/Task 4).
-    let startup_cfg = match exe_dir.as_deref().map(startup_config::load_from_dir) {
-        Some(Ok(cfg)) => cfg,
-        Some(Err(e)) => {
-            tracing::warn!("{e} — uso i default");
-            None
-        }
-        None => None,
-    };
-    let local_dir = startup_config::resolve(
-        std::env::var("LARE_LOCAL_DIR").ok().as_deref(),
-        startup_cfg.as_ref().and_then(|c| c.local_dir.as_deref()),
-        startup_config::default_local_dir,
-    );
-    tracing::info!("Local data dir: {}", local_dir.display());
-
-    // ── Auth token (ADR-007) ──────────────────────────────────────────────────
-    // Resolution order: LARE_TOKEN env var → token file → generate + write + help.
-    // `local_dir` è risolto sopra (prima del set_current_dir(home) più sotto)
-    // così il path resolve correttamente.  The token_store module handles all
-    // three cases, including printing first-launch instructions to stderr.
+    // ── Auth token (ADR-007, D6) ─────────────────────────────────────────────
+    // Vive SOLO in `<config_dir>/token` — nessuna `LARE_TOKEN` (v1: un
+    // override impostato in un solo processo dei due produceva "connection
+    // refused" senza spiegazione). Generato e persistito al primo avvio.
     let token = {
-        let t = token_store::resolve_token(&local_dir);
+        let t = token_store::resolve_token(&config_dir);
         tracing::info!("token resolved (source logged to stderr on first run)");
         t
     };
 
     // ── AI adapter (Fase 2 / Slice 1-5) ───────────────────────────────────────
-    // llms/llms.json (opzionale, in %LOCALAPPDATA%\dev.lare.terminal\ — Slice 5:
-    // stesso path risolto identicamente dall'orchestrator e dal tab /config della UI,
+    // llms.json (opzionale, in `<config_dir>/llms.json` — 2.0: stesso path
+    // risolto identicamente dall'orchestrator e dal tab /config della UI,
     // senza bisogno di condividere una cartella di lancio) sceglie il provider attivo
     // per QUESTA macchina (Anthropic diretto o OpenRouter/DeepSeek) — un solo
     // provider serve sia il cursore sia AI Chat (vedi memoria `multi-llm-openrouter`).
@@ -167,13 +201,9 @@ async fn main() -> Result<()> {
     // semanticamente non valido → fallback bit-per-bit a `default_ai_adapter()` (il
     // branch odierno, invariato), MAI un crash dell'intero orchestrator.
     let ai: Arc<dyn AiAdapter> = {
-        let llms_path = llms_config::resolve_path(
-            std::env::var("LARE_LLMS_CONFIG").ok().as_deref(),
-            startup_cfg.as_ref().and_then(|c| c.llms_config.as_deref()),
-            &local_dir,
-        );
+        let llms_path = llms_config::resolve_path(&config_dir);
         match llms_config::load(&llms_path) {
-            Ok(Some(cfg)) => match llms_config::build_adapter(&cfg) {
+            Ok(Some(cfg)) => match llms_config::build_adapter(&cfg, &config_dir) {
                 Ok(adapter) => {
                     tracing::info!("AI provider da llms.json: {}", adapter.provider());
                     adapter
@@ -182,15 +212,15 @@ async fn main() -> Result<()> {
                     tracing::error!(
                         "llms.json non valido ({e}) — fallback al comportamento odierno"
                     );
-                    default_ai_adapter()
+                    default_ai_adapter(&rt.startup.ai_model, &config_dir)
                 }
             },
-            Ok(None) => default_ai_adapter(),
+            Ok(None) => default_ai_adapter(&rt.startup.ai_model, &config_dir),
             Err(e) => {
                 tracing::error!(
                     "llms.json: errore di lettura ({e}) — fallback al comportamento odierno"
                 );
-                default_ai_adapter()
+                default_ai_adapter(&rt.startup.ai_model, &config_dir)
             }
         }
     };
@@ -205,17 +235,20 @@ async fn main() -> Result<()> {
     // aspettarlo inline ritarderebbe l'apertura del listener WS di altrettanto
     // ogni volta che TWS/Gateway non risponde, stesso motivo per cui
     // `IB.connect` ha un proprio timeout lato Python.
-    tokio::spawn(async move {
-        let (ok, message) = ws::test_market_data_source_now().await;
-        if ok {
-            tracing::info!("Fonte dati mercato: connessa");
-        } else {
-            tracing::warn!("Fonte dati mercato: non raggiungibile ({message})");
-        }
-    });
+    {
+        let rt = Arc::clone(&rt);
+        tokio::spawn(async move {
+            let (ok, message) = ws::test_market_data_source_now(&rt).await;
+            if ok {
+                tracing::info!("Fonte dati mercato: connessa");
+            } else {
+                tracing::warn!("Fonte dati mercato: non raggiungibile ({message})");
+            }
+        });
+    }
 
     // ── Tool client (real MCP client → mcp-server child process) ─────────────
-    let raw_tools = Arc::new(McpToolClient::resolve()?);
+    let raw_tools = Arc::new(McpToolClient::resolve(&config_dir, &rt.startup));
 
     // ── Init home (Task 3) ────────────────────────────────────────────────────
     // Set the process cwd to the user's home directory at startup so that the
@@ -239,31 +272,24 @@ async fn main() -> Result<()> {
     // Both the direct OS path (in ws.rs) and the AI tool-use path (in agent.rs)
     // call ToolClient::run_in_session — the tracker updates cwd_state for both.
     let tools: Arc<dyn orchestrator::tool_client::ToolClient> =
-        Arc::new(CwdTrackingToolClient::new(raw_tools, Arc::clone(&cwd_state)));
+        Arc::new(CwdTrackingToolClient::new(raw_tools, Arc::clone(&cwd_state), config_dir.clone()));
 
     // ── Canale Telegram (opzionale, solo se telegramsettings.json presente) ───
     //
     // Flusso di avvio:
-    //   1. Risolvi il path di configurazione: precedenza a 3 livelli
-    //      (LARE_TELEGRAM_SETTINGS env → campo `telegram_settings` di
-    //      startup.json → default `exe_dir/telegramsettings.json`), sempre
-    //      ancorato a `exe_dir` — mai alla cwd di lancio (fix v0.41.10;
-    //      `exe_dir`/`startup_cfg` sono il binding condiviso risolto una
-    //      volta a inizio main(), Task 5).
+    //   1. Risolvi il path di configurazione: SEMPRE `<config_dir>/
+    //      telegramsettings.json` (2.0, D6 — niente più env var/campo
+    //      dedicato di `startup.json`, `config_dir` è il binding condiviso
+    //      risolto una volta a inizio main()).
     //   2. Carica il file: assente → disattivo; errore → warn + disattivo.
-    //   3. App-data dir: `local_dir` (stesso binding condiviso, risolto una
-    //      volta a inizio main() — niente più ri-derivazione qui).
+    //   3. App-data dir: `config_dir` (stesso binding condiviso).
     //   4. Authenticator::init: prima run → stampa otpauth URI su stderr (una sola volta).
     //   5. Genera e stampa il codice di pairing su stderr.
     //   6. Spawna il canale come task tokio; ws::serve gira in parallelo.
     //
     // Security: il token Telegram NON compare mai nei log.
     {
-        let tg_settings_path = telegram::settings::resolve_path(
-            std::env::var("LARE_TELEGRAM_SETTINGS").ok().as_deref(),
-            startup_cfg.as_ref().and_then(|c| c.telegram_settings.as_deref()),
-            exe_dir.as_deref().unwrap_or_else(|| std::path::Path::new(".")),
-        );
+        let tg_settings_path = telegram::settings::resolve_path(&config_dir);
 
         match telegram::settings::load(&tg_settings_path) {
             Ok(None) => {
@@ -279,11 +305,11 @@ async fn main() -> Result<()> {
                 );
             }
             Ok(Some(tg_settings)) => {
-                if let Err(e) = std::fs::create_dir_all(&local_dir) {
+                if let Err(e) = std::fs::create_dir_all(&config_dir) {
                     tracing::warn!("telegram: impossibile creare app-data dir: {e}");
                 }
 
-                let state_path = local_dir.join("telegram-state.json");
+                let state_path = config_dir.join("telegram-state.json");
 
                 // ── TOTP init ────────────────────────────────────────────────
                 let (mut auth, otpauth_uri) = Authenticator::init(&state_path);
@@ -343,9 +369,9 @@ async fn main() -> Result<()> {
     // ── Search config + context (sempre attivo, indipendente da Telegram) ──────
     // search-paths.json vive nell'app-data dir (auto-generato al 1° avvio, editabile).
     let search = {
-        let _ = std::fs::create_dir_all(&local_dir);
-        let cfg_path = local_dir.join("search-paths.json");
-        let content_cfg_path = local_dir.join("search-content.json");
+        let _ = std::fs::create_dir_all(&config_dir);
+        let cfg_path = config_dir.join("search-paths.json");
+        let content_cfg_path = config_dir.join("search-content.json");
         // Genera/migra i file all'avvio; i valori non sono tenuti: `launch`
         // rilegge da questi path a ogni ricerca.
         let _ = PathsConfig::load_or_generate(&cfg_path, &OsPathProvider);
@@ -360,27 +386,18 @@ async fn main() -> Result<()> {
 
     // ── Plugin host (Task 5): scopri, eager-spawna, esponi ai client WS. ─────────
     // Se la dir è assente, `discover` restituisce un vettore vuoto e l'avvio
-    // non viene bloccato. La dir dei plugin è override-abile via LARE_PLUGINS_DIR
-    // (stesso schema di LARE_MCP_SERVER per il server MCP).
+    // non viene bloccato. La dir dei plugin viene da `startup.json.paths.
+    // plugins_dir` (2.0, D6 — **rimosso** il caso speciale `LARE_PLUGINS_DIR`
+    // della v1, che bypassava trim/empty-check per restare "consistente" con
+    // `plugins_view.rs` lato UI: un solo risolutore ora, `rt.plugins_dir()`).
     //
     // Task 5: `plugin_host` è ora `Arc<Mutex<PluginHost>>` per essere condiviso
     // tra connessioni WS. `plugin_commands` è la lista di comandi slash registrati
     // dai manifest dei plugin, usata dal router in ws.rs.
     let (plugin_host, plugin_commands) = {
-        // LARE_PLUGINS_DIR: NESSUN trim/empty-check (comportamento consistente
-        // con plugins_view.rs lato ui, preservato deliberatamente — vedi spec
-        // §3). Solo se l'env non è impostata, ricade su startup.json/default
-        // via resolve() (che invece fa trim/empty-check come ovunque altro).
-        let plugins_dir = match std::env::var("LARE_PLUGINS_DIR") {
-            Ok(v) => std::path::PathBuf::from(v),
-            Err(_) => startup_config::resolve(
-                None,
-                startup_cfg.as_ref().and_then(|c| c.plugins_dir.as_deref()),
-                || local_dir.join("plugins"),
-            ),
-        };
+        let plugins_dir = rt.plugins_dir();
         // Ogni plugin ottiene una sotto-dir privata per il proprio storage.
-        let storage_root = local_dir.join("plugin-storage");
+        let storage_root = config_dir.join("plugin-storage");
         let discovered = orchestrator::plugins::discovery::discover(&plugins_dir);
         tracing::info!(
             "plugin host: {} plugin/i scoperti in {}",
@@ -454,7 +471,7 @@ async fn main() -> Result<()> {
     let aichat_inbox: Option<
         tokio::sync::mpsc::UnboundedSender<orchestrator::aichat::service::ServiceEvent>,
     > = {
-        if let Err(e) = std::fs::create_dir_all(&local_dir) {
+        if let Err(e) = std::fs::create_dir_all(&config_dir) {
             tracing::warn!("aichat: impossibile creare app-data dir: {e}");
         }
 
@@ -462,8 +479,8 @@ async fn main() -> Result<()> {
         // da più funzionalità (AI Chat, Blocco Note), non solo AI Chat — vedi
         // Docs/superpowers/specs/2026-07-29-library-notes-design.md §9.
         let cfg = orchestrator::aichat::config::load_or_generate_with_migration(
-            &local_dir.join("network.json"),
-            &local_dir.join("aichat.json"),
+            &rt.network_json_path(),
+            &config_dir.join("aichat.json"),
         );
 
         if cfg.enabled {
@@ -515,7 +532,7 @@ async fn main() -> Result<()> {
             // Blocco note (design §8): store di proprietà dell'orchestrator, stessa
             // app-data dir di network.json — sopravvive a UI chiusa e a un riavvio.
             let notes_store =
-                orchestrator::notes::store::NotesStore::load_or_generate(&local_dir.join("notes.json"));
+                orchestrator::notes::store::NotesStore::load_or_generate(&config_dir.join("notes.json"));
             // Display name per l'utente (label locale) e l'AI partecipante nel canale.
             // Carichi da network.json via AiChatConfig (Task 1, caricamento) +
             // Task 3 (firma del costruttore) + Task 4 qui (wiring).
@@ -527,6 +544,7 @@ async fn main() -> Result<()> {
                 notes_store,
                 cfg.display_name.clone(),
                 cfg.ai_display_name.clone(),
+                config_dir.clone(),
             );
             // Bug 2 (late-joiner) §3.6: clona l'handle PRIMA che `run` consumi `service`
             // (`run` prende `self` per valore). Il task di scoperta lo legge a ogni
@@ -681,10 +699,26 @@ async fn main() -> Result<()> {
     }
 
     // ── WebSocket server ──────────────────────────────────────────────────────
-    // Cattura il risultato prima di fare shutdown: anche se serve() restituisce
-    // Err, i plugin vengono fermati correttamente (kill_on_drop li termina).
-    let serve_result =
-        ws::serve(LISTEN_ADDR, Arc::new(token), ai, tools, cwd_state, search, Arc::clone(&plugin_host), Arc::clone(&plugin_commands), aichat_inbox, shutdown).await;
+    // `listen`: `127.0.0.1:<ws_port>` da `startup.json` (2.0 — sostituisce la
+    // costante `LISTEN_ADDR` fissa a 7331; il default di `StartupConfig` è
+    // comunque 7331, quindi il comportamento di sempre è invariato a config
+    // assente). Cattura il risultato prima di fare shutdown: anche se serve()
+    // restituisce Err, i plugin vengono fermati correttamente (kill_on_drop li termina).
+    let listen = format!("127.0.0.1:{}", rt.startup.ws_port);
+    let serve_result = ws::serve(
+        &listen,
+        Arc::new(token),
+        ai,
+        tools,
+        cwd_state,
+        search,
+        Arc::clone(&plugin_host),
+        Arc::clone(&plugin_commands),
+        aichat_inbox,
+        shutdown,
+        Arc::clone(&rt),
+    )
+    .await;
     plugin_host.lock().await.shutdown().await;
     serve_result?;
 

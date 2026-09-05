@@ -777,10 +777,11 @@ mod tests {
     async fn real_messages_api_returns_text() {
         let key =
             std::env::var("ANTHROPIC_API_KEY").expect("imposta ANTHROPIC_API_KEY per questo test");
-        let model = std::env::var("LARE_AI_MODEL")
-            .unwrap_or_else(|_| "claude-sonnet-4-6".to_string());
+        // Modello hardcoded (2.0, D6): niente più `LARE_AI_MODEL` — cambia
+        // questa stringa a mano se vuoi testare un altro modello.
+        let model = "claude-sonnet-4-6";
         let client = HttpMessagesClient::new(key);
-        let req = MessagesRequest::one_shot(&model, 1024, "Rispondi solo con: pong");
+        let req = MessagesRequest::one_shot(model, 1024, "Rispondi solo con: pong");
         let resp = client.create(req).await.expect("chiamata API fallita");
         assert!(!resp.text().is_empty(), "testo vuoto; stop_reason={:?}", resp.stop_reason);
     }
@@ -947,10 +948,11 @@ data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"refusal\",\"stop_
     async fn real_streaming_invokes_on_text() {
         let key =
             std::env::var("ANTHROPIC_API_KEY").expect("imposta ANTHROPIC_API_KEY per questo test");
-        let model =
-            std::env::var("LARE_AI_MODEL").unwrap_or_else(|_| "claude-sonnet-4-6".to_string());
+        // Modello hardcoded (2.0, D6): niente più `LARE_AI_MODEL` — cambia
+        // questa stringa a mano se vuoi testare un altro modello.
+        let model = "claude-sonnet-4-6";
         let client = HttpMessagesClient::new(key);
-        let req = MessagesRequest::one_shot(&model, 256, "Conta lentamente da 1 a 5.");
+        let req = MessagesRequest::one_shot(model, 256, "Conta lentamente da 1 a 5.");
         let mut calls = 0usize;
         let mut text = String::new();
         let resp = client

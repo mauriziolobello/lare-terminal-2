@@ -1,5 +1,130 @@
 # Implementation — orchestrator v0.33.0 (Ammissione alla stanza — AI Chat)
 
+## Configurazione 2.0: RuntimeConfig, figli con --config-dir, log su file (v2.0.1)
+
+Piano `2026-09-05-piano-1-fondamenta`, Task 4. Il crate `startup-config` è stato
+riscritto (Task 2) con l'API 2.0 (`config_dir_from_process`, `StartupConfig::load`/
+`resolve_path`, `CONFIG_DIR_FLAG`) — l'API v1 (`load_from_dir`/`resolve`/
+`default_local_dir`, `Paths::local_dir`) non esiste più, e l'orchestrator (13 letture
+di `env::var("LARE_*")` + 3 `LOCALAPPDATA` sparse nel crate) non compilava più.
+
+### `RuntimeConfig` — un "context object" immutabile
+
+Nuovo modulo `runtime_config.rs`:
+
+```rust
+pub struct RuntimeConfig {
+    pub config_dir: PathBuf,  // SEMPRE assoluto
+    pub startup: StartupConfig,
+}
+impl RuntimeConfig {
+    pub fn path(&self, value: &str) -> PathBuf { StartupConfig::resolve_path(&self.config_dir, value) }
+    pub fn network_json_path(&self) -> PathBuf { self.config_dir.join("network.json") }
+    pub fn plugins_dir(&self) -> PathBuf { self.path(&self.startup.paths.plugins_dir) }
+    pub fn pytools_dir(&self) -> PathBuf { self.path(&self.startup.paths.pytools_dir) }
+    pub fn mcp_server_exe(&self) -> PathBuf { self.path(&self.startup.paths.mcp_server) }
+    pub fn mcp_nmap_exe(&self) -> PathBuf { self.path(&self.startup.paths.mcp_nmap) }
+    pub fn log_dir(&self) -> PathBuf { self.path(&self.startup.log.dir) }
+}
+```
+
+Analogia OOP: come un `ApplicationContext`, costruito una volta in `main()` e
+condiviso (`Arc`) da tutto il resto — sostituisce le 5+ copie quasi identiche della
+stessa catena di fallback env→file→default che c'erano nella v1 per token,
+`llms.json`, `telegramsettings.json`, search, plugin, aichat.
+
+**`config_dir` è SEMPRE assolutizzato** in `main()`, prima di qualunque uso e
+PRIMA del `set_current_dir(home)` che segue poco dopo (per dare al cursore un cwd
+iniziale sensato): un `--config-dir` relativo letto una SECONDA volta dopo quel
+cambio di cwd risolverebbe contro `home`, non contro la cartella di lancio — due
+risultati diversi per lo stesso flag. La regola che ne segue, applicata ovunque in
+questo task: **nessun punto del crate rilegge `--config-dir`/ricostruisce
+`RuntimeConfig` dopo `main()`** — tutti i consumatori (vedi sotto) tengono
+`config_dir`/`RuntimeConfig` come campo o parametro ricevuto, mai ri-derivato.
+
+### Figli con `--config-dir` esplicito
+
+- `McpToolClient::resolve(config_dir: &Path, cfg: &StartupConfig) -> Self` (non più
+  fallibile — legge solo `startup.json.paths.mcp_server`, mai `LARE_MCP_SERVER`/
+  `current_exe()`). Il campo `config_dir` è conservato e passato ad OGNI spawn del
+  figlio (`c.arg(CONFIG_DIR_FLAG).arg(&self.config_dir)`) — la v1 duplicava il
+  blocco di lazy-connect-e-spawn in **sei** punti diversi di `tool_client.rs`
+  (`run_in_session` più cinque dei sette metodi `ToolClient`, ciascuno col proprio
+  `if peer_guard.is_none() { ... }`), e tutti e sei dovevano ricevere l'argomento —
+  un `grep -n "Command::new(&self.mcp_server_path)"` prima del fix mostrava sei
+  righe, non una; il primo fix (solo `run_in_session`) faceva passare il test
+  d'integrazione "run_in_session" ma falliva ancora quello "save_routine", proprio
+  perché quel metodo spawna dal SUO blocco duplicato, non da quello di
+  `run_in_session`.
+- `NmapToolClient::resolve(config_dir, cfg)` — mirror esatto, un solo punto di spawn.
+- `PythonMcpToolClient::resolve(config_dir, cfg, domain_id, script_relpath,
+  tool_specs, call_timeout_secs)` — `pytools_root` da `cfg.paths.pytools_dir`
+  (default `"pytools"`) risolto rispetto alla radice del deploy, mai da
+  `env_override` (v1: una variabile diversa per dominio, es. `LARE_PYTOOLS_DIR`).
+  Lo script riceve `--config-dir` come argomento aggiuntivo dopo il proprio path.
+- **`LARE_PLUGINS_DIR` rimossa**: la v1 aveva un caso speciale (NESSUN trim/empty-
+  check, per restare "consistente" con `plugins_view.rs` lato UI) prima di ricadere
+  su `startup.json`/default. Un solo risolutore ora: `rt.plugins_dir()`.
+
+### `EXTERNAL_TOOL_CHANNELS` — factory con contesto esplicito
+
+Le tre factory che costruiscono client reali (`nmap`, `python-ping`,
+`financial-markets`) cambiano firma da `fn() -> anyhow::Result<Arc<dyn ToolClient>>`
+a `fn(&RuntimeConfig, &Arc<dyn ToolClient>) -> anyhow::Result<Arc<dyn ToolClient>>`
+(resta un puntatore a funzione semplice, non una closure — il registro è un array
+`const`). Il secondo parametro (`default_tools`, il `ToolClient` condiviso del
+cursore) non è usato da nessun canale odierno, ma è nella firma per un ipotetico
+canale futuro che voglia avvolgerlo/delegargli invece di costruirne uno nuovo.
+`resolve_channel_tools` guadagna un quarto parametro `rt: &RuntimeConfig`, e
+`ws::serve`/`handle_connection` un `rt: Arc<RuntimeConfig>` — thread fino a lì da
+`main()`, mai ri-derivato.
+
+### `memory_file_path` — una sola copia
+
+`ai_adapter.rs` porta ora l'UNICA implementazione: `pub fn memory_file_path
+(config_dir: &Path, label_base: &str) -> PathBuf`. `aichat/service.rs` (che aveva
+una copia quasi identica, con lo stesso commento "duplicazione deliberata" della v1)
+la riusa in `append_memory_note`. `LlmAdapter` guadagna un campo `config_dir`
+(passato al costruttore da `main.rs`/`llms_config::build_adapter`), usato da
+`chat_reply`/`chat_autoparticipate` (memoria) e da `respond` (`needs_ai_name_prompt_at`
+per il nudge one-shot "come ti chiami?").
+
+`agent::dispatch_tool` — il wrapper a 3 parametri che ri-derivava da solo il path di
+`network.json` (`aichat::config::resolve_network_json_path`, a sua volta basata
+sull'API v1 rimossa) — è stato **eliminato**. `agent::dispatch_tool_at` (4°
+parametro: `network_json_path: &Path`) è ora l'unica funzione: i chiamanti reali
+(`McpToolClient`/`CwdTrackingToolClient`, che tengono `config_dir` come campo)
+passano `self.config_dir.join("network.json")` esplicitamente — stesso principio
+del `RuntimeConfig` sopra, applicato a un caso più piccolo.
+
+### Log su file
+
+`main()` inizializza il tracing con un layer su file (`tracing_appender::rolling::
+daily`, cartella da `rt.log_dir()` — default `Configuration/logs`, nome file
+`orchestrator.log`) SEMPRE attivo, più uno stderr layer SOLO con `--console-log`
+(passato da `init_*.ps1` per il debug interattivo). Un orchestrator avviato in
+autostart (nessun terminale) non deve bloccarsi/sporcare un handle di console che
+non ha. Livello da `startup.json.log.level` (default `"info"`), non più
+`RUST_LOG`/`EnvFilter` da env.
+
+### Test — TDD, RED verificato
+
+Nuovi test scritti PRIMA dell'implementazione (RED = errore di compilazione, non
+solo assert falliti — le vecchie firme non esistevano più):
+`tool_client::tests::mcp_server_path_comes_from_startup_paths`,
+`nmap_tool_client::tests::mcp_nmap_path_comes_from_startup_paths`,
+`python_mcp_tool_client::tests::python_client_paths_come_from_startup_pytools_dir`
+(quest'ultimo richiede `{}`/`.display()` nei messaggi `bail!` di `resolve()` invece
+di `{:?}` — il Debug di `PathBuf` su Windows raddoppia i backslash, corrompendo
+l'asserzione sul path atteso dopo `.replace('\\', "/")`), più
+`runtime_config::tests::*` (4 test sugli accessor derivati). Test di integrazione
+con il binario `mcp-server` REALE (non un fake), riscritti per Task 4:
+`tool_client::tests::mcp_tool_client_run_in_session` e
+`mcp_tool_client_save_routine_then_get_routine_content_round_trips` — quest'ultimo
+verifica che il figlio abbia DAVVERO ricevuto `--config-dir` controllando che
+`index.json` sia finito dentro la `config_dir` di test (una tempdir chiamata
+`Configuration`, cui il `routines_dir` di default risolve), non altrove o assente.
+
 ## Fix review finale whole-branch — canale WS "config-market-data-test" non registrato (v0.41.19)
 
 Piano `2026-08-14-financial-markets-ibkr-data-source`, fix wave post-review

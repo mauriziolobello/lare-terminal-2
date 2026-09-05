@@ -1,5 +1,7 @@
 //! Persistenza delle note in `notes.json` — stesso pattern di `aichat/config.rs`
-//! (JSON pretty, `load_or_generate`/`save`), in `%LOCALAPPDATA%\dev.lare.terminal\`.
+//! (JSON pretty, `load_or_generate`/`save`), in `<config_dir>` (2.0, D6 —
+//! `main.rs` passa `config_dir.join("notes.json")`, nessuna variabile
+//! d'ambiente).
 //! Store di proprietà dell'orchestrator (design §8): sopravvive a UI chiusa e
 //! a un riavvio dell'orchestrator, necessario per rispondere a un digest anche
 //! senza che l'utente abbia mai aperto la Library.

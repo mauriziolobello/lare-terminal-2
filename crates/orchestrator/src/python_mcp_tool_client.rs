@@ -146,6 +146,9 @@ pub struct PythonMcpToolClient {
     /// Percorso dello script/server MCP da passare come argomento
     /// all'interprete — anch'esso risolto una volta sola in `resolve()`.
     script_path: std::path::PathBuf,
+    /// Cartella di configurazione (2.0, D6) — passata al figlio come
+    /// `--config-dir` allo spawn (vedi `ensure_connected`, sotto).
+    config_dir: std::path::PathBuf,
     /// Handle MCP verso il processo Python connesso, se lo spawn lazy è già
     /// avvenuto — `None` finché nessuna `dispatch()` è ancora passata da
     /// `ensure_connected()`. Vedi il doc comment del tipo per l'invariante
@@ -179,43 +182,25 @@ pub struct PythonMcpToolClient {
 impl PythonMcpToolClient {
     /// Risolve interprete + script per `domain_id`/`script_relpath`.
     ///
-    /// `<root>` è SEMPRE la radice `scripts/pytools/` (mai la cartella di un
-    /// dominio specifico) — `env_override` se la variabile è impostata,
-    /// altrimenti `scripts/pytools/` sibling di `current_exe()`. `domain_id` viene
-    /// unito sopra `<root>` in ENTRAMBI i rami, simmetricamente: prima di
-    /// questo fix i due rami erano asimmetrici (con la variabile impostata,
-    /// il suo valore veniva preso COME la cartella del dominio, senza unire
-    /// `domain_id` di nuovo) — asimmetria che rendeva la variabile
-    /// obbligatoria de-facto (il ramo di default non risolve mai: niente
-    /// copia `scripts/pytools/` accanto all'eseguibile) E la rendeva "personale" di
-    /// un solo dominio, mentre questo client è deliberatamente generico e
-    /// deve servire più domini futuri senza una variabile diversa per
-    /// ciascuno. Stesso schema concettuale di `NmapToolClient::resolve`
-    /// (env-var-first, poi sibling dell'eseguibile), ma qui la radice è
-    /// UN livello sopra la cartella finale, non la cartella finale stessa.
-    /// Interprete: `venv/Scripts/python.exe` su Windows, `venv/bin/python3`
-    /// su Unix (helper unico, stile `PathProvider`). Verifica che interprete
-    /// E script esistano PRIMA di spawnare: mancante → `Err` leggibile
-    /// (nomina l'ambito e il file mancante), mai un panic — l'utente deve
-    /// poter capire "crea il venv" da solo, senza leggere il sorgente.
+    /// `<root>` è SEMPRE la radice `pytools/` (mai la cartella di un dominio
+    /// specifico) — da `startup.json.paths.pytools_dir` (default `"pytools"`),
+    /// risolta rispetto alla radice del deploy (D6, 2.0: nessuna env var —
+    /// la v1 leggeva `env_override` qui). `domain_id` si unisce sopra
+    /// `<root>`. Interprete: `venv/Scripts/python.exe` su Windows,
+    /// `venv/bin/python3` su Unix (helper unico, stile `PathProvider`).
+    /// Verifica che interprete E script esistano PRIMA di spawnare: mancante
+    /// → `Err` leggibile (nomina l'ambito e il file mancante), mai un panic
+    /// — l'utente deve poter capire "crea il venv" da solo, senza leggere
+    /// il sorgente.
     pub fn resolve(
+        config_dir: &std::path::Path,
+        cfg: &startup_config::StartupConfig,
         domain_id: &str,
         script_relpath: &str,
         tool_specs: Vec<PythonToolSpec>,
         call_timeout_secs: u64,
-        env_override: &str,
     ) -> anyhow::Result<Self> {
-        let pytools_root = if let Ok(path) = std::env::var(env_override) {
-            std::path::PathBuf::from(path)
-        } else {
-            let exe = std::env::current_exe()?;
-            let parent = exe
-                .parent()
-                .ok_or_else(|| anyhow::anyhow!("current_exe has no parent directory"))?;
-            parent.join("pytools")
-        };
-        // `domain_id` si unisce SEMPRE qui, fuori dal ramo if/else sopra —
-        // è la parte del fix: prima veniva unito solo nel ramo di default.
+        let pytools_root = startup_config::StartupConfig::resolve_path(config_dir, &cfg.paths.pytools_dir);
         let root = pytools_root.join(domain_id);
 
         #[cfg(windows)]
@@ -227,16 +212,18 @@ impl PythonMcpToolClient {
 
         if !python_path.exists() {
             anyhow::bail!(
-                "venv Python non trovato per \"{domain_id}\": {python_path:?} — crea il virtual environment (vedi scripts/pytools/README.md)"
+                "venv Python non trovato per \"{domain_id}\": {} — crea il virtual environment (vedi scripts/pytools/README.md)",
+                python_path.display()
             );
         }
         if !script_path.exists() {
-            anyhow::bail!("script non trovato per \"{domain_id}\": {script_path:?}");
+            anyhow::bail!("script non trovato per \"{domain_id}\": {}", script_path.display());
         }
 
         Ok(Self {
             python_path,
             script_path,
+            config_dir: config_dir.to_path_buf(),
             peer: Arc::new(Mutex::new(None)),
             child_pid: Arc::new(Mutex::new(None)),
             killer: Arc::new(RealProcessKiller),
@@ -260,7 +247,11 @@ impl PythonMcpToolClient {
 
         let child_cmd = {
             let mut c = tokio::process::Command::new(&self.python_path);
+            // `--config-dir`: nessuna env var (D6) — stessa cartella
+            // dell'orchestrator, passata esplicitamente allo script.
             c.arg(&self.script_path)
+                .arg(startup_config::CONFIG_DIR_FLAG)
+                .arg(&self.config_dir)
                 .stdin(std::process::Stdio::piped())
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::inherit());
@@ -621,6 +612,29 @@ mod tests {
     use super::*;
     use std::io::Write;
 
+    /// RED (Task 4, brief Step 3): `PythonMcpToolClient::resolve` prende
+    /// `config_dir`/`StartupConfig` al posto di `env_override` — niente più
+    /// env var (D6). Il venv non esiste apposta: verifica che il messaggio
+    /// d'errore citi il percorso ATTESO, calcolato da `paths.pytools_dir`
+    /// (default `"pytools"`) risolto rispetto alla radice del deploy (padre
+    /// di `config_dir`).
+    #[test]
+    fn python_client_paths_come_from_startup_pytools_dir() {
+        let cfg = startup_config::StartupConfig::default(); // pytools_dir = "pytools"
+        let r = PythonMcpToolClient::resolve(
+            std::path::Path::new("C:/Lare/Configuration"),
+            &cfg,
+            "python-ping",
+            "server.py",
+            vec![],
+            30,
+        );
+        // il venv non esiste: l'errore deve citare il percorso atteso, calcolato dalla radice del deploy
+        let msg = format!("{}", r.err().unwrap());
+        assert!(msg.contains("python-ping"));
+        assert!(msg.replace('\\', "/").contains("C:/Lare/pytools/python-ping"));
+    }
+
     /// Crea in una tempdir un venv FINTO (solo il file dell'interprete, vuoto)
     /// e opzionalmente lo script — abbastanza per superare i controlli di
     /// `Path::exists()` di `resolve()`, senza bisogno di Python reale.
@@ -642,16 +656,22 @@ mod tests {
         domain_dir
     }
 
+    /// `cfg.paths.pytools_dir` assoluto → usato COSÌ COM'È da
+    /// `StartupConfig::resolve_path` (mai risolto contro la radice del
+    /// deploy): comodo nei test per puntare direttamente a una tempdir,
+    /// `config_dir` passato è quindi irrilevante (qualunque valore va bene).
+    fn cfg_with_pytools_root(root: &std::path::Path) -> startup_config::StartupConfig {
+        let mut cfg = startup_config::StartupConfig::default();
+        cfg.paths.pytools_dir = root.display().to_string();
+        cfg
+    }
+
     #[test]
     fn resolve_errs_with_readable_message_when_venv_missing() {
         let tmp = tempfile::tempdir().unwrap();
         fake_domain_dir(tmp.path(), "test-domain", false, true);
-        // La variabile punta ora alla RADICE scripts/pytools/ (tmp.path()), non più
-        // direttamente alla cartella del dominio: `resolve()` deve unire
-        // `domain_id` sopra, in ENTRAMBI i rami (con o senza override).
-        std::env::set_var("LARE_PYTOOLS_TEST_DIR_1", tmp.path());
-        let result = PythonMcpToolClient::resolve("test-domain", "server.py", vec![], 60, "LARE_PYTOOLS_TEST_DIR_1");
-        std::env::remove_var("LARE_PYTOOLS_TEST_DIR_1");
+        let cfg = cfg_with_pytools_root(tmp.path());
+        let result = PythonMcpToolClient::resolve(std::path::Path::new("unused"), &cfg, "test-domain", "server.py", vec![], 60);
         // `.expect_err()`/`.unwrap_err()` richiedono `T: Debug` sul tipo Ok —
         // `PythonMcpToolClient` non lo implementa (contiene `Arc<dyn
         // ProcessKiller>`, un trait object senza supertrait Debug), quindi un
@@ -669,10 +689,8 @@ mod tests {
     fn resolve_errs_with_readable_message_when_script_missing() {
         let tmp = tempfile::tempdir().unwrap();
         fake_domain_dir(tmp.path(), "test-domain", true, false);
-        // Idem: la variabile è la radice scripts/pytools/, non la cartella dominio.
-        std::env::set_var("LARE_PYTOOLS_TEST_DIR_2", tmp.path());
-        let result = PythonMcpToolClient::resolve("test-domain", "server.py", vec![], 60, "LARE_PYTOOLS_TEST_DIR_2");
-        std::env::remove_var("LARE_PYTOOLS_TEST_DIR_2");
+        let cfg = cfg_with_pytools_root(tmp.path());
+        let result = PythonMcpToolClient::resolve(std::path::Path::new("unused"), &cfg, "test-domain", "server.py", vec![], 60);
         let err = match result {
             Err(e) => e,
             Ok(_) => panic!("script mancante deve produrre Err, non Ok"),
@@ -684,10 +702,8 @@ mod tests {
     fn resolve_succeeds_when_venv_and_script_exist() {
         let tmp = tempfile::tempdir().unwrap();
         fake_domain_dir(tmp.path(), "test-domain", true, true);
-        // Idem: la variabile è la radice scripts/pytools/, non la cartella dominio.
-        std::env::set_var("LARE_PYTOOLS_TEST_DIR_3", tmp.path());
-        let result = PythonMcpToolClient::resolve("test-domain", "server.py", vec![], 60, "LARE_PYTOOLS_TEST_DIR_3");
-        std::env::remove_var("LARE_PYTOOLS_TEST_DIR_3");
+        let cfg = cfg_with_pytools_root(tmp.path());
+        let result = PythonMcpToolClient::resolve(std::path::Path::new("unused"), &cfg, "test-domain", "server.py", vec![], 60);
         assert!(result.is_ok(), "venv e script presenti: resolve() deve riuscire, errore: {:?}", result.err());
     }
 
@@ -695,6 +711,7 @@ mod tests {
         PythonMcpToolClient {
             python_path: "unused".into(),
             script_path: "unused".into(),
+            config_dir: "unused".into(),
             peer: Arc::new(Mutex::new(None)),
             child_pid: Arc::new(Mutex::new(child_pid)),
             killer,
@@ -788,6 +805,7 @@ mod tests {
         let client = PythonMcpToolClient {
             python_path: "does-not-exist.exe".into(),
             script_path: "does-not-exist.py".into(),
+            config_dir: "unused".into(),
             peer: Arc::new(Mutex::new(None)),
             child_pid: Arc::new(Mutex::new(None)),
             killer: Arc::new(FakeProcessKiller::default()),
@@ -810,13 +828,17 @@ mod tests {
     #[ignore = "richiede scripts/pytools/python-ping/venv creato a mano"]
     async fn real_pyping_roundtrip_via_venv() {
         let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-        // La variabile punta alla RADICE scripts/pytools/ (non più a scripts/pytools/python-ping/
-        // direttamente): `resolve()` unisce "python-ping" sopra da solo, come fa
-        // in produzione (`external_channel.rs` chiama `resolve("python-ping", ...)`).
+        // `pytools_dir` assoluto nella `StartupConfig` di test: punta alla
+        // RADICE scripts/pytools/ — `resolve()` unisce "python-ping" sopra
+        // da solo, come fa in produzione (`external_channel.rs` chiama
+        // `resolve(config_dir, cfg, "python-ping", ...)`). `config_dir`
+        // passato è irrilevante (path assoluto vince — D6, niente env var).
         let pytools_root = repo_root.join("scripts").join("pytools");
-        std::env::set_var("LARE_PYTOOLS_TEST_REAL", &pytools_root);
+        let cfg = cfg_with_pytools_root(&pytools_root);
 
         let client = PythonMcpToolClient::resolve(
+            std::path::Path::new("unused"),
+            &cfg,
             "python-ping",
             "server.py",
             vec![PythonToolSpec {
@@ -833,13 +855,11 @@ mod tests {
                 defer_report_to_turn_end: false,
             }],
             60,
-            "LARE_PYTOOLS_TEST_REAL",
         )
         .expect("resolve() deve riuscire — hai creato il venv? vedi scripts/pytools/README.md");
         let outcome = client
             .dispatch("pyping", &serde_json::json!({"message": "ciao"}))
             .await;
-        std::env::remove_var("LARE_PYTOOLS_TEST_REAL");
 
         assert!(!outcome.is_error, "dispatch fallito: {outcome:?}");
         assert!(outcome.output.contains("ciao"), "atteso un'eco di 'ciao': {outcome:?}");
@@ -859,9 +879,11 @@ mod tests {
     async fn real_search_ticker_multi_match_roundtrip_via_venv() {
         let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let pytools_root = repo_root.join("scripts").join("pytools");
-        std::env::set_var("LARE_PYTOOLS_TEST_REAL_FM", &pytools_root);
+        let cfg = cfg_with_pytools_root(&pytools_root);
 
         let client = PythonMcpToolClient::resolve(
+            std::path::Path::new("unused"),
+            &cfg,
             "financial-markets",
             "server.py",
             vec![PythonToolSpec {
@@ -878,11 +900,9 @@ mod tests {
                 defer_report_to_turn_end: false,
             }],
             120,
-            "LARE_PYTOOLS_TEST_REAL_FM",
         )
         .expect("resolve() deve riuscire — hai creato il venv? vedi scripts/pytools/README.md");
         let outcome = client.dispatch("search_ticker", &serde_json::json!({"query": "Novo Nordisk"})).await;
-        std::env::remove_var("LARE_PYTOOLS_TEST_REAL_FM");
 
         assert!(!outcome.is_error, "dispatch fallito: {outcome:?}");
         // Entrambi i ticker devono comparire: ciascuno arriva in un blocco di
@@ -910,9 +930,11 @@ mod tests {
     async fn real_stock_report_roundtrip_via_venv() {
         let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
         let pytools_root = repo_root.join("scripts").join("pytools");
-        std::env::set_var("LARE_PYTOOLS_TEST_REAL_FM2", &pytools_root);
+        let cfg = cfg_with_pytools_root(&pytools_root);
 
         let client = PythonMcpToolClient::resolve(
+            std::path::Path::new("unused"),
+            &cfg,
             "financial-markets",
             "server.py",
             vec![PythonToolSpec {
@@ -932,11 +954,9 @@ mod tests {
                 defer_report_to_turn_end: true,
             }],
             120,
-            "LARE_PYTOOLS_TEST_REAL_FM2",
         )
         .expect("resolve() deve riuscire — hai creato il venv? vedi scripts/pytools/README.md");
         let outcome = client.dispatch("stock_report", &serde_json::json!({"ticker": "AAPL"})).await;
-        std::env::remove_var("LARE_PYTOOLS_TEST_REAL_FM2");
 
         assert!(!outcome.is_error, "dispatch fallito (report crashato?): {outcome:?}");
         for heading in ["## Fondamentale", "## Grafici", "## Option chain", "## Comparative"] {

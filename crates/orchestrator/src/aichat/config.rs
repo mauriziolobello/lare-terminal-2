@@ -2,14 +2,14 @@
 //! Sorgente di verità per enabled/label_base/chat_port; riletta all'avvio del servizio.
 
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// Configurazione del canale AI Chat.
 ///
-/// Viene serializzata come JSON in `%LOCALAPPDATA%/dev.lare.terminal/aichat.json`
-/// (risolta in `main.rs` da `LOCALAPPDATA`, non `APPDATA`; o equivalente su
-/// macOS/Linux). Un campo `enabled: false` basta a tenere
-/// tutto il servizio dormiente senza rimuovere il file.
+/// Viene serializzata come JSON in `<config_dir>/network.json` (2.0, D6 —
+/// `config_dir` risolto una volta in `main()`, nessuna variabile
+/// d'ambiente). Un campo `enabled: false` basta a tenere tutto il servizio
+/// dormiente senza rimuovere il file.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AiChatConfig {
     /// Se false, il servizio non parte (default: spento).
@@ -128,58 +128,15 @@ pub fn load_or_generate_with_migration(new_path: &Path, legacy_path: &Path) -> A
     load_or_generate(new_path)
 }
 
-/// Percorso di `network.json`, con la STESSA precedenza a 3 livelli che
-/// `main.rs` usa per risolvere `local_dir` (env `LARE_LOCAL_DIR` > campo
-/// `local_dir` di `startup.json`, accanto all'eseguibile > default
-/// `%LOCALAPPDATA%\dev.lare.terminal\`).
-///
-/// UNICO punto di risoluzione, condiviso da `agent::dispatch_tool`
-/// (scrittura di `ai_display_name`) e `ai_adapter::needs_ai_name_prompt`
-/// (lettura, per il nudge one-shot): prima di questa funzione i due moduli
-/// avevano ciascuno una propria copia quasi identica che NON leggeva
-/// `startup.json` — su una macchina con `startup.json{local_dir:...}`
-/// impostato senza la env var corrispondente, i due avrebbero risolto due
-/// path DIVERSI in silenzio, e un nickname scritto da uno non sarebbe mai
-/// stato visto dall'altro (Important #4, review finale whole-branch:
-/// `Docs/superpowers/plans/2026-08-13-aichat-display-names.md`).
-pub fn resolve_network_json_path() -> PathBuf {
-    let exe_dir = startup_config::exe_dir().ok();
-    // A differenza di `main.rs` (che logga un `Err` di `load_from_dir` una
-    // sola volta all'avvio), questa funzione può girare fino a
-    // `agent::MAX_ITERATIONS` volte per singolo turno AI (chiamata da
-    // `needs_ai_name_prompt` ad ogni iterazione del loop in
-    // `ai_adapter.rs`): un `tracing::warn!` qui produrrebbe fino a 8 righe
-    // di log identiche per turno. `Err`/`None` sono quindi scartati in
-    // silenzio con `.ok().flatten()` — stesso fail-safe già in uso su
-    // questo file (`load_or_generate`: un file assente/corrotto non è un
-    // errore fatale, si cade sul default).
-    let startup_cfg = exe_dir
-        .as_deref()
-        .and_then(|d| startup_config::load_from_dir(d).ok().flatten());
-    resolve_network_json_path_in(
-        startup_cfg.as_ref(),
-        std::env::var("LARE_LOCAL_DIR").ok().as_deref(),
-    )
-}
-
-/// Versione testabile di `resolve_network_json_path`, parametrizzata su
-/// `startup_cfg`/`env_value` invece di leggerli internamente (I/O reale su
-/// `exe_dir()`/env) — stesso principio DI già in uso nel crate per
-/// `memory_file_path`/`memory_file_path_with_base` (`ai_adapter.rs`) e
-/// `dispatch_tool`/`dispatch_tool_at` (`agent.rs`). Pura: nessun I/O, solo
-/// la logica di precedenza (delegata a `startup_config::resolve`, già
-/// testata in quel crate).
-pub fn resolve_network_json_path_in(
-    startup_cfg: Option<&startup_config::StartupConfig>,
-    env_value: Option<&str>,
-) -> PathBuf {
-    startup_config::resolve(
-        env_value,
-        startup_cfg.and_then(|c| c.local_dir.as_deref()),
-        startup_config::default_local_dir,
-    )
-    .join("network.json")
-}
+// `resolve_network_json_path`/`resolve_network_json_path_in` (v1) sono state
+// RIMOSSE in Task 4 (2.0, D6): risolvevano `network.json` da sole via env
+// var/`startup.json` (`LARE_LOCAL_DIR`, `startup_config::resolve`, API oggi
+// non più esistenti). Il path di `network.json` è ormai SEMPRE
+// `<config_dir>/network.json` (vedi `RuntimeConfig::network_json_path` in
+// `runtime_config.rs`) — i chiamanti reali (`agent::dispatch_tool_at`,
+// `ai_adapter::needs_ai_name_prompt_at`) lo ricevono già risolto da chi li
+// invoca (`McpToolClient`/`CwdTrackingToolClient`/`LlmAdapter`, che tengono
+// `config_dir` come campo), mai ri-derivato qui.
 
 #[cfg(test)]
 mod tests {
@@ -341,50 +298,9 @@ mod tests {
         assert_eq!(cfg.ai_display_name, None);
     }
 
-    // -------------------------------------------------------------------------
-    // `resolve_network_json_path`/`resolve_network_json_path_in` — risoluzione
-    // UNIFICATA del path di network.json (fix review finale, Important #4:
-    // Docs/superpowers/plans/2026-08-13-aichat-display-names.md). Prima di
-    // questo fix, `agent.rs` e `ai_adapter.rs` avevano ciascuno una copia
-    // quasi identica che NON leggeva `startup.json` — su una macchina con
-    // `startup.json{local_dir:...}` impostato senza la env var
-    // corrispondente, i due moduli avrebbero risolto due path DIVERSI in
-    // silenzio (il tool `set_ai_display_name` avrebbe scritto un file che
-    // `needs_ai_name_prompt`/`main.rs` non leggono mai).
-    // -------------------------------------------------------------------------
-
-    #[test]
-    fn resolve_network_json_path_in_uses_default_when_no_env_no_startup_cfg() {
-        let p = resolve_network_json_path_in(None, None);
-        assert_eq!(p, startup_config::default_local_dir().join("network.json"));
-    }
-
-    #[test]
-    fn resolve_network_json_path_in_prefers_startup_cfg_local_dir_over_default() {
-        let cfg = startup_config::StartupConfig {
-            local_dir: Some("C:/Lare Terminal/Local".to_string()),
-            ..Default::default()
-        };
-        let p = resolve_network_json_path_in(Some(&cfg), None);
-        assert_eq!(p, PathBuf::from("C:/Lare Terminal/Local").join("network.json"));
-    }
-
-    #[test]
-    fn resolve_network_json_path_in_env_wins_over_startup_cfg_local_dir() {
-        let cfg = startup_config::StartupConfig {
-            local_dir: Some("C:/from-startup-json".to_string()),
-            ..Default::default()
-        };
-        let p = resolve_network_json_path_in(Some(&cfg), Some("C:/from-env"));
-        assert_eq!(p, PathBuf::from("C:/from-env").join("network.json"));
-    }
-
-    #[test]
-    fn resolve_network_json_path_in_ignores_startup_cfg_without_local_dir() {
-        // Un `startup.json` presente ma senza il campo `local_dir` (altri
-        // campi impostati, es. `llms_config`) non deve deviare dal default.
-        let cfg = startup_config::StartupConfig { llms_config: Some("x".to_string()), ..Default::default() };
-        let p = resolve_network_json_path_in(Some(&cfg), None);
-        assert_eq!(p, startup_config::default_local_dir().join("network.json"));
-    }
+    // `resolve_network_json_path`/`resolve_network_json_path_in` e i loro
+    // test sono stati RIMOSSI in Task 4 (2.0, D6) — vedi il commento al posto
+    // delle due funzioni sopra. La risoluzione del path di `network.json` è
+    // ormai coperta da `runtime_config::RuntimeConfig::network_json_path`
+    // (test in `runtime_config.rs`).
 }

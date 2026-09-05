@@ -7,9 +7,11 @@
 //! Un solo provider attivo per macchina serve sia il cursore sia AI Chat
 //! (decisione utente, vedi memoria `multi-llm-openrouter`).
 //!
-//! Vive in `%LOCALAPPDATA%\dev.lare.terminal\llms.json` (Slice 5, corregge la Slice 4:
-//! non più `launch_dir`-relativo — un processo UI separato deve poter risolvere lo
-//! stesso path senza condividere la cartella di lancio dell'orchestrator).
+//! Vive in `<config_dir>/llms.json` (2.0: `config_dir` è `--config-dir` o
+//! `<exe_dir>/Configuration` di default — vedi `startup_config` — nessuna
+//! variabile d'ambiente, D6. `ui.exe` risolve lo stesso `config_dir` con la
+//! stessa regola, quindi legge sempre lo stesso file senza condividere una
+//! cartella di lancio).
 //!
 //! **Sicurezza:** le API key in `api_keys` non vengono MAI loggate né incluse
 //! nei messaggi di errore — stessa cautela già presa in `telegram::settings`
@@ -108,27 +110,13 @@ fn resolve_anthropic_base_url(provider: &ProviderConfig) -> String {
         .unwrap_or_else(|| DEFAULT_ANTHROPIC_BASE_URL.to_string())
 }
 
-/// Risolve il path di `llms/llms.json`. Precedenza a 3 livelli via
-/// `startup_config::resolve`: `LARE_LLMS_CONFIG` (env, se impostata e non
-/// vuota dopo trim) > campo `llms_config` di `startup.json` (se presente) >
-/// `<local_dir>/llms.json`. `local_dir` è già risolto una volta in
-/// `main()` — questa funzione non ri-deriva più `%LOCALAPPDATA%\
-/// dev.lare.terminal\` per conto proprio. Stesso path risolto
-/// identicamente dall'orchestrator e dal tab `/config` della UI (Slice 5),
-/// senza bisogno che condividano una cartella di lancio — quando
-/// `startup.json` non imposta `local_dir`/`llms_config`. Se lo fa, questa
-/// parità NON è più garantita fino alla fase 2 di `startup-config`: `ui.exe`
-/// non legge ancora `startup.json` (vedi `crates/startup-config/src/lib.rs:3-4`
-/// e `crates/ui/src-tauri/src/llm_settings.rs::llms_json_path`, che risolve
-/// solo da `LARE_LOCAL_DIR`/`LOCALAPPDATA`/`.lare-data`) — l'orchestrator e
-/// il tab `/config` possono quindi risolvere a due `llms.json` DIVERSI
-/// finché la fase 2 non aggiorna anche `ui`.
-pub fn resolve_path(
-    env_value: Option<&str>,
-    file_value: Option<&str>,
-    local_dir: &Path,
-) -> PathBuf {
-    startup_config::resolve(env_value, file_value, || local_dir.join("llms.json"))
+/// Risolve il path di `llms/llms.json`: SEMPRE `<config_dir>/llms.json`,
+/// nessuna variabile d'ambiente né campo `startup.json` dedicato (D6, 2.0
+/// — la v1 aveva 3 livelli di precedenza qui, `LARE_LLMS_CONFIG` compreso).
+/// `config_dir` è la stessa cartella risolta una volta in `main()` da
+/// `startup_config::config_dir_from_process()`.
+pub fn resolve_path(config_dir: &Path) -> PathBuf {
+    config_dir.join("llms.json")
 }
 
 /// Carica `llms/llms.json` dal path indicato.
@@ -159,7 +147,12 @@ pub fn find_active(cfg: &LlmsConfig) -> Result<&ProviderConfig, String> {
     cfg.providers
         .iter()
         .find(|p| p.name == cfg.active)
-        .ok_or_else(|| format!("provider attivo '{}' non trovato in providers[]", cfg.active))
+        .ok_or_else(|| {
+            format!(
+                "provider attivo '{}' non trovato in providers[]",
+                cfg.active
+            )
+        })
 }
 
 /// Risolve la API key del provider (via `api_key_ref`). Il valore non compare
@@ -169,7 +162,12 @@ pub fn resolve_api_key(cfg: &LlmsConfig, provider: &ProviderConfig) -> Result<St
     cfg.api_keys
         .get(&provider.api_key_ref)
         .cloned()
-        .ok_or_else(|| format!("api_key_ref '{}' non trovato in api_keys", provider.api_key_ref))
+        .ok_or_else(|| {
+            format!(
+                "api_key_ref '{}' non trovato in api_keys",
+                provider.api_key_ref
+            )
+        })
 }
 
 /// Costruisce l'`AiAdapter` per il provider attivo di `cfg`. `Err` copre
@@ -177,7 +175,12 @@ pub fn resolve_api_key(cfg: &LlmsConfig, provider: &ProviderConfig) -> Result<St
 /// mancante, campo `provider` sconosciuto) — il chiamante (`main.rs`, Task 2)
 /// tratta QUALUNQUE `Err` come "usa il comportamento pre-Slice-4", mai come
 /// un crash.
-pub fn build_adapter(cfg: &LlmsConfig) -> Result<Arc<dyn AiAdapter>, String> {
+///
+/// `config_dir` viene passato a `LlmAdapter` (2.0, Task 4): serve a risolvere
+/// `memory-{label_base}.md` (`ai_adapter::memory_file_path`) quando questo
+/// adapter viene usato anche per il canale AI Chat — nessuna variabile
+/// d'ambiente, D6.
+pub fn build_adapter(cfg: &LlmsConfig, config_dir: &Path) -> Result<Arc<dyn AiAdapter>, String> {
     let provider = find_active(cfg)?;
     let key = resolve_api_key(cfg, provider)?;
     match provider.provider.as_str() {
@@ -189,7 +192,11 @@ pub fn build_adapter(cfg: &LlmsConfig) -> Result<Arc<dyn AiAdapter>, String> {
                 ClaudeBackend::new(http, provider.model.clone(), max_tokens)
                     .with_web_fetch_supported(provider.web_fetch_supported),
             );
-            Ok(Arc::new(LlmAdapter::new(backend, provider.name.clone())))
+            Ok(Arc::new(LlmAdapter::new(
+                backend,
+                provider.name.clone(),
+                config_dir.to_path_buf(),
+            )))
         }
         "openrouter" => {
             // `HttpOpenRouterClient::new` incapsula già il default (`openrouter.ai`) — a
@@ -204,7 +211,11 @@ pub fn build_adapter(cfg: &LlmsConfig) -> Result<Arc<dyn AiAdapter>, String> {
                 provider.model.clone(),
                 provider.max_tokens,
             ));
-            Ok(Arc::new(LlmAdapter::new(backend, provider.name.clone())))
+            Ok(Arc::new(LlmAdapter::new(
+                backend,
+                provider.name.clone(),
+                config_dir.to_path_buf(),
+            )))
         }
         other => Err(format!(
             "provider '{other}' sconosciuto (atteso 'anthropic' o 'openrouter')"
@@ -237,31 +248,9 @@ mod tests {
     // ── resolve_path ─────────────────────────────────────────────────────
 
     #[test]
-    fn resolve_path_env_value_wins() {
-        let p = resolve_path(Some("D:/custom/llms.json"), None, PathBuf::from("/local").as_path());
-        assert_eq!(p, PathBuf::from("D:/custom/llms.json"));
-    }
-
-    #[test]
-    fn resolve_path_file_value_wins_when_env_absent() {
-        let p = resolve_path(
-            None,
-            Some("D:/from-startup-json/llms.json"),
-            PathBuf::from("/local").as_path(),
-        );
-        assert_eq!(p, PathBuf::from("D:/from-startup-json/llms.json"));
-    }
-
-    #[test]
-    fn resolve_path_falls_back_to_local_dir_join_llms_json() {
-        let p = resolve_path(None, None, PathBuf::from("/local").as_path());
-        assert_eq!(p, PathBuf::from("/local").join("llms.json"));
-    }
-
-    #[test]
-    fn resolve_path_ignores_empty_env_value() {
-        let p = resolve_path(Some(""), None, PathBuf::from("/local").as_path());
-        assert_eq!(p, PathBuf::from("/local").join("llms.json"));
+    fn resolve_path_is_config_dir_join_llms_json() {
+        let p = resolve_path(PathBuf::from("/config").as_path());
+        assert_eq!(p, PathBuf::from("/config").join("llms.json"));
     }
 
     // ── load ──────────────────────────────────────────────────────────────────
@@ -363,7 +352,10 @@ mod tests {
     fn resolve_anthropic_base_url_defaults_to_anthropic_when_absent() {
         let cfg: LlmsConfig = serde_json::from_str(&sample_config("claude-direct")).unwrap();
         let provider = find_active(&cfg).unwrap();
-        assert_eq!(resolve_anthropic_base_url(provider), "https://api.anthropic.com");
+        assert_eq!(
+            resolve_anthropic_base_url(provider),
+            "https://api.anthropic.com"
+        );
     }
 
     #[test]
@@ -371,7 +363,10 @@ mod tests {
         let mut cfg: LlmsConfig = serde_json::from_str(&sample_config("claude-direct")).unwrap();
         cfg.providers[1].base_url = Some("https://api.deepseek.com/anthropic".to_string());
         let provider = find_active(&cfg).unwrap();
-        assert_eq!(resolve_anthropic_base_url(provider), "https://api.deepseek.com/anthropic");
+        assert_eq!(
+            resolve_anthropic_base_url(provider),
+            "https://api.deepseek.com/anthropic"
+        );
     }
 
     // ── build_adapter ─────────────────────────────────────────────────────────
@@ -379,14 +374,14 @@ mod tests {
     #[test]
     fn build_adapter_selects_openrouter_backend_by_provider_name() {
         let cfg: LlmsConfig = serde_json::from_str(&sample_config("deepseek-openrouter")).unwrap();
-        let adapter = build_adapter(&cfg).unwrap();
+        let adapter = build_adapter(&cfg, Path::new("/test-config")).unwrap();
         assert_eq!(adapter.provider(), "deepseek-openrouter");
     }
 
     #[test]
     fn build_adapter_selects_claude_backend_by_provider_name() {
         let cfg: LlmsConfig = serde_json::from_str(&sample_config("claude-direct")).unwrap();
-        let adapter = build_adapter(&cfg).unwrap();
+        let adapter = build_adapter(&cfg, Path::new("/test-config")).unwrap();
         assert_eq!(adapter.provider(), "claude-direct");
     }
 
@@ -397,7 +392,7 @@ mod tests {
     fn build_adapter_succeeds_with_custom_anthropic_base_url() {
         let mut cfg: LlmsConfig = serde_json::from_str(&sample_config("claude-direct")).unwrap();
         cfg.providers[1].base_url = Some("https://api.deepseek.com/anthropic".to_string());
-        let adapter = build_adapter(&cfg).unwrap();
+        let adapter = build_adapter(&cfg, Path::new("/test-config")).unwrap();
         assert_eq!(adapter.provider(), "claude-direct");
     }
 
@@ -408,9 +403,10 @@ mod tests {
     /// `openrouter.ai`, invariato).
     #[test]
     fn build_adapter_succeeds_with_custom_openrouter_base_url() {
-        let mut cfg: LlmsConfig = serde_json::from_str(&sample_config("deepseek-openrouter")).unwrap();
+        let mut cfg: LlmsConfig =
+            serde_json::from_str(&sample_config("deepseek-openrouter")).unwrap();
         cfg.providers[0].base_url = Some("https://api.deepseek.com".to_string());
-        let adapter = build_adapter(&cfg).unwrap();
+        let adapter = build_adapter(&cfg, Path::new("/test-config")).unwrap();
         assert_eq!(adapter.provider(), "deepseek-openrouter");
     }
 
@@ -421,13 +417,15 @@ mod tests {
         // `unwrap_err()` richiede `T: Debug` sul tipo `Ok` (qui `Arc<dyn AiAdapter>`, che non
         // implementa `Debug`) — usiamo `.err().unwrap()` invece, stesso idiom già adottato in
         // `telegram::settings` per lo stesso identico vincolo del compilatore.
-        let err = build_adapter(&cfg).err().unwrap();
+        let err = build_adapter(&cfg, Path::new("/test-config"))
+            .err()
+            .unwrap();
         assert!(err.contains("gemini-direct"));
     }
 
     #[test]
     fn build_adapter_errs_when_active_provider_missing() {
         let cfg: LlmsConfig = serde_json::from_str(&sample_config("nonexistent")).unwrap();
-        assert!(build_adapter(&cfg).is_err());
+        assert!(build_adapter(&cfg, Path::new("/test-config")).is_err());
     }
 }

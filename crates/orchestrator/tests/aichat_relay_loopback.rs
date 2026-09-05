@@ -61,8 +61,8 @@ async fn client_human_say_reaches_server_ui_over_tcp() {
     // -----------------------------------------------------------------
     // `StubAdapter`: questi test coprono il relay TCP, non l'AI Chat Slice 1a
     // (invocazione "@ai") — nessuna chiamata HTTP reale attesa qui.
-    let server_svc = AiChatService::new(server_info.clone(), Arc::new(StubAdapter), true, false, NotesStore::empty_in_memory(), None, None);
-    let client_svc = AiChatService::new(client_info.clone(), Arc::new(StubAdapter), true, false, NotesStore::empty_in_memory(), None, None);
+    let server_svc = AiChatService::new(server_info.clone(), Arc::new(StubAdapter), true, false, NotesStore::empty_in_memory(), None, None, std::path::PathBuf::from("/test-config"));
+    let client_svc = AiChatService::new(client_info.clone(), Arc::new(StubAdapter), true, false, NotesStore::empty_in_memory(), None, None, std::path::PathBuf::from("/test-config"));
 
     // Canali inbox separati per i due attori (ogni attore è indipendente).
     let (server_inbox_tx, server_inbox_rx) = mpsc::unbounded_channel::<ServiceEvent>();
@@ -228,7 +228,7 @@ async fn silent_peer_is_declared_gone_after_dead_threshold() {
     let server_info = PeerInfo { id: server_id, label_base: "server".into(), chat_port: GHOST_PORT };
     let ghost_info = PeerInfo { id: ghost_id, label_base: "ghost".into(), chat_port: 0 };
 
-    let server_svc = AiChatService::new(server_info.clone(), Arc::new(StubAdapter), true, false, NotesStore::empty_in_memory(), None, None);
+    let server_svc = AiChatService::new(server_info.clone(), Arc::new(StubAdapter), true, false, NotesStore::empty_in_memory(), None, None, std::path::PathBuf::from("/test-config"));
     let (server_inbox_tx, server_inbox_rx) = mpsc::unbounded_channel::<ServiceEvent>();
     let (server_ui_tx, mut server_ui_rx) = mpsc::unbounded_channel::<ServerMsg>();
     // Token di shutdown mai cancellato: questo test verifica il timeout keepalive,

@@ -464,9 +464,14 @@ impl ToolClient for FakeToolClient {
     }
 
     async fn dispatch(&self, name: &str, input: &serde_json::Value) -> DispatchOutcome {
-        // Delegate to agent::dispatch_tool — self is Sized in this concrete impl,
-        // so the cast to &dyn ToolClient works without issue.
-        crate::agent::dispatch_tool(self as &dyn ToolClient, name, input).await
+        // Delegate to agent::dispatch_tool_at — self is Sized in this concrete
+        // impl, so the cast to &dyn ToolClient works without issue.
+        // `FakeToolClient` è un fixture di test SENZA `config_dir` proprio: il
+        // path passato qui è un placeholder, mai realmente scritto/letto da
+        // nessun test esistente (nessun test invoca "set_ai_display_name" —
+        // l'unico ramo di `dispatch_tool_at` che tocca questo path — su un
+        // `FakeToolClient`).
+        crate::agent::dispatch_tool_at(self as &dyn ToolClient, name, input, std::path::Path::new("network.json")).await
     }
 }
 
@@ -613,9 +618,10 @@ impl rmcp::ClientHandler for LareClientHandler {
 /// 4. The `progress_token` is injected into the tool arguments so `mcp-server`
 ///    knows which token to use for its `notify_progress` calls.
 ///
-/// ## Binary path resolution
-/// 1. `LARE_MCP_SERVER` env var — explicit override.
-/// 2. Sibling of the current executable (`std::env::current_exe()`).
+/// ## Binary path resolution (2.0, D6)
+/// `startup.json`'s `paths.mcp_server`, resolved against the deploy root
+/// (parent of `config_dir`) — no environment variable is read (the v1 had
+/// `LARE_MCP_SERVER` here). See [`McpToolClient::resolve`].
 ///
 /// ## Error handling
 /// On any transport / parse / tool error: returns `CommandResult{ exit_code: -1,
@@ -623,7 +629,12 @@ impl rmcp::ClientHandler for LareClientHandler {
 /// the next call will reconnect.
 pub struct McpToolClient {
     /// Path to the `mcp-server` binary.
-    mcp_server_path: std::path::PathBuf,
+    pub(crate) mcp_server_path: std::path::PathBuf,
+    /// Cartella di configurazione (2.0, D6) — passata al figlio come
+    /// `--config-dir` allo spawn (vedi `run_in_session`, sotto), e riusata da
+    /// `dispatch()` per `agent::dispatch_tool_at`'s `network_json_path`
+    /// (`set_ai_display_name`), mai ri-derivata.
+    pub(crate) config_dir: std::path::PathBuf,
     /// The persistent peer handle (None = not yet connected).
     ///
     /// The peer is a cheap clone-able handle; the underlying transport/process
@@ -638,38 +649,23 @@ pub struct McpToolClient {
 }
 
 impl McpToolClient {
-    /// Resolve the `mcp-server` binary path using env-var-first, then sibling.
-    ///
-    /// # Errors
-    /// Returns an error if neither the env var points to an existing file nor
-    /// the sibling path can be determined.
-    pub fn resolve() -> anyhow::Result<Self> {
-        // Override via env var (test / deployment flexibility).
-        if let Ok(path) = std::env::var("LARE_MCP_SERVER") {
-            return Ok(Self {
-                mcp_server_path: std::path::PathBuf::from(path),
-                peer: Arc::new(Mutex::new(None)),
-                handler: Arc::new(Mutex::new(None)),
-            });
-        }
-
-        // Default: sibling of the current executable.
-        // In dev both binaries are in target/debug/.
-        let exe = std::env::current_exe()?;
-        let parent = exe
-            .parent()
-            .ok_or_else(|| anyhow::anyhow!("current_exe has no parent directory"))?;
-
-        #[cfg(windows)]
-        let sibling = parent.join("mcp-server.exe");
-        #[cfg(not(windows))]
-        let sibling = parent.join("mcp-server");
-
-        Ok(Self {
-            mcp_server_path: sibling,
+    /// Costruttore di base: `config_dir` è conservato per lo spawn del figlio
+    /// (`--config-dir`) e per `dispatch()`.
+    fn new(mcp_server_path: std::path::PathBuf, config_dir: std::path::PathBuf) -> Self {
+        Self {
+            mcp_server_path,
+            config_dir,
             peer: Arc::new(Mutex::new(None)),
             handler: Arc::new(Mutex::new(None)),
-        })
+        }
+    }
+
+    /// Percorso di `mcp-server.exe` da `startup.json` (`paths.mcp_server`,
+    /// default: sibling nella radice del deploy). Nessuna env var (D6, 2.0
+    /// — la v1 leggeva `LARE_MCP_SERVER` qui).
+    pub fn resolve(config_dir: &std::path::Path, cfg: &startup_config::StartupConfig) -> Self {
+        let mcp_server_path = startup_config::StartupConfig::resolve_path(config_dir, &cfg.paths.mcp_server);
+        Self::new(mcp_server_path, config_dir.to_path_buf())
     }
 }
 
@@ -695,6 +691,10 @@ impl ToolClient for McpToolClient {
         if peer_guard.is_none() {
             let child_cmd = {
                 let mut c = tokio::process::Command::new(&self.mcp_server_path);
+                // `--config-dir`: nessuna env var (D6) — mcp-server risolve la
+                // sua config dalla STESSA cartella dell'orchestrator, passata
+                // esplicitamente come argomento (Task 3/Task 4 dello spec 2.0).
+                c.arg(startup_config::CONFIG_DIR_FLAG).arg(&self.config_dir);
                 // Stdin/stdout are the MCP wire; stderr is for logs (inherited).
                 c.stdin(std::process::Stdio::piped())
                     .stdout(std::process::Stdio::piped())
@@ -912,6 +912,7 @@ impl ToolClient for McpToolClient {
         if peer_guard.is_none() {
             let child_cmd = {
                 let mut c = tokio::process::Command::new(&self.mcp_server_path);
+                c.arg(startup_config::CONFIG_DIR_FLAG).arg(&self.config_dir);
                 c.stdin(std::process::Stdio::piped())
                     .stdout(std::process::Stdio::piped())
                     .stderr(std::process::Stdio::inherit());
@@ -1008,6 +1009,7 @@ impl ToolClient for McpToolClient {
         if peer_guard.is_none() {
             let child_cmd = {
                 let mut c = tokio::process::Command::new(&self.mcp_server_path);
+                c.arg(startup_config::CONFIG_DIR_FLAG).arg(&self.config_dir);
                 c.stdin(std::process::Stdio::piped())
                     .stdout(std::process::Stdio::piped())
                     .stderr(std::process::Stdio::inherit());
@@ -1098,6 +1100,7 @@ impl ToolClient for McpToolClient {
         if peer_guard.is_none() {
             let child_cmd = {
                 let mut c = tokio::process::Command::new(&self.mcp_server_path);
+                c.arg(startup_config::CONFIG_DIR_FLAG).arg(&self.config_dir);
                 c.stdin(std::process::Stdio::piped())
                     .stdout(std::process::Stdio::piped())
                     .stderr(std::process::Stdio::inherit());
@@ -1242,6 +1245,7 @@ impl ToolClient for McpToolClient {
         if peer_guard.is_none() {
             let child_cmd = {
                 let mut c = tokio::process::Command::new(&self.mcp_server_path);
+                c.arg(startup_config::CONFIG_DIR_FLAG).arg(&self.config_dir);
                 c.stdin(std::process::Stdio::piped())
                     .stdout(std::process::Stdio::piped())
                     .stderr(std::process::Stdio::inherit());
@@ -1377,6 +1381,7 @@ impl ToolClient for McpToolClient {
         if peer_guard.is_none() {
             let child_cmd = {
                 let mut c = tokio::process::Command::new(&self.mcp_server_path);
+                c.arg(startup_config::CONFIG_DIR_FLAG).arg(&self.config_dir);
                 c.stdin(std::process::Stdio::piped())
                     .stdout(std::process::Stdio::piped())
                     .stderr(std::process::Stdio::inherit());
@@ -1459,9 +1464,11 @@ impl ToolClient for McpToolClient {
     }
 
     async fn dispatch(&self, name: &str, input: &serde_json::Value) -> DispatchOutcome {
-        // Delegate to agent::dispatch_tool — self is Sized in this concrete impl,
-        // so the cast to &dyn ToolClient works without issue.
-        crate::agent::dispatch_tool(self as &dyn ToolClient, name, input).await
+        // Delegate to agent::dispatch_tool_at — self is Sized in this concrete
+        // impl, so the cast to &dyn ToolClient works without issue.
+        // `self.config_dir` (2.0, D6): niente ri-derivazione, stesso
+        // `config_dir` ricevuto da `resolve()` a costruzione.
+        crate::agent::dispatch_tool_at(self as &dyn ToolClient, name, input, &self.config_dir.join("network.json")).await
     }
 }
 
@@ -1472,6 +1479,22 @@ impl ToolClient for McpToolClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── McpToolClient::resolve(config_dir, cfg) — 2.0, D6 ────────────────────
+
+    /// RED (Task 4, brief Step 3): `McpToolClient::resolve` prende `config_dir`
+    /// e `StartupConfig` come parametri espliciti (niente più `LARE_MCP_SERVER`
+    /// né `current_exe()` — D6). Il path del binario viene da
+    /// `startup.json.paths.mcp_server`, risolto rispetto alla radice del
+    /// deploy (padre di `config_dir`); `config_dir` viene conservato per
+    /// passarlo al figlio come `--config-dir` allo spawn.
+    #[test]
+    fn mcp_server_path_comes_from_startup_paths() {
+        let cfg = startup_config::StartupConfig::default();
+        let c = McpToolClient::resolve(std::path::Path::new("C:/Lare/Configuration"), &cfg);
+        assert_eq!(c.mcp_server_path, std::path::Path::new("C:/Lare").join("mcp-server.exe"));
+        assert_eq!(c.config_dir, std::path::PathBuf::from("C:/Lare/Configuration"));
+    }
 
     // ── FakeToolClient: progress_tx forwarding ───────────────────────────────
 
@@ -1787,6 +1810,26 @@ mod tests {
         assert!(r.ok);
     }
 
+    /// Percorso assoluto di `mcp-server.exe` in `target/debug/`, calcolato dal
+    /// binario di test corrente (`target/debug/deps/orchestrator-<hash>` →
+    /// risale due livelli: `deps/` → `debug/`). 2.0: niente più
+    /// `LARE_MCP_SERVER` — `McpToolClient::resolve` prende il path da
+    /// `startup.json.paths.mcp_server`; nei test passiamo qui un valore
+    /// ASSOLUTO (mai risolto contro la radice del deploy, vedi
+    /// `StartupConfig::resolve_path`).
+    fn target_debug_mcp_server_path() -> std::path::PathBuf {
+        let test_exe = std::env::current_exe().expect("current_exe");
+        let debug_dir = test_exe
+            .parent() // .../target/debug/deps
+            .and_then(|p| p.parent()) // .../target/debug
+            .expect("target/debug non trovato a partire dal binario di test");
+        #[cfg(windows)]
+        let name = "mcp-server.exe";
+        #[cfg(not(windows))]
+        let name = "mcp-server";
+        debug_dir.join(name)
+    }
+
     /// Runtime integration test for [`McpToolClient`] with the `run_in_session` tool.
     ///
     /// Verifies BOTH that the tool works AND that session state persists across calls
@@ -1794,14 +1837,18 @@ mod tests {
     ///
     /// Run with:
     /// ```sh
-    /// $env:LARE_MCP_SERVER = "target/debug/mcp-server.exe"
-    /// cargo test -p orchestrator -- --ignored mcp_tool_client_run_in_session
+    /// cargo build -p mcp-server
+    /// cargo test -p orchestrator --lib -- --ignored mcp_tool_client_run_in_session
     /// ```
-    #[ignore = "requires mcp-server binary (v0.3.0); set LARE_MCP_SERVER or run cargo build first"]
+    #[ignore = "esegui `cargo build -p mcp-server` prima: il binario viene cercato in target/debug/mcp-server.exe (passato qui come paths.mcp_server assoluto)"]
     #[tokio::test]
     async fn mcp_tool_client_run_in_session() {
-        let client = McpToolClient::resolve()
-            .expect("McpToolClient::resolve() failed — set LARE_MCP_SERVER env var");
+        let tmp = tempfile::tempdir().unwrap();
+        let config_dir = tmp.path().join("Configuration");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        let mut cfg = startup_config::StartupConfig::default();
+        cfg.paths.mcp_server = target_debug_mcp_server_path().display().to_string();
+        let client = McpToolClient::resolve(&config_dir, &cfg);
 
         // Step 1: echo.
         #[cfg(windows)]
@@ -1883,27 +1930,36 @@ mod tests {
         assert!(msg.contains("nmap"), "il messaggio deve suggerire nmap: {msg}");
     }
 
-    /// Requires a built `mcp-server` binary and `LARE_MCP_SERVER` set — same
-    /// convention as `mcp_tool_client_run_in_session` above. `LARE_ROUTINES_DIR`
-    /// is read ONCE by `mcp-server` at process startup and the CHILD PROCESS
-    /// inherits the parent's env at spawn time (`tokio::process::Command`
-    /// default), so setting it here BEFORE the first call (which lazily spawns
-    /// the child) redirects the routine repository to a tempdir — no risk of
-    /// touching the real `%LOCALAPPDATA%\dev.lare.terminal\routines\`.
+    /// Test di INTEGRAZIONE con il binario `mcp-server` reale (2.0, Task 4,
+    /// brief Step 8): verifica che il figlio riceva DAVVERO `--config-dir`
+    /// (non solo che lo spawn compili) — `config_dir` è una tempdir chiamata
+    /// `Configuration` così che il `routines_dir` di default
+    /// (`"Configuration/routines"`, relativo alla radice del deploy = padre
+    /// di `config_dir`) risolva DENTRO `config_dir` stessa
+    /// (`config_dir/routines`), esattamente come in un deploy reale dove
+    /// `Configuration/` è sibling dei binari. Se `mcp-server` avesse
+    /// ignorato `--config-dir` (o l'orchestrator non l'avesse passato),
+    /// `index.json` finirebbe altrove (o non esisterebbe affatto) — questo
+    /// è l'assert che lo dimostra, non solo "save_routine ha risposto ok".
+    ///
+    /// Esegui `cargo build -p mcp-server` prima: il binario viene cercato in
+    /// `target/debug/mcp-server.exe` (passato qui come `paths.mcp_server`
+    /// assoluto).
     ///
     /// Run with:
     /// ```sh
-    /// $env:LARE_MCP_SERVER = "target/debug/mcp-server.exe"
-    /// cargo test -p orchestrator -- --ignored mcp_tool_client_save_routine_then_get_routine_content
+    /// cargo build -p mcp-server
+    /// cargo test -p orchestrator --lib -- --ignored mcp_tool_client_save_routine_then_get_routine_content
     /// ```
-    #[ignore = "requires mcp-server binary; set LARE_MCP_SERVER or run cargo build first"]
+    #[ignore = "esegui `cargo build -p mcp-server` prima: il binario viene cercato in target/debug/mcp-server.exe (passato qui come paths.mcp_server assoluto)"]
     #[tokio::test]
     async fn mcp_tool_client_save_routine_then_get_routine_content_round_trips() {
         let tmp = tempfile::tempdir().unwrap();
-        std::env::set_var("LARE_ROUTINES_DIR", tmp.path());
-
-        let client = McpToolClient::resolve()
-            .expect("McpToolClient::resolve() failed — set LARE_MCP_SERVER env var");
+        let config_dir = tmp.path().join("Configuration");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        let mut cfg = startup_config::StartupConfig::default();
+        cfg.paths.mcp_server = target_debug_mcp_server_path().display().to_string();
+        let client = McpToolClient::resolve(&config_dir, &cfg);
 
         let save = client
             .save_routine("mcp-rt-test", "desc", vec!["t".to_string()], "cat", "Write-Host x", None)
@@ -1914,6 +1970,13 @@ mod tests {
         assert!(read.found, "{read:?}");
         assert_eq!(read.content, "Write-Host x");
 
-        std::env::remove_var("LARE_ROUTINES_DIR");
+        // Prova diretta che il figlio ha ricevuto --config-dir: l'indice
+        // delle routine è finito DENTRO la config_dir passata, non in un
+        // fallback env-based (che 2.0 non legge più).
+        assert!(
+            config_dir.join("routines").join("index.json").exists(),
+            "index.json atteso in {} — mcp-server non sembra aver ricevuto --config-dir",
+            config_dir.join("routines").display()
+        );
     }
 }
