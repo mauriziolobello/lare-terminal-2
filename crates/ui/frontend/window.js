@@ -34,6 +34,14 @@ async function invokeCmd(cmd, args) {
   return tauriInvoke(cmd, args);
 }
 
+// ── Finestra di output del canale shell (2.0, spec §3.2/D14) ─────────────────
+// Calcolato SUBITO (non dentro bootstrap): serve sia a closeWindow() qui sotto
+// (definita ed agganciata prima che bootstrap() giri) sia al wiring
+// output:content/output:subscribe più avanti. `null` per ogni finestra
+// Markdown normale (label "md-*"/"help") — solo le finestre "output-<id>"
+// hanno un myOutputId non nullo.
+const myOutputId = outputWindowIdFromLabel(window.__TAURI__?.window?.getCurrentWindow?.()?.label);
+
 // ---------------------------------------------------------------------------
 // DOM references
 // ---------------------------------------------------------------------------
@@ -52,8 +60,16 @@ const expandStatusEl = document.getElementById("expand-status");
 // window.  Called by both the × button and the Esc key.
 // Error is ignored: if IPC is unavailable the window will still close via
 // Alt-F4 or other OS mechanism.
+//
+// Fix round 1 (D14): per una finestra di output, emette PRIMA `output:closed`
+// (stesso schema del `search:cancel` di window-search.js) così host.js libera
+// il buffer — un contenuto che arrivasse dopo la chiusura non deve restare in
+// memoria per sempre.
 // ---------------------------------------------------------------------------
 async function closeWindow() {
+  if (myOutputId && tauriEvent?.emit) {
+    try { await tauriEvent.emit("output:closed", { window_id: myOutputId }); } catch (_) {}
+  }
   await invokeCmd("close_self").catch(() => {});
 }
 
@@ -243,20 +259,37 @@ async function bootstrap() {
   const sourceFile = data.source_file || "";
   const docTitle = data.title || "Untitled";
 
-  // ── Finestra di output del canale shell (2.0, spec §3.2) ─────────────────
-  // Solo le finestre `output-<id>` ricevono aggiornamenti dopo l'apertura:
-  // host.js emette `output:content` a Done/Error; qui si filtra per window_id
-  // (dalla propria label) e si ri-renderizza. Il testo salvabile in Library è
-  // quello aggiornato, non il segnaposto.
-  const myOutputId = outputWindowIdFromLabel(window.__TAURI__?.window?.getCurrentWindow?.()?.label);
+  // ── Finestra di output del canale shell (2.0, spec §3.2/D14) ──────────────
+  // Solo le finestre `output-<id>` ricevono aggiornamenti dopo l'apertura
+  // (myOutputId, calcolato a livello di modulo — vedi sopra). Il testo
+  // salvabile in Library è quello aggiornato, non il segnaposto.
+  //
+  // Fix round 1 (buffer-and-replay, D14): l'evento Tauri globale NON è
+  // bufferizzato dal runtime — se host.js avesse già ricevuto/emesso
+  // `output_window_content` PRIMA che questo listener fosse registrato, il
+  // contenuto sarebbe perso per sempre. Soluzione: ci mettiamo in ascolto
+  // PRIMA di annunciarci (await sul listen, poi emit `output:subscribe`).
+  // host.js (vedi output-buffer.mjs/setupOutputEvents) bufferizza il
+  // contenuto arrivato in anticipo e, alla ricezione di `output:subscribe`,
+  // lo rigioca come lo STESSO evento `output:content` — un evento live e un
+  // replay arrivano quindi allo stesso handler qui sotto, senza duplicare
+  // logica.
   if (myOutputId && tauriEvent?.listen) {
-    tauriEvent.listen("output:content", (ev) => {
-      const p = ev.payload || {};
-      if (p.window_id !== myOutputId) return;
-      renderMarkdown(p.markdown || "");
-      saveContent = p.markdown || "";
-      currentContent = p.markdown || "";
-    }).catch((e) => console.error("[window] listen output:content error:", e));
+    const applyOutputContent = (markdown) => {
+      renderMarkdown(markdown || "");
+      saveContent = markdown || "";
+      currentContent = markdown || "";
+    };
+    try {
+      await tauriEvent.listen("output:content", (ev) => {
+        const p = ev.payload || {};
+        if (p.window_id !== myOutputId) return;
+        applyOutputContent(p.markdown);
+      });
+      await tauriEvent.emit("output:subscribe", { window_id: myOutputId });
+    } catch (e) {
+      console.error("[window] output:content/subscribe wiring error:", e);
+    }
   }
 
   expandInputEl.addEventListener("input", () => {

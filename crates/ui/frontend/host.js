@@ -33,11 +33,19 @@ import { shareResultLine, shareReceivedLine } from "./share-view.mjs";
 import { classifyServerMsg } from "./host-dispatch.mjs";
 import { resolveUiLocal, markdownWindowLabel } from "./ui-local.mjs";
 import { EXTERNAL_TOOL_CHANNELS } from "./external-channels.js";
+import { createOutputBuffers } from "./output-buffer.mjs";
 
 // Buffer-and-replay dei risultati di ricerca: la finestra (webview separata)
 // può aprirsi DOPO che il backend ha già inviato hit/done. Accumuliamo qui e
 // rigiochiamo quando la finestra emette `search:subscribe`.
 const searchBuffers = createSearchBuffers();
+
+// Buffer-and-replay del contenuto delle finestre di output (fix round 1,
+// D14): stesso problema di searchBuffers sopra — `output:content` può
+// arrivare PRIMA che la finestra di output abbia registrato il proprio
+// listener. Vedi output-buffer.mjs per il perché e setupOutputEvents più
+// sotto per il lato "subscribe/closed".
+const outputBuffers = createOutputBuffers();
 
 // ---------------------------------------------------------------------------
 // UUID v4 — simple, no external dependency.
@@ -206,13 +214,22 @@ function handleServerMsg(msg) {
     // Finestra di output di un comando slash originato da una shell: si apre
     // subito col segnaposto, il contenuto arriva a Done via evento globale.
     case "open_output_window":
+      // outputBuffers.open PRIMA di invokeCmd (sincrono, come search_open):
+      // se il contenuto arriva mentre la finestra si sta ancora aprendo, va
+      // bufferizzato da subito — non c'è una finestra di tempo scoperta.
+      outputBuffers.open(msg.window_id);
       invokeCmd("open_output_window", { windowId: msg.window_id, title: msg.title })
         .catch((e) => console.error("[host] open_output_window error:", e));
       break;
     case "output_window_content":
-      // emitToPlugin è un emit globale generico (nome storico): la finestra
-      // di output filtra per window_id come fanno le finestre plugin.
-      emitToPlugin("output:content", { window_id: msg.window_id, markdown: msg.markdown });
+      // Buffer-and-replay (fix round 1, D14): se la finestra non si è ancora
+      // iscritta (output:subscribe), il contenuto va bufferizzato invece che
+      // emesso a vuoto — altrimenti un comando veloce lo perderebbe per
+      // sempre. emitToPlugin è un emit globale generico (nome storico): la
+      // finestra di output filtra per window_id come fanno le finestre plugin.
+      if (outputBuffers.content(msg.window_id, msg.markdown).emit) {
+        emitToPlugin("output:content", { window_id: msg.window_id, markdown: msg.markdown });
+      }
       break;
     // Finestra locale chiesta da una shell (/config, /library, /aichat, canali esterni).
     case "open_ui_local": {
@@ -451,6 +468,30 @@ function setupSearchEvents() {
   tauriEvent.listen("search:resume", (e) => {
     const sid = e?.payload?.sid;
     if (sid && client) client.resumeSearch(sid);
+  });
+}
+
+/**
+ * Registra i listener per gli eventi emessi DALLA finestra di output verso il
+ * main (fix round 1, D14). Stesso schema di setupSearchEvents/searchBuffers:
+ * la finestra di output emette `output:subscribe` appena pronta (dopo aver
+ * registrato il proprio listener `output:content`) per reclamare l'eventuale
+ * contenuto bufferizzato nel frattempo, e `output:closed` alla chiusura per
+ * liberare il buffer.
+ */
+function setupOutputEvents() {
+  if (!tauriEvent?.listen) return;
+  tauriEvent.listen("output:subscribe", (e) => {
+    const windowId = e?.payload?.window_id;
+    if (!windowId) return;
+    const md = outputBuffers.subscribe(windowId);
+    // null → nessun contenuto ancora arrivato: la finestra è ora "subscribed"
+    // e riceverà il prossimo output_window_content in diretta (vedi sopra).
+    if (md !== null) emitToPlugin("output:content", { window_id: windowId, markdown: md });
+  });
+  tauriEvent.listen("output:closed", (e) => {
+    const windowId = e?.payload?.window_id;
+    if (windowId) outputBuffers.close(windowId);
   });
 }
 
@@ -775,6 +816,10 @@ async function bootstrap() {
 
   // Listener per gli eventi della finestra di ricerca (click→/open, chiusura→cancel).
   setupSearchEvents();
+
+  // Listener per gli eventi della finestra di output (fix round 1, D14):
+  // buffer-and-replay di output:content via output:subscribe/output:closed.
+  setupOutputEvents();
 
   // Listener per l'evento della finestra library (pulsante "Apri cartella" → /open).
   setupLibraryEvents();
