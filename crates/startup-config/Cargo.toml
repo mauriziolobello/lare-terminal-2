@@ -1,12 +1,14 @@
 [package]
 name = "startup-config"
-version = "2.0.0"
+version = "2.0.1"
 edition = "2021"
 
 # Crate infrastrutturale puro (nessuna logica di dominio) -- stessa
-# categoria di `protocol`. Risolve dove vivono i file di configurazione
-# (local_dir, llms.json, telegramsettings.json, ...) con precedenza a 3
-# livelli: env var > campo di startup.json > default del chiamante.
+# categoria di `protocol`. Risolve la cartella di configurazione
+# (--config-dir sulla riga di comando, altrimenti <exe_dir>\Configuration\)
+# e lo schema di startup.json (ws_port, paths, ai_model, autostart, log) i
+# cui percorsi relativi si risolvono contro la radice del deploy. Nessuna
+# variabile d'ambiente viene letta (decisione D6 dello spec 2.0).
 # Vedi Docs/superpowers/specs/2026-08-12-startup-config-design.md.
 
 [dependencies]
