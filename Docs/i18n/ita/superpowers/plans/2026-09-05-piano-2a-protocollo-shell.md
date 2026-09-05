@@ -60,6 +60,10 @@ Copiate dallo spec; ogni task le include implicitamente.
 - **Convenzioni v1** (§11): TDD con RED reale; commenti didattici in italiano; trait come confini,
   fake ai seam; `cargo fmt` **solo sui file toccati** (il codice copiato dalla v1 non è fmt-clean:
   chore separata); niente variabili d'ambiente; WS solo `127.0.0.1` + token su file.
+- **Messaggi tardivi** (contratto per la host, piano 2b): `CancelCommand` cancella il token del
+  turno, ma un loop AI fermo in `confirm().await` (gate `[Y/n]`, timeout 180 s) emette
+  `Chunk`/`Done` solo quando si sblocca — la host **scarta** i messaggi dei turni che ha già
+  chiuso (stesso comportamento della UI v1). Nessun cambiamento qui.
 - **Fuori scope qui**: host C# (piano 2b), autostart di `ui.exe`/orchestratore (piano 3),
   `/find` e `/nowin` dalla shell (scartati con log: debito documentato in HANDOFF),
   streaming nella finestra (§12).
@@ -100,8 +104,12 @@ reviewer Sonnet; re-review Haiku; review finale Opus. Un `BLOCKED` sul Task 8 (w
   a riga ~155; nuove varianti in coda a `ClientMsg` e `ServerMsg`; `impl ServerMsg` prima di
   `#[cfg(test)]`)
 - Modify: `crates/orchestrator/src/ws.rs:790-798` (`parse_hello`: pattern con `..`)
-- Modify: `crates/orchestrator/tests/ws_integration.rs` (17 costruzioni di `ClientMsg::Hello`)
+- Modify: `crates/orchestrator/tests/ws_integration.rs` (16 costruzioni di `ClientMsg::Hello`)
 - Test: `crates/protocol/src/lib.rs` (modulo `tests` esistente)
+
+**Nota di spec:** `Hello.version` è un'aggiunta del piano (serve alla riga `lare-shell` di `/ping`,
+spec §3.1) non ancora in §4.1: l'emendamento allo spec è nel Task 11. Non è una deviazione da
+segnalare come difetto in review.
 
 **Interfaces:**
 - Produces: `protocol::Role { Ui, Shell }` (`Default = Ui`, wire `"ui"|"shell"`);
@@ -392,7 +400,7 @@ Se il compilatore segnala una variante mancante (l'elenco sopra è stato estratt
 `ClientMsg::Hello { token, channel, .. } => Some((token, channel)),` (il Task 8 lo sostituirà con
 `HelloInfo`; qui basta compilare). In `crates/orchestrator/tests/ws_integration.rs` ogni
 costruzione `ClientMsg::Hello { token: …, channel: … }` riceve i quattro campi
-`role: protocol::Role::Ui, session_id: None, cwd: None, version: None,` (17 occorrenze; usare
+`role: protocol::Role::Ui, session_id: None, cwd: None, version: None,` (16 occorrenze; usare
 `grep -n "ClientMsg::Hello {" crates/orchestrator/tests/ws_integration.rs` per trovarle).
 Verificare con `grep -rn "ClientMsg::Hello {" crates --include=*.rs` che non restino altre
 costruzioni (a `main` sono solo in `ws.rs`, `ws_integration.rs` e `protocol`).
@@ -1208,7 +1216,7 @@ git commit -m "feat(orchestrator): ShellSessionToolClient — run_in_session com
 
 **Interfaces:**
 - Consumes: `protocol::{ServerMsg, Surface}`.
-- Produces: `ShellTurn { id, session_id, window_id, title }`,
+- Produces: `ShellTurn { id, session_id, window_id, title, output_window: bool }`,
   `route_shell_turn(rx: UnboundedReceiver<ServerMsg>, shell: UnboundedSender<ServerMsg>, ui: Option<UnboundedSender<ServerMsg>>, turn: ShellTurn)`,
   `output_window_title(input: &str) -> String`, costanti `PLACEHOLDER_EMPTY`, `NO_UI_ACK`.
 
@@ -1243,6 +1251,10 @@ pub struct ShellTurn {
     pub session_id: String,
     pub window_id: String,
     pub title: String,
+    /// `false` per i comandi il cui esito È già una finestra (`/help`, `/show`:
+    /// `core::WINDOW_SLASHES`): niente finestra di output col segnaposto,
+    /// altrimenti se ne aprirebbero due (una vuota). Spec §3.2, eccezione.
+    pub output_window: bool,
 }
 
 /// Contenuto della finestra quando il turno non ha prodotto testo.
@@ -1258,7 +1270,7 @@ mod tests {
     use tokio::sync::mpsc::unbounded_channel;
 
     fn turn() -> ShellTurn {
-        ShellTurn { id: "c1".into(), session_id: "s1".into(), window_id: "c1".into(), title: "T".into() }
+        ShellTurn { id: "c1".into(), session_id: "s1".into(), window_id: "c1".into(), title: "T".into(), output_window: true }
     }
 
     fn drain(rx: &mut tokio::sync::mpsc::UnboundedReceiver<ServerMsg>) -> Vec<ServerMsg> {
@@ -1358,6 +1370,27 @@ mod tests {
         assert!(matches!(&shell[1], ServerMsg::Done { .. }));
     }
 
+    /// `/help`: l'esito è l'`OpenWindow` di `handle_slash` (surface `Ui`) — la
+    /// finestra di output NON si apre (né segnaposto né contenuto) e la
+    /// conferma nel terminale è generica.
+    #[tokio::test]
+    async fn window_slash_turn_skips_the_output_window() {
+        let (tx, rx) = unbounded_channel();
+        let (shell_tx, mut shell_rx) = unbounded_channel();
+        let (ui_tx, mut ui_rx) = unbounded_channel();
+        let t = ShellTurn { output_window: false, ..turn() };
+        let router = tokio::spawn(route_shell_turn(rx, shell_tx, Some(ui_tx), t));
+        tx.send(ServerMsg::OpenWindow { title: "Lare \u{2014} Comandi".into(), kind: WindowKind::Help, content: "# h".into() }).unwrap();
+        tx.send(ServerMsg::Done { id: "c1".into(), exit_code: Some(0) }).unwrap();
+        drop(tx);
+        router.await.unwrap();
+        let ui = drain(&mut ui_rx);
+        assert!(!ui.iter().any(|m| matches!(m, ServerMsg::OpenOutputWindow { .. } | ServerMsg::OutputWindowContent { .. })), "{ui:?}");
+        assert!(ui.iter().any(|m| matches!(m, ServerMsg::OpenWindow { .. })));
+        let shell = drain(&mut shell_rx);
+        assert!(matches!(&shell[0], ServerMsg::Chunk { content, .. } if content == "\u{2192} finestra aperta"), "{shell:?}");
+    }
+
     #[test]
     fn output_window_title_from_input() {
         assert_eq!(output_window_title("/ai \"elenca i file\""), "elenca i file");
@@ -1418,7 +1451,9 @@ pub async fn route_shell_turn(
             None => tracing::warn!("turno {} (sessione {}): ui.exe non connesso, scarto {m:?}", turn.id, turn.session_id),
         }
     };
-    to_ui(ServerMsg::OpenOutputWindow { window_id: turn.window_id.clone(), title: turn.title.clone() });
+    if turn.output_window {
+        to_ui(ServerMsg::OpenOutputWindow { window_id: turn.window_id.clone(), title: turn.title.clone() });
+    }
     to_ui(ServerMsg::ActivityIndicator { session_id: turn.session_id.clone(), kind: "ai_busy".into(), on: true });
 
     let mut buffer = String::new();
@@ -1426,7 +1461,9 @@ pub async fn route_shell_turn(
     let flush = |markdown: String, flushed: &mut bool| {
         if !*flushed {
             *flushed = true;
-            to_ui(ServerMsg::OutputWindowContent { window_id: turn.window_id.clone(), markdown });
+            if turn.output_window {
+                to_ui(ServerMsg::OutputWindowContent { window_id: turn.window_id.clone(), markdown });
+            }
         }
     };
 
@@ -1436,7 +1473,11 @@ pub async fn route_shell_turn(
             ServerMsg::Done { id, exit_code } => {
                 let markdown = if buffer.trim().is_empty() { PLACEHOLDER_EMPTY.to_string() } else { buffer.clone() };
                 flush(markdown, &mut flushed);
-                let ack = if ui.is_some() { format!("\u{2192} finestra \"{}\" aperta", turn.title) } else { NO_UI_ACK.to_string() };
+                let ack = match (ui.is_some(), turn.output_window) {
+                    (false, _) => NO_UI_ACK.to_string(),
+                    (true, true) => format!("\u{2192} finestra \"{}\" aperta", turn.title),
+                    (true, false) => "\u{2192} finestra aperta".to_string(),
+                };
                 let _ = shell.send(ServerMsg::Chunk { id: id.clone(), content: ack });
                 let _ = shell.send(ServerMsg::Done { id, exit_code });
             }
@@ -1461,7 +1502,7 @@ prestito `ui`/`turn`), trasformare `to_ui`/`flush` in due funzioni libere che ri
 `&Option<UnboundedSender<ServerMsg>>` e `&ShellTurn` per argomento: il comportamento testato non
 cambia.
 
-- [ ] **Step 4: GREEN** — `cargo test -p orchestrator surface 2>&1 | grep "test result"` → `5 passed`.
+- [ ] **Step 4: GREEN** — `cargo test -p orchestrator surface 2>&1 | grep "test result"` → `6 passed`.
 
 - [ ] **Step 5: commit**
 
@@ -1483,7 +1524,8 @@ git commit -m "feat(orchestrator): router di superficie per i turni shell (fines
 
 **Interfaces:**
 - Consumes: `external_channel::EXTERNAL_TOOL_CHANNELS` (campi `id`, `slash_trigger`).
-- Produces: `core::KNOWN_BACKEND_SLASHES: &[&str]` = `["open", "web", "show", "help"]`;
+- Produces: `core::KNOWN_BACKEND_SLASHES: &[&str]` = `["open", "web", "show", "help"]`,
+  `core::WINDOW_SLASHES: &[&str]` = `["help", "show"]`; `shell_slash::is_window_slash(input) -> bool`;
   `shell_slash::{ShellInput, classify_shell_input(input, is_known_backend: &dyn Fn(&str) -> bool) -> ShellInput, AI_SYNTAX_ERROR, RESET_MESSAGE, UI_LOCAL_SLASHES, shell_channel_table() -> Vec<(String, String)>, read_web_search_enabled(config_dir) -> bool}`.
 
 - [ ] **Step 1: test RED**
@@ -1583,6 +1625,16 @@ mod tests {
         assert_eq!(classify_shell_input("dir", &known), ShellInput::Discard("dir".into()));
     }
 
+    /// I comandi il cui esito È una finestra non devono aprire anche quella di output.
+    #[test]
+    fn window_slashes_are_help_and_show_only() {
+        assert!(is_window_slash("/help"));
+        assert!(is_window_slash("  /Show # titolo"));
+        assert!(!is_window_slash("/open x"));
+        assert!(!is_window_slash("/ai \"x\""));
+        assert!(!is_window_slash("/ping"));
+    }
+
     #[test]
     fn channel_table_exposes_the_three_user_facing_channels() {
         let mut t = shell_channel_table();
@@ -1650,6 +1702,11 @@ In `mod tests` di `core.rs`:
 /// (il test `known_backend_slashes_are_all_dispatched_by_handle_slash` tiene
 /// le due cose allineate).
 pub const KNOWN_BACKEND_SLASHES: &[&str] = &["open", "web", "show", "help"];
+
+/// Sottoinsieme di `KNOWN_BACKEND_SLASHES` il cui esito È già una finestra
+/// (`OpenWindow`): per questi la shell NON apre la finestra di output col
+/// segnaposto (spec §3.2, eccezione) — altrimenti ne comparirebbero due.
+pub const WINDOW_SLASHES: &[&str] = &["help", "show"];
 ```
 
 `HELP_MARKDOWN` riscritto per il 2.0 (sostituire l'intera costante):
@@ -1686,9 +1743,10 @@ L'esito di ogni comando slash compare in una finestra; nel terminale resta una r
 "#;
 ```
 
-Se un test esistente di `core.rs` verifica il contenuto di `HELP_MARKDOWN` (es. che citi `/web` o
-`/reset`), aggiornarlo alla lista nuova: `/reset` non è più documentato (sulla shell non
-applicabile), `/ping` e `/ai` sì.
+Il test esistente `slash_help_produces_open_window_and_done` (`core.rs` ~1466) controlla che
+`HELP_MARKDOWN` citi `/config`, `/aichat`, `/markets`, `/nmap`, `/pyping`: il testo nuovo li
+contiene tutti, quindi resta verde; se un altro test cita `/reset` o i tasti F2/Esc, aggiornarlo
+(non più documentati sulla shell).
 
 `shell_slash.rs` (fra le costanti e `#[cfg(test)]`):
 
@@ -1702,6 +1760,13 @@ pub fn shell_channel_table() -> Vec<(String, String)> {
         .filter(|c| USER_FACING_CHANNEL_TRIGGERS.contains(&c.slash_trigger))
         .map(|c| (c.slash_trigger.trim_start_matches('/').to_string(), c.id.to_string()))
         .collect()
+}
+
+/// `true` se la riga è un comando di `core::WINDOW_SLASHES` (`/help`, `/show`).
+pub fn is_window_slash(input: &str) -> bool {
+    let Some(after) = input.trim().strip_prefix('/') else { return false };
+    let cmd = after.split_once(char::is_whitespace).map(|(c, _)| c).unwrap_or(after).to_ascii_lowercase();
+    crate::core::WINDOW_SLASHES.contains(&cmd.as_str())
 }
 
 /// Testo fra virgolette (`"x"` → `x`), o `None` se non è racchiuso da UNA
@@ -1777,7 +1842,7 @@ Nota sul test `"/ai \"x\" y"`: `quoted_text` fallisce perché la stringa non ter
 corretto (D8: tutto il testo va fra virgolette).
 
 - [ ] **Step 4: GREEN** — `cargo test -p orchestrator shell_slash known_backend 2>&1 | grep "test result"`
-→ `7 passed`; `cargo test -p orchestrator 2>&1 | grep -E "test result|FAILED"` → nessun fallimento
+→ `8 passed`; `cargo test -p orchestrator 2>&1 | grep -E "test result|FAILED"` → nessun fallimento
 (se un test di `HELP_MARKDOWN` fallisce, vedi Step 3).
 
 - [ ] **Step 5: commit**
@@ -2242,7 +2307,7 @@ use crate::plugins::host::PluginHost;
 use crate::plugins::transport::{PluginReader, PluginWriter};
 use crate::runtime_config::RuntimeConfig;
 use crate::shell_session::{ShellSessionState, ShellSessionToolClient};
-use crate::shell_slash::{classify_shell_input, read_web_search_enabled, ShellInput, RESET_MESSAGE};
+use crate::shell_slash::{classify_shell_input, is_window_slash, read_web_search_enabled, ShellInput, RESET_MESSAGE};
 use crate::surface::{output_window_title, route_shell_turn, ShellTurn, NO_UI_ACK};
 
 /// Collaborazioni di un comando shell (vedi doc-comment del modulo).
@@ -2366,6 +2431,27 @@ mod tests {
         assert!(ui.contains("[stub AI] ricevuto: ciao"), "{ui}");
     }
 
+    /// `/help` dalla shell: UNA finestra su `ui` (quella di `handle_slash`),
+    /// nessuna finestra di output; conferma generica + `Done` alla shell.
+    #[tokio::test]
+    async fn help_turn_opens_only_the_help_window() {
+        let (tx, mut rx) = unbounded_channel();
+        let registry = Registry::shared();
+        let (ui_tx, mut ui_rx) = unbounded_channel();
+        registry.lock().await.set_ui_sink(ui_tx);
+        run_shell_command(deps(tx, registry), "c1".into(), "/help".into(), None, false, CancellationToken::new()).await;
+        let ack = tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                if let Some(ServerMsg::Chunk { content, .. }) = rx.recv().await { break content; }
+            }
+        }).await.expect("Chunk di conferma");
+        assert_eq!(ack, "\u{2192} finestra aperta");
+        let mut ui = vec![];
+        while let Ok(m) = ui_rx.try_recv() { ui.push(m); }
+        assert!(ui.iter().any(|m| matches!(m, ServerMsg::OpenWindow { kind: protocol::WindowKind::Help, .. })), "{ui:?}");
+        assert!(!ui.iter().any(|m| matches!(m, ServerMsg::OpenOutputWindow { .. } | ServerMsg::OutputWindowContent { .. })), "{ui:?}");
+    }
+
     /// `/ping` senza plugin e senza `ui`: tabella con le righe degradate,
     /// consegnata sulla finestra (qui assente → solo l'avviso) e `Done`.
     #[tokio::test]
@@ -2462,6 +2548,7 @@ async fn start_turn(deps: &ShellTurnDeps, id: &str, input: &str) -> UnboundedSen
         session_id: deps.shell.session_id().to_string(),
         window_id: id.to_string(),
         title: output_window_title(input),
+        output_window: !is_window_slash(input),
     };
     let ui = deps.registry.lock().await.ui_sink();
     tokio::spawn(route_shell_turn(turn_rx, deps.out_tx.clone(), ui, turn));
@@ -2547,7 +2634,7 @@ async fn run_ping_turn(deps: ShellTurnDeps, id: String, turn_tx: UnboundedSender
 ```
 
 `lib.rs`: `pub mod shell_turn;`. Run: `cargo test -p orchestrator shell_turn 2>&1 | grep "test result"`
-→ `6 passed`.
+→ `7 passed`.
 
 - [ ] **Step 5: `handle_connection` — sink `ui`, sessione shell, arm nuovi, teardown**
 
@@ -2667,7 +2754,7 @@ si chiude non è "l'intera UI che sparisce").
 
 Run: `cargo test -p orchestrator 2>&1 | grep -E "test result|FAILED"` → tutto verde.
 Run: `cargo test 2>&1 | grep "test result" | awk '{s+=$4} END {print s}'` → 1418 + i nuovi
-(Task 1: 5, 2: 4, 3: 4, 4: 6, 5: 5, 6: 7, 7: 6, 8: 7) = **1462** (riverificare col conteggio reale;
+(Task 1: 5, 2: 4, 3: 4, 4: 6, 5: 6, 6: 8, 7: 6, 8: 8) = **1465** (riverificare col conteggio reale;
 scarto ammesso solo se motivato nel report).
 Run: `cargo clippy -p orchestrator --all-targets 2>&1 | grep -E "shell_turn|ws.rs:(1[5-9]|[2-7][0-9])[0-9]" ` → vuoto.
 Run: `cargo fmt -- crates/orchestrator/src/shell_turn.rs crates/orchestrator/src/connections.rs crates/orchestrator/src/shell_session.rs crates/orchestrator/src/surface.rs crates/orchestrator/src/shell_slash.rs crates/orchestrator/src/ping.rs` (solo i file nuovi; `ws.rs`/`core.rs`/`host.rs` copiati dalla v1 NON vanno formattati).
@@ -3318,6 +3405,7 @@ git commit -m "test(orchestrator): scenari e2e del canale shell + client di svil
   `crates/ui/src-tauri/Cargo.toml` + `crates/ui/src-tauri/tauri.conf.json` (2.1.0); `Cargo.lock` segue
 - Modify: `crates/{protocol,orchestrator,ui}/CHANGELOG.md` e `IMPLEMENTATION.md`
 - Modify: `Docs/i18n/ita/06-decisions.md` (ADR-018), `HANDOFF.md`, `RUN-LOCAL.md`, `TESTING-e2e.md`, `KNOWN-ISSUES.md`
+- Modify: `Docs/i18n/ita/superpowers/specs/2026-09-04-lare-terminal-2-design.md` (tre emendamenti, Step 2b)
 - Modify: `CLAUDE.md` (riga "Flag di sviluppo": aggiungere il client dev), `README.md` root se cita lo stato
 
 - [ ] **Step 1: versioni e changelog**
@@ -3353,6 +3441,16 @@ l'autostart è del piano 3. Lo streaming nella finestra resta fuori MVP (§12). 
 dalla shell sono scartati in questa versione (debito, HANDOFF).
 ```
 
+- [ ] **Step 2b: emendamenti allo spec** (allineano lo spec a ciò che il piano ha deciso)
+
+1. §4.1, riga `Hello`: aggiungere `"version": "2.0.0"` con la nota `// versione del client, per /ping`.
+2. §3, tabella: dopo la riga `/qualunque-altro` aggiungere `| \`/find …\` · \`/nowin …\` | **Scartati**
+   in questa versione (come uno slash ignoto): \`/find\` vive in \`ws.rs\` fuori dal turno, \`/nowin\` non ha
+   senso con l'output già in finestra — debito del piano 2a |`.
+3. §3.2, dopo "Instradati a `ui`.": aggiungere il paragrafo `**Eccezione**: i comandi il cui esito È già
+   una finestra (\`/help\`, \`/show\` — \`core::WINDOW_SLASHES\`) non aprono anche la finestra di output; la
+   riga di conferma nel terminale è generica (\`→ finestra aperta\`).`
+
 - [ ] **Step 3: HANDOFF, RUN-LOCAL, TESTING-e2e, KNOWN-ISSUES, CLAUDE.md**
 
 `HANDOFF.md`: "Versioni correnti" (protocol/orchestrator/ui 2.1.0); in FATTO una sezione
@@ -3361,7 +3459,10 @@ dalla shell sono scartati in questa versione (debito, HANDOFF).
 spec §4.3-§4.5, §6.4, §7, §10 e dal client dev come riferimento del giro di messaggi), poi Piano 3;
 **Debiti del piano 2a**: `/find` e `/nowin` dalla shell (discard), streaming nella finestra,
 `ActivityIndicator` emesso ma non consumato (piano 3), test end-to-end del gate con AI reale (solo
-`--ignored`), `emitToPlugin` usato come emit generico in `host.js`.
+`--ignored`), `emitToPlugin` usato come emit generico in `host.js`, **la cwd della sessione non
+entra nel prompt di sistema dell'AI** (spec §4.6 lo chiede; gap preesistente: in v1 l'adapter non
+riceve mai la cwd — `grep cwd ai_adapter.rs` trova solo test — quindi né la ui né la shell la
+passano; da risolvere in un task dedicato, con test, non qui).
 
 `RUN-LOCAL.md`: sezione "Canale shell senza la host (client di sviluppo)" con i cinque comandi del
 Task 10 Step 2. `TESTING-e2e.md`: "Parte 5 — Canale shell col client di sviluppo" (tabella: comando,
@@ -3407,5 +3508,9 @@ git commit -m "release: piano 2a completato — canale shell nel protocollo e ne
   `probe`, `run_ping`, `UI_PING_TIMEOUT` (T7) in T8; `Registry::{shared, set_ui_sink, clear_ui_sink_if,
   ui_sink, register_shell, unregister_shell, register_ui_ping, resolve_ui_ping}` (T2) in T8; `HelloInfo`
   (T8) in T8; `ShellConfirmer::new` (T3) in T8; `ExecReply` (T4) in T8.
-- **Conteggi test** (attesi, da riverificare): protocol +5, orchestrator +39 unit (T2 4, T3 4, T4 6,
-  T5 5, T6 7, T7 6, T8 7) + 5 integrazione, JS +5.
+- **Conteggi test** (attesi, da riverificare): protocol +5, orchestrator +42 unit (T2 4, T3 4, T4 6,
+  T5 6, T6 8, T7 6, T8 8) + 5 integrazione, JS +5.
+- **Revisione advisor (2026-09-05, sera)**: `/help`/`/show` avrebbero aperto due finestre (output +
+  propria) → `ShellTurn.output_window` + `WINDOW_SLASHES` (T5/T6/T8); `Hello.version`, discard di
+  `/find`/`/nowin` e l'eccezione §3.2 non erano nello spec → emendamenti nel T11; la cwd nel prompt
+  AI (§4.6) è un gap preesistente della v1 → debito dichiarato, non un task di questo piano.
