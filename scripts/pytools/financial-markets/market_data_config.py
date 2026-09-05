@@ -1,6 +1,6 @@
 """Legge market_data.json e costruisce la DataSource attiva. Stesso file
 scritto da ui (Tauri, market_data_settings.rs) -- letto qui direttamente,
-nessuna nuova plumbing lato orchestrator (vedi local_dir.py). Default SEMPRE
+la cartella arriva dall'orchestratore via `--config-dir` (vedi config_dir.py). Default SEMPRE
 YFinance su file assente/malformato/kind sconosciuto -- nessuna regressione
 per chi non ha mai toccato /config."""
 

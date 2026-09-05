@@ -16,7 +16,7 @@ import report
 import screeners
 import stock_list
 import ticker_search
-import local_dir
+import config_dir
 import market_data_config
 
 mcp = FastMCP("financial-markets")
@@ -30,7 +30,7 @@ DISCOVERIES_PATH = Path(__file__).parent / "discoveries.json"
 if refresh_tickers.is_stale(TICKERS_PATH):
     refresh_tickers.refresh(TICKERS_PATH)
 
-_source = market_data_config.build_data_source(local_dir.resolve() / "market_data.json")
+_source = market_data_config.build_data_source(config_dir.resolve() / "market_data.json")
 
 # Caricata una sola volta all'avvio del processo (come _source sopra) — non
 # ad ogni chiamata di search_ticker: il file è ~750KB/~10.400 righe, e
