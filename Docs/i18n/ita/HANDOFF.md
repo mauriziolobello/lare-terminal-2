@@ -61,6 +61,8 @@ completato il 2026-09-05:
   lancia `lare-shell.exe` dentro una ConPTY e diventa l'app che l'utente avvia — spec §2.3/§5).
   Include: autostart reciproco completo (`ui.exe` avvia l'orchestratore se assente, e viceversa,
   §6.4), rimozione del flag di sviluppo `--open` (sostituito dal canale shell reale).
+- **Chore separata**: `cargo fmt` globale sul codice copiato dalla v1 (non fmt-clean), fuori dai
+  piani per non sporcare i diff di review.
 
 ### Debiti noti del piano 1
 
@@ -78,7 +80,8 @@ successivi):
   `set_var("LARE_PYTOOLS_DIR")` (inerte).
 - `scripts/pytools/README.md` riga ~5 "convenzione invariata" (falso) e riga ~27 etichetta
   interna "Task 4/5".
-- 3 costruzioni `LareWsClient` senza guardia su `url` vuota.
+- 4 costruzioni `LareWsClient` senza guardia su `url` vuota (`config-dialog.js`,
+  `external-channel-window.js`, `host.js`, `window.js`).
 - `capabilities/default.json` concede `core:window:allow-set-size`/`allow-start-dragging`
   inutilizzati.
 - `diagnose_connection` registrato senza chiamante JS.

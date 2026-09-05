@@ -33,22 +33,21 @@ Tauri). Tutta la documentazione sta sotto `Docs/i18n/<lingua>/` (italiano come r
   `pytools\` + `startup.json`). Il 2.0 lo replica in `Test Run\` dentro questo repo, con
   un'unica cartella `Configuration\` al posto di `Local\`+`Roaming\`.
 
-## Decisioni già prese (2026-09-04)
+## Decisioni già prese (2026-09-04/05)
 
-- I comandi OS proposti dall'AI eseguono **nella shell reale dell'utente** (Lare è ospite, non
-  proprietario della shell) fin dalla prima versione. La shell posseduta dal `mcp-server` v1 resta
-  per i canali senza shell utente (Telegram, AI Chat).
-- **Sterzata (sera del 2026-09-04):** il lato shell non è un hook PSReadLine + client CLI, ma una
-  **host PowerShell custom in C#** (`lare-shell`, come `pwsh.exe` è una host del motore
-  PowerShell): possiede il REPL, legge con PSReadLine, intercetta le righe `/…`, esegue il resto
-  in-process, disegna barra di stato e segnalini nel terminale, e si presenta come profilo
-  "Lare Terminal" in Windows Terminal. Il core Rust (orchestratore, protocollo, plugin, pytools)
-  non cambia. In corso uno **spike** usa-e-getta in `spikes/lare-shell-host/`; lo spec in
-  `Docs/i18n/ita/superpowers/specs/` verrà riscritto nelle sezioni shell (§2, §4, §6) dopo
-  l'esito.
-- L'overlay F2 della v1 **non sopravvive**: `ui.exe` resta solo host di finestre Tauri
-  (Markdown, `/config`, `/library`, plugin). Ogni output dei comandi slash, `/ai` incluso, va in
-  una finestra Markdown; nel terminale restano prompt di conferma, conferme brevi ed errori.
+- **Lare È la shell, non un suo ospite** (ADR-015): `lare-shell` è una **host custom del motore
+  PowerShell in C#** (come `pwsh.exe` è una host di quel motore) — possiede il REPL, legge con
+  PSReadLine, intercetta le righe `/…`, esegue il resto in-process. La shell posseduta dal
+  `mcp-server` v1 resta solo per i canali senza shell utente (Telegram, AI Chat).
+- **Lare Terminal è una finestra Tauri** con emulatore xterm.js che ospita `lare-shell` via
+  ConPTY; barre e segnalini in HTML fuori dall'area terminale (ADR-016). Entrambe le decisioni
+  confermate da due spike usa-e-getta, **conclusi con successo** — esiti in
+  `Docs/i18n/ita/spikes/`; lo spec (`Docs/i18n/ita/superpowers/specs/`) è stato riscritto sulla
+  forma finale.
+- L'overlay F2 della v1 **non è sopravvissuto** (rimosso nel piano 1): `ui.exe` resta host di
+  finestre Tauri (Markdown, `/config`, `/library`, plugin). Ogni output dei comandi slash, `/ai`
+  incluso, va in una finestra Markdown; nel terminale restano prompt di conferma, conferme brevi
+  ed errori.
 - Comportamento **non difforme dalla v1** per le superfici che restano: `/markets`, `/calc`,
   `/library` aprono le stesse finestre Tauri. AI Chat, Library, `/config`, `/help` sono finestre
   **uniche per macchina**, condivise da tutte le sessioni Lare aperte.

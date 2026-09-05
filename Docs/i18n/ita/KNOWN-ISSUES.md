@@ -10,8 +10,8 @@ vedi `C:\Users\Maurizio\Documents\Progetti\Lare Terminal\Docs\KNOWN-ISSUES.md` (
 
 **Segnalato:** dal vivo dall'utente in v1, 2026-06-26 (`ipconfig /all` → "Configurazione automatica
 abilitata : S�", dove dovrebbe esserci `Sì`). **Ancora presente in 2.0**: il codice di
-`crates/mcp-server/src/session.rs` copiato dalla v1 (Task 1) non è stato modificato da nessun task
-del piano 1.
+`crates/mcp-server/src/session.rs` copiato dalla v1 all'inizio del piano 1 non è stato modificato
+da nessun task del piano.
 
 **Sintomo.** I caratteri accentati nell'output dei **comandi nativi** Win32 (`ipconfig`, ecc.)
 appaiono come U+FFFD (`�`). L'output *proprio* di PowerShell (`Write-Output`) è corretto.
@@ -52,6 +52,7 @@ lato server — `venv` non trovato, config assente) fallisce **in modo permanent
 la finestra continua a ritentare la connessione all'infinito invece di mostrare una volta un
 messaggio d'errore stabile e smettere.
 
-**Rilevanza per il piano 2/3.** Non toccato dal piano 1 (nessun task ha modificato la logica di
-retry di `ws-client.js`, solo il parametro `url` — Task 6/7). Resta un debito architetturale aperto
-da affrontare quando si costruirà l'esperienza utente attorno ai canali esterni.
+**Rilevanza per il piano 2/3.** Non toccato dal piano 1: il piano ha cambiato solo il parametro
+`url` di `ws-client.js` (per rendere la porta configurabile via `startup.json`), mai la logica di
+retry. Resta un debito architetturale aperto da affrontare quando si costruirà l'esperienza utente
+attorno ai canali esterni.
