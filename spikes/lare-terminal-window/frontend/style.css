@@ -1,0 +1,128 @@
+/* Spike 2 — chrome HTML attorno al terminale.
+   Tema scuro vicino a pwsh in Windows Terminal (palette "Campbell":
+   sfondo #0C0C0C, testo #CCCCCC). Font Cascadia Mono con fallback
+   Consolas/monospace, come da specifica. */
+
+* {
+  box-sizing: border-box;
+}
+
+/* html/body devono avere altezza 100%: senza, #terminal (che usa 1fr nella
+   grid del div#app) erediterebbe un'altezza di 0 e FitAddon.fit() non
+   avrebbe nessuno spazio reale su cui calcolare cols/rows (resterebbe fermo
+   alla dimensione di default 80x24 di xterm.js). */
+html, body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background: #0c0c0c;
+  color: #cccccc;
+  font-family: "Cascadia Mono", Consolas, monospace;
+  font-size: 13px;
+  overflow: hidden; /* la pagina stessa non deve scrollare: solo #terminal lo fa */
+}
+
+#app {
+  display: grid;
+  grid-template-rows: 28px 1fr 28px;
+  height: 100vh;
+  width: 100vw;
+}
+
+#top-bar,
+#bottom-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px;
+  background: #1f1f1f;
+  color: #cccccc;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+#top-bar {
+  border-bottom: 1px solid #333333;
+}
+
+#bottom-bar {
+  border-top: 1px solid #333333;
+  justify-content: flex-start;
+  gap: 8px;
+}
+
+#top-left,
+#top-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  overflow: hidden;
+}
+
+#app-title {
+  font-weight: bold;
+  color: #f2f2f2;
+}
+
+#shell-path {
+  color: #767676;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#last-command {
+  font-size: 12px;
+  color: #cccccc;
+}
+
+/* Il pallino che l'OSC 9001 (o, se ConPTY dovesse inghiottirlo, il canale di
+   riserva via titolo console — vedi app.js) accende per 2s ad ogni riga "/"
+   intercettata dallo shell host C#. */
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #767676;
+  transition: background-color 0.2s ease-out;
+}
+
+.dot.dot-active {
+  background: #16c60c; /* verde "brightGreen" della palette Campbell */
+  box-shadow: 0 0 4px #16c60c;
+}
+
+#clock {
+  font-variant-numeric: tabular-nums;
+  color: #cccccc;
+}
+
+#terminal {
+  overflow: hidden;
+  padding: 4px;
+  background: #0c0c0c;
+}
+
+/* xterm.js crea il proprio div interno: lo facciamo riempire #terminal. */
+#terminal .xterm {
+  height: 100%;
+}
+
+.slash-btn {
+  background: #2d2d2d;
+  color: #61d6d6; /* "brightCyan" Campbell, coerente col colore dei link OSC 8 nello spike 1 */
+  border: 1px solid #444444;
+  border-radius: 3px;
+  padding: 2px 10px;
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.slash-btn:hover {
+  background: #3a3a3a;
+}
+
+.slash-btn:active {
+  background: #444444;
+}

@@ -1,0 +1,35 @@
+[package]
+# Spike 2 "throwaway": pacchetto Cargo a sé stante, NON membro di un workspace
+# (non esiste un workspace Cargo alla radice di "Lare Terminal 2.0"). Nome
+# diverso da quello del crate v1 ("ui") per evitare qualunque ambiguità se in
+# futuro i due progetti finissero mai nello stesso albero di build.
+name = "lare-terminal-window"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[build-dependencies]
+# tauri-build genera, in fase di compilazione, le risorse Windows (icona .exe)
+# e legge tauri.conf.json + capabilities/ per produrre lo schema dei permessi.
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# Runtime Tauri v2. Nessuna feature extra: qui non servono plugin (niente
+# clipboard, niente global-shortcut come in v1), solo finestra + invoke + event.
+tauri = { version = "2", features = [] }
+
+# Serializzazione dei dati scambiati fra Rust e JS via invoke/emit.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# ConPTY (pseudo-console Windows) tramite un'API portabile: apre una pty,
+# ci lancia dentro un processo figlio (qui: lare-shell-spike.exe o pwsh.exe)
+# ed espone lettura/scrittura come su un vero terminale.
+portable-pty = "0.9"
+
+# Il canale pty-out invia byte grezzi (possono contenere sequenze UTF-8
+# multi-byte spezzate a metà fra due letture da 8 KiB): li incapsuliamo in
+# base64 prima di passarli come stringa JSON a app.emit, così il frontend
+# ricostruisce i byte esatti invece di rischiare che una stringa JS "spezzi"
+# un carattere multi-byte a metà.
+base64 = "0.22"

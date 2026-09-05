@@ -25,7 +25,15 @@ internal static class Program
             return SelfTest.Run();
         }
 
-        return Repl.RunInteractive();
+        // --no-bars: usato quando questo host gira DENTRO la finestra Tauri
+        // dello spike 2, che disegna già la propria chrome in HTML (barra
+        // superiore/inferiore). In quel caso la StatusBar VT/ANSI di questo
+        // processo sarebbe ridondante (e rischierebbe di litigare con la
+        // scroll region che gestisce xterm.js lato JS), quindi non va nemmeno
+        // creata. Stesso identico pattern di parsing di --selftest qui sopra.
+        bool noBars = args.Contains("--no-bars");
+
+        return Repl.RunInteractive(noBars);
     }
 }
 

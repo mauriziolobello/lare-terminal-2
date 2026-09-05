@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<!--
+  Spike 2 "throwaway" per Lare Terminal 2.0.
+
+  Struttura volutamente minimale: NIENTE bundler, NIENTE framework. Xterm.js
+  e il suo addon-fit sono vendorizzati in vendor/ (build UMD, definiscono le
+  globali window.Terminal e window.FitAddon) e caricati con <script> classici
+  PRIMA di app.js, che invece è un modulo ES (type="module") e può quindi
+  usare import/export se in futuro servisse suddividerlo. Con
+  "withGlobalTauri": true in tauri.conf.json, window.__TAURI__ è già disponibile
+  senza bisogno di importarlo esplicitamente.
+-->
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <title>Lare Terminal (spike 2)</title>
+  <link rel="stylesheet" href="vendor/xterm.css" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- Griglia a 3 righe: barra superiore fissa, terminale che riempie lo
+       spazio restante, barra inferiore fissa. La chrome (le due barre) è
+       HTML/CSS puro: nessun trucco VT/ANSI per disegnarla, a differenza della
+       StatusBar C# dello spike 1 — è proprio uno dei quattro punti che questo
+       spike deve dimostrare. -->
+  <div id="app">
+    <header id="top-bar">
+      <div id="top-left">
+        <span id="app-title">Lare Terminal (spike 2)</span>
+        <span id="shell-path">shell: (in risoluzione…)</span>
+      </div>
+      <div id="top-right">
+        <span id="last-command">ultimo: (nessuno)</span>
+        <span id="intercept-dot" class="dot"></span>
+        <span id="clock">--:--:--</span>
+      </div>
+    </header>
+
+    <main id="terminal"></main>
+
+    <footer id="bottom-bar">
+      <button type="button" class="slash-btn" data-cmd="/help">/help</button>
+      <button type="button" class="slash-btn" data-cmd="/library">/library</button>
+      <button type="button" class="slash-btn" data-cmd="/aichat">/aichat</button>
+      <button type="button" class="slash-btn" data-cmd="/config">/config</button>
+    </footer>
+  </div>
+
+  <script src="vendor/xterm.js"></script>
+  <script src="vendor/addon-fit.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

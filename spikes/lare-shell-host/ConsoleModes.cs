@@ -65,4 +65,46 @@ internal static class ConsoleModes
 
         return SetConsoleMode(handle, mode);
     }
+
+    /// <summary>
+    /// Abilita ENABLE_VIRTUAL_TERMINAL_PROCESSING sull'handle di output standard, cioè
+    /// dice a Windows di interpretare le sequenze ANSI/VT100 che scriviamo (colori,
+    /// cursore, OSC, ecc.) invece di mostrarle come testo letterale.
+    ///
+    /// STORIA (spike 2, Tauri): originariamente questa logica viveva SOLO dentro il
+    /// costruttore di StatusBar, quindi veniva attivata solo in modalità interattiva
+    /// "con barre". Con l'introduzione di `--no-bars` (la StatusBar non viene più
+    /// creata quando la finestra Tauri fornisce già la sua chrome HTML) serviva
+    /// comunque un modo per abilitare la VT processing anche SENZA StatusBar, perché
+    /// l'OSC 9001 che segnala le righe "/" intercettate (vedi Repl.TryIntercept) va
+    /// scritta correttamente in ogni caso. Spostata qui (classe già dedicata alle
+    /// primitive Win32 di console mode) ed esposta come metodo pubblico, così sia
+    /// StatusBar sia Repl.RunInteractive possono chiamarla senza duplicare codice.
+    /// </summary>
+    public static bool TryEnableVirtualTerminalProcessing()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            // Su Linux/macOS i terminali moderni interpretano già le sequenze VT
+            // di default: non serve alcuna chiamata P/Invoke (che comunque non
+            // esisterebbe, essendo kernel32 Windows-only).
+            return true;
+        }
+
+        try
+        {
+            IntPtr handle = GetHandle(StdOutputHandle);
+            if (!TryGetMode(handle, out uint mode))
+            {
+                return false;
+            }
+
+            mode |= EnableVirtualTerminalProcessing | EnableProcessedOutput;
+            return TrySetMode(handle, mode);
+        }
+        catch
+        {
+            return false;
+        }
+    }
 }

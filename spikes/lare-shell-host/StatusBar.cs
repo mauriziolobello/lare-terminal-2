@@ -52,7 +52,11 @@ internal sealed class StatusBar
     // volta qui e riusato per concatenazione in tutto il resto del file: se in futuro
     // servisse un'altra sequenza VT, si scrive "Esc + "[...codice...]"" invece di
     // reintrodurre un escape di stringa fatto a mano.
-    private static readonly string Esc = ((char)0x1B).ToString();
+    // `internal` (non più `private`) da quando Repl.cs, per l'OSC 9001 dello
+    // spike 2 (segnalazione di una riga "/" intercettata verso la finestra
+    // Tauri), riusa la stessa identica costante invece di reintrodurre
+    // l'escape di stringa manuale che ha causato il bug descritto sopra.
+    internal static readonly string Esc = ((char)0x1B).ToString();
 
     private readonly object _consoleLock;
     private readonly bool _enabled;
@@ -84,7 +88,7 @@ internal sealed class StatusBar
         // La status bar ha senso solo con una console interattiva reale: se lo
         // stdout è rediretto (pipe, file, o modalità --selftest) non proviamo
         // nemmeno ad abilitare la VT processing o a disegnare le barre.
-        _enabled = !Console.IsOutputRedirected && !Console.IsErrorRedirected && EnableVirtualTerminalProcessing();
+        _enabled = !Console.IsOutputRedirected && !Console.IsErrorRedirected && ConsoleModes.TryEnableVirtualTerminalProcessing();
     }
 
     /// <summary>True se la console supporta le sequenze VT e non è rediretta.</summary>
@@ -369,34 +373,9 @@ internal sealed class StatusBar
     // un'app console "vecchio stile": bisogna chiedere esplicitamente a Win32 di
     // interpretare le sequenze ANSI/VT100 che scriviamo, altrimenti verrebbero
     // mostrate come testo letterale (pieno di ESC[...) invece che come comandi.
-    // Le P/Invoke stesse (GetStdHandle/GetConsoleMode/SetConsoleMode) sono state
-    // spostate nella classe condivisa ConsoleModes (vedi ConsoleModes.cs), perché
-    // servono anche a LareHost per NotifyBeginApplication/NotifyEndApplication.
-
-    private static bool EnableVirtualTerminalProcessing()
-    {
-        if (!OperatingSystem.IsWindows())
-        {
-            // Su Linux/macOS i terminali moderni interpretano già le sequenze VT
-            // di default: non serve alcuna chiamata P/Invoke (che comunque non
-            // esisterebbe, essendo kernel32 Windows-only).
-            return true;
-        }
-
-        try
-        {
-            IntPtr handle = ConsoleModes.GetHandle(ConsoleModes.StdOutputHandle);
-            if (!ConsoleModes.TryGetMode(handle, out uint mode))
-            {
-                return false;
-            }
-
-            mode |= ConsoleModes.EnableVirtualTerminalProcessing | ConsoleModes.EnableProcessedOutput;
-            return ConsoleModes.TrySetMode(handle, mode);
-        }
-        catch
-        {
-            return false;
-        }
-    }
+    // La logica stessa (P/Invoke GetStdHandle/GetConsoleMode/SetConsoleMode) è
+    // stata spostata in ConsoleModes.TryEnableVirtualTerminalProcessing() (vedi
+    // ConsoleModes.cs): da quando esiste `--no-bars` (spike 2, Tauri) serve poter
+    // abilitare la VT processing anche quando questa StatusBar non viene affatto
+    // creata, quindi Repl.RunInteractive la richiama direttamente.
 }

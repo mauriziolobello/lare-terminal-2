@@ -52,9 +52,62 @@ internal static class Repl
     }
 
     /// <summary>
+    /// Segnala una riga "/" intercettata alla finestra Tauri dello spike 2, su DUE
+    /// canali indipendenti (deliberatamente ridondanti — è proprio quello che questo
+    /// spike deve verificare dal vivo):
+    ///
+    ///  1. OSC 9001 custom: "ESC ] 9001 ; lare ; intercept ; &lt;riga&gt; ESC \".
+    ///     xterm.js, lato JS, la intercetta con term.parser.registerOscHandler(9001, ...).
+    ///     Windows Terminal (se questo host girasse lì) ignorerebbe una OSC che non
+    ///     conosce, ma ConPTY (la pseudo-console che sta INVECE fra questo processo
+    ///     e xterm.js quando gira dentro Tauri) potrebbe scartarla ancora prima:
+    ///     ConPTY ri-emette verso il lato lettura solo le sequenze VT che riconosce
+    ///     lui stesso, non un semplice "pass-through" di tutto ciò che riceve.
+    ///  2. Cambio titolo console (Console.Title = "lare;intercept;&lt;riga&gt;",
+    ///     poi ripristinato subito dopo): il titolo è un canale che ConPTY DEVE
+    ///     ri-emettere per costruzione (è così che la scheda di Windows Terminal
+    ///     segue il titolo di un'app), quindi funziona anche se il canale 1 venisse
+    ///     inghiottito. Lato JS: term.onTitleChange(...).
+    ///
+    /// Chiamato dentro lock (ConsoleLock) dal chiamante: nessun lock qui dentro.
+    /// </summary>
+    private static void NotifyLareIntercept(string rawLine)
+    {
+        // Canale 1 — OSC 9001. StatusBar.Esc costruisce il carattere ESC (0x1B) con
+        // un cast esplicito da intero, MAI con un escape di stringa "\x...": vedi il
+        // commento in cima a StatusBar.cs sul bug "\x greedy" scoperto nel round 2
+        // di questo stesso spike (un "\x1b]..." scritto a mano avrebbe letto le
+        // prime cifre esadecimali del testo che segue come parte del codice ESC).
+        Console.Out.Write(StatusBar.Esc + "]9001;lare;intercept;" + rawLine + StatusBar.Esc + "\\");
+
+        // Canale 2 — titolo console, di riserva. Salviamo il titolo precedente e lo
+        // ripristiniamo subito dopo: vogliamo che sia il CAMBIO di titolo il segnale
+        // (osservato via onTitleChange lato JS), non un titolo fisso sull'ultima riga
+        // intercettata per sempre. Tutto avvolto in try/catch: leggere/scrivere
+        // Console.Title può fallire se stdout è rediretto o non esiste una vera
+        // console dietro (es. --selftest, che però non passa mai da qui).
+        string? previousTitle = null;
+        try { previousTitle = Console.Title; } catch { /* ignorabile */ }
+        try { Console.Title = "lare;intercept;" + rawLine; } catch { /* ignorabile */ }
+
+        Console.Out.Flush();
+
+        if (previousTitle is not null)
+        {
+            try { Console.Title = previousTitle; } catch { /* ignorabile */ }
+        }
+    }
+
+    /// <summary>
     /// Avvia il loop interattivo. Ritorna il codice di uscita del processo.
     /// </summary>
-    public static int RunInteractive()
+    /// <param name="noBars">
+    /// Se true, non viene creata alcuna StatusBar (né la riga in alto né quella
+    /// in basso disegnate con sequenze VT/ANSI): usato quando questo host gira
+    /// dentro la finestra Tauri dello spike 2, che fornisce già la propria
+    /// chrome in HTML. Vedi Program.cs per il parsing del flag --no-bars.
+    /// </param>
+    public static int RunInteractive(bool noBars = false)
     {
         // --- 1. Costruzione dello stato iniziale della sessione -------------
         // InitialSessionState.CreateDefault() carica tutti i moduli/snap-in di
@@ -83,7 +136,22 @@ internal static class Repl
         // per il thread in corso. ConsoleHost fa lo stesso nel suo thread di UI.
         Runspace.DefaultRunspace = runspace;
 
-        var statusBar = new StatusBar(ConsoleLock);
+        // Abilitiamo la VT processing QUI, incondizionatamente, non solo dentro
+        // il costruttore di StatusBar: quando noBars è true la StatusBar non
+        // viene proprio creata (vedi sotto), ma l'OSC 9001 scritta più sotto ad
+        // ogni riga "/" intercettata (per la finestra Tauri dello spike 2) va
+        // comunque interpretata come sequenza VT e non mostrata come testo
+        // letterale. Chiamarla due volte (qui e, se noBars è false, di nuovo
+        // dentro il costruttore di StatusBar) è innocuo: SetConsoleMode è
+        // idempotente.
+        ConsoleModes.TryEnableVirtualTerminalProcessing();
+
+        // `StatusBar?`: con --no-bars questa variabile resta null e ogni
+        // chiamata sotto usa l'operatore ?. (Elvis), che diventa un no-op
+        // invece di un NullReferenceException. Composizione invece che una
+        // seconda gerarchia di classi "con barra"/"senza barra": è la stessa
+        // Repl, cambia solo se il collaboratore opzionale esiste o no.
+        StatusBar? statusBar = noBars ? null : new StatusBar(ConsoleLock);
 
         // NOTA IMPORTANTE (osservata empiricamente durante lo sviluppo di questo
         // spike): se lo stdin è rediretto (es. `echo "/exit" | lare-shell-spike.exe`),
@@ -120,7 +188,7 @@ internal static class Repl
             // le due barre e clampa il cursore dentro la regione (riga 2..H-1) PRIMA
             // di stampare qualunque cosa. Solo DOPO stampiamo banner/profili/prompt,
             // così finiscono tutti dentro la regione gestita, mai sopra la barra.
-            statusBar.Start();
+            statusBar?.Start();
 
             lock (ConsoleLock)
             {
@@ -154,17 +222,19 @@ internal static class Repl
                 {
                     lock (ConsoleLock)
                     {
+                        NotifyLareIntercept(line);
+
                         Console.ForegroundColor = ConsoleColor.Cyan;
                         Console.WriteLine(interceptMessage);
                         Console.ResetColor();
                     }
-                    statusBar.SetLastCommand(line.Trim());
+                    statusBar?.SetLastCommand(line.Trim());
                     // Ridisegno dopo ogni comando "intercettato": non strettamente
                     // necessario quanto dopo un comando PowerShell (qui non tocchiamo
                     // lo schermo intero), ma economico e coerente con "dopo ogni
                     // comando eseguito" — e copre il caso in cui un futuro comando /
                     // faccia output più corposo.
-                    statusBar.Redraw();
+                    statusBar?.Redraw();
 
                     if (string.Equals(line.Trim(), "/exit", StringComparison.OrdinalIgnoreCase))
                     {
@@ -186,13 +256,13 @@ internal static class Repl
                 // e più in generale qualunque comando che scrive molto output può
                 // aver disturbato le due righe fisse. Ridisegniamo sempre, qui, dopo
                 // OGNI comando PowerShell eseguito, non solo dopo Clear-Host.
-                statusBar.Redraw();
+                statusBar?.Redraw();
             }
         }
         finally
         {
             Console.CancelKeyPress -= cancelHandler;
-            statusBar.Stop();
+            statusBar?.Stop();
             Runspace.DefaultRunspace = null;
         }
 

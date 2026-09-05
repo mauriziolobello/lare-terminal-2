@@ -1,0 +1,12 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capability della finestra 'main' dello spike 2. core:default copre i comandi invoke di base; core:event:default copre listen() lato frontend (emit da Rust non richiede permessi); core:window:default copre le operazioni sulla finestra usate implicitamente da Tauri (nessuna manipolazione custom della finestra in questo spike, ma la teniamo per allinearci alla richiesta 'invoke + listen + emit' senza sorprese).",
+  "platforms": ["windows"],
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:event:default",
+    "core:window:default"
+  ]
+}
