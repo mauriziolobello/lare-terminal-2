@@ -16,9 +16,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use futures_util::{SinkExt, StreamExt};
 use orchestrator::{
-    ai_adapter::StubAdapter,
+    agent::TurnOptions,
+    ai_adapter::{AiAdapter, StubAdapter, ToolConfirmer},
     aichat::service::ServiceEvent,
     cwd_tracking::CwdTrackingToolClient,
+    messages_client::ConversationHistory,
     plugins::{
         discovery::DiscoveredPlugin,
         host::PluginHost,
@@ -29,13 +31,16 @@ use orchestrator::{
         paths_config::OsPathProvider,
         SearchContext, SearchEngine,
     },
-    tool_client::FakeToolClient,
+    tool_client::{FakeToolClient, ToolClient},
     ws,
 };
-use protocol::{ClientMsg, CommandKind, InputMode, ServerMsg};
+use protocol::{ClientMsg, CommandKind, ErrCode, InputMode, Role, ServerMsg};
+use async_trait::async_trait;
 use tokio::net::TcpListener;
+use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::Mutex;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
+use tokio_util::sync::CancellationToken;
 
 // ── Test harness helpers ───────────────────────────────────────────────────────
 
@@ -86,9 +91,11 @@ fn make_test_content_cfg_path() -> std::path::PathBuf {
     path
 }
 
-/// Spawn a WS server on an OS-chosen ephemeral port.
+/// Spawn a WS server on an OS-chosen ephemeral port, con l'`AiAdapter` scelto
+/// dal chiamante (Task 10: `spawn_server` resta la comodità con `StubAdapter`,
+/// gli scenari col round-trip AI→tool→shell usano `ToolCallingStubAdapter`).
 /// Returns the `ws://` URL and a join handle for the server task.
-async fn spawn_server(token: &str) -> String {
+async fn spawn_server_with(token: &str, ai: Arc<dyn AiAdapter>) -> String {
     // Bind to an ephemeral port to avoid conflicts between parallel tests.
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -99,7 +106,6 @@ async fn spawn_server(token: &str) -> String {
     let addr_str_clone = addr_str.clone();
 
     tokio::spawn(async move {
-        let ai = Arc::new(StubAdapter);
         let tools = Arc::new(FakeToolClient::success("fake output\n"));
         // SearchContext con liste vuote + external []: i root di una ricerca
         // sono solo la cwd passata nel Command (il provider non viene interrogato).
@@ -143,6 +149,13 @@ async fn spawn_server(token: &str) -> String {
     format!("ws://{addr}")
 }
 
+/// Comodità: la maggior parte dei test non ha bisogno di un'AI reale, solo
+/// dello `StubAdapter` (eco testuale, nessun tool). Invariato rispetto al
+/// vecchio `spawn_server` — ora è solo un guscio sottile su `spawn_server_with`.
+async fn spawn_server(token: &str) -> String {
+    spawn_server_with(token, Arc::new(StubAdapter)).await
+}
+
 /// Send a [`ClientMsg`] as a JSON text frame.
 async fn send(
     sink: &mut (impl SinkExt<Message, Error = tokio_tungstenite::tungstenite::Error> + Unpin),
@@ -168,6 +181,88 @@ async fn recv(
             None => panic!("connection closed unexpectedly"),
         }
     }
+}
+
+// ── Task 10: helper e adapter finto per gli scenari e2e del canale shell ───────
+
+/// Adapter AI finto che, come farebbe Claude, propone UN comando: chiede il
+/// gate (se il confirmer lo gateizza), esegue `run_in_session` via `dispatch`
+/// e riporta l'output come testo. Serve a provare il round-trip completo
+/// ToolConfirmRequest → ExecInShell → ExecResult senza API reali.
+struct ToolCallingStubAdapter;
+
+#[async_trait]
+impl AiAdapter for ToolCallingStubAdapter {
+    #[allow(clippy::too_many_arguments)]
+    async fn respond(
+        &self,
+        id: &str,
+        _input: &str,
+        _history: &mut ConversationHistory,
+        tools: &dyn ToolClient,
+        _opts: TurnOptions,
+        confirmer: Option<&dyn ToolConfirmer>,
+        _cancel: Option<CancellationToken>,
+        tx: UnboundedSender<ServerMsg>,
+    ) {
+        let approved = match confirmer {
+            Some(c) if c.should_gate("run_in_session") => c.confirm("$ echo x").await,
+            _ => true,
+        };
+        if !approved {
+            let _ = tx.send(ServerMsg::Chunk { id: id.to_string(), content: "annullato".into() });
+            let _ = tx.send(ServerMsg::Done { id: id.to_string(), exit_code: None });
+            return;
+        }
+        let out = tools.dispatch("run_in_session", &serde_json::json!({"command": "echo x"})).await;
+        let _ = tx.send(ServerMsg::Chunk { id: id.to_string(), content: format!("output: {}", out.output.trim()) });
+        let _ = tx.send(ServerMsg::Done { id: id.to_string(), exit_code: None });
+    }
+
+    fn provider(&self) -> String {
+        "tool-calling-stub".to_string()
+    }
+
+    async fn chat_reply(&self, _my_ai_label: &str, _history: &[orchestrator::messages_client::Message], _request: &str, _cancel: Option<CancellationToken>) -> String {
+        String::new()
+    }
+}
+
+/// `Hello{role: Shell}` di comodo per gli scenari: session `s1`, cwd `C:\w`,
+/// versione della host finta `2.0.0` (finisce nella riga `/ping`).
+fn shell_hello(token: &str) -> ClientMsg {
+    ClientMsg::Hello {
+        token: token.into(), channel: None, role: Role::Shell,
+        session_id: Some("s1".into()), cwd: Some("C:\\w".into()), version: Some("2.0.0".into()),
+    }
+}
+
+/// `Hello{role: Ui}` di comodo (nessuna sessione/cwd/versione — come `ui.exe`).
+fn ui_hello(token: &str) -> ClientMsg {
+    ClientMsg::Hello { token: token.into(), channel: None, role: Role::Ui, session_id: None, cwd: None, version: None }
+}
+
+/// `Command` di comodo per gli scenari shell: cwd fissa `C:\w`, niente ricerca web.
+fn command(id: &str, input: &str) -> ClientMsg {
+    ClientMsg::Command {
+        id: id.into(), input: input.into(), input_mode: InputMode::Keyboard,
+        command_type: CommandKind::Auto, cwd: Some("C:\\w".into()), web_search: false,
+    }
+}
+
+/// Riceve finché `pred` è vera (max 5 s), ritornando il messaggio che l'ha soddisfatta.
+/// Serve dove un messaggio atteso può essere preceduto da altri (es. un
+/// `ActivityIndicator` prima di un `OpenOutputWindow`/`ToolConfirmRequest`).
+async fn recv_until(
+    source: &mut (impl StreamExt<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin),
+    pred: impl Fn(&ServerMsg) -> bool,
+) -> ServerMsg {
+    tokio::time::timeout(tokio::time::Duration::from_secs(5), async {
+        loop {
+            let m = recv(source).await;
+            if pred(&m) { return m; }
+        }
+    }).await.expect("timeout: messaggio atteso mai arrivato")
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────────────
@@ -1195,4 +1290,132 @@ async fn test_market_data_source_echoes_id_and_reports_unreachable_when_venv_mis
     send(&mut sink, &ClientMsg::Ping { ts: 999 }).await;
     let pong = recv(&mut source).await;
     assert_eq!(pong, ServerMsg::Pong { ts: 999 }, "il read-loop deve restare reattivo dopo TestMarketDataSource");
+}
+
+// ── Canale shell — scenari e2e (Task 10) ──────────────────────────────────────
+//
+// Questi cinque scenari sono ANCHE la copertura smoke che la revisione del
+// Task 8 chiedeva: i cambi ad `handle_connection` per `role: "shell"` erano
+// finora verificati solo dai test unitari di `shell_turn.rs` (che chiamano
+// `run_shell_command` direttamente, bypassando `ws::serve`/l'handshake reale).
+// Qui invece si passa da un vero handshake WS, come farà `lare-shell`.
+
+/// Uno slash sconosciuto dalla shell ottiene solo `Done{0}` — niente `Cwd`
+/// (la shell tiene la propria cwd, non è compito del server rimandarla) e
+/// niente `Error` (uno slash "muto" non è un errore, spec §3).
+#[tokio::test]
+async fn shell_unknown_slash_gets_a_mute_done_and_no_cwd() {
+    let url = spawn_server("tok-shell-1").await;
+    let (ws, _) = connect_async(&url).await.unwrap();
+    let (mut sink, mut source) = ws.split();
+    send(&mut sink, &shell_hello("tok-shell-1")).await;
+    assert!(matches!(recv(&mut source).await, ServerMsg::ServerInfo { .. }));
+    send(&mut sink, &command("c1", "/nonesiste")).await;
+    // Il PRIMO messaggio dopo ServerInfo è Done (niente Cwd, niente Error).
+    let next = recv(&mut source).await;
+    assert!(matches!(next, ServerMsg::Done { exit_code: Some(0), .. }), "{next:?}");
+}
+
+/// `/ai` senza virgolette è un errore di sintassi (`RoutingError`) col
+/// messaggio esatto di `shell_slash::AI_SYNTAX_ERROR`.
+#[tokio::test]
+async fn shell_ai_without_quotes_gets_syntax_error() {
+    let url = spawn_server("tok-shell-2").await;
+    let (ws, _) = connect_async(&url).await.unwrap();
+    let (mut sink, mut source) = ws.split();
+    send(&mut sink, &shell_hello("tok-shell-2")).await;
+    recv(&mut source).await;
+    send(&mut sink, &command("c1", "/ai ciao")).await;
+    let m = recv(&mut source).await;
+    assert!(matches!(&m, ServerMsg::Error { code: ErrCode::RoutingError, message, .. } if message == orchestrator::shell_slash::AI_SYNTAX_ERROR), "{m:?}");
+}
+
+/// `/reset` risponde solo sulla shell (`RESET_MESSAGE` + `Done`, non
+/// applicabile alla sessione della shell stessa); `/config` invece apre la
+/// finestra sulla connessione `ui` registrata (`OpenUiLocal`).
+#[tokio::test]
+async fn shell_reset_and_open_ui_local_reach_the_ui_sink() {
+    let url = spawn_server("tok-shell-3").await;
+    let (ui_ws, _) = connect_async(&url).await.unwrap();
+    let (mut ui_sink, mut ui_source) = ui_ws.split();
+    send(&mut ui_sink, &ui_hello("tok-shell-3")).await;
+    recv(&mut ui_source).await; // ServerInfo
+    let (ws, _) = connect_async(&url).await.unwrap();
+    let (mut sink, mut source) = ws.split();
+    send(&mut sink, &shell_hello("tok-shell-3")).await;
+    recv(&mut source).await;
+    send(&mut sink, &command("c1", "/reset")).await;
+    let m = recv(&mut source).await;
+    assert!(matches!(&m, ServerMsg::Chunk { content, .. } if content == orchestrator::shell_slash::RESET_MESSAGE), "{m:?}");
+    assert!(matches!(recv(&mut source).await, ServerMsg::Done { .. }));
+    send(&mut sink, &command("c2", "/config")).await;
+    let m = recv_until(&mut ui_source, |m| matches!(m, ServerMsg::OpenUiLocal { .. })).await;
+    assert!(matches!(&m, ServerMsg::OpenUiLocal { name } if name == "config"));
+    assert!(matches!(recv(&mut source).await, ServerMsg::Done { exit_code: Some(0), .. }));
+}
+
+/// Il round-trip completo dello spec §4.2 con un'AI finta che propone `echo x`.
+#[tokio::test]
+async fn shell_ai_turn_round_trips_gate_exec_and_output_window() {
+    let url = spawn_server_with("tok-shell-4", Arc::new(ToolCallingStubAdapter)).await;
+    let (ui_ws, _) = connect_async(&url).await.unwrap();
+    let (mut ui_sink, mut ui_source) = ui_ws.split();
+    send(&mut ui_sink, &ui_hello("tok-shell-4")).await;
+    recv(&mut ui_source).await;
+    let (ws, _) = connect_async(&url).await.unwrap();
+    let (mut sink, mut source) = ws.split();
+    send(&mut sink, &shell_hello("tok-shell-4")).await;
+    recv(&mut source).await;
+
+    send(&mut sink, &command("c1", "/ai \"stampa x\"")).await;
+    // ui: la finestra si apre subito, col titolo derivato dal testo.
+    let m = recv_until(&mut ui_source, |m| matches!(m, ServerMsg::OpenOutputWindow { .. })).await;
+    assert!(matches!(&m, ServerMsg::OpenOutputWindow { window_id, title } if window_id == "c1" && title == "stampa x"), "{m:?}");
+    // shell: gate → accetta.
+    let gate = recv_until(&mut source, |m| matches!(m, ServerMsg::ToolConfirmRequest { .. })).await;
+    let gate_id = match gate { ServerMsg::ToolConfirmRequest { id, commands } => { assert_eq!(commands, "$ echo x"); id } _ => unreachable!() };
+    send(&mut sink, &ClientMsg::ToolConfirmResponse { id: gate_id, accept: true }).await;
+    // shell: ExecInShell → rispondi come farebbe la host.
+    let exec = recv_until(&mut source, |m| matches!(m, ServerMsg::ExecInShell { .. })).await;
+    let exec_id = match exec {
+        ServerMsg::ExecInShell { turn_id, exec_id, command, capture } => {
+            assert_eq!((turn_id.as_str(), command.as_str(), capture), ("c1", "echo x", true));
+            exec_id
+        }
+        _ => unreachable!(),
+    };
+    send(&mut sink, &ClientMsg::ExecResult { turn_id: "c1".into(), exec_id, exit_code: 0, output: "x\n".into(), cwd: "C:\\dopo".into() }).await;
+    // shell: riga di conferma + Done (nessun Chunk di testo AI).
+    let ack = recv(&mut source).await;
+    assert!(matches!(&ack, ServerMsg::Chunk { content, .. } if content == "\u{2192} finestra \"stampa x\" aperta"), "{ack:?}");
+    assert!(matches!(recv(&mut source).await, ServerMsg::Done { .. }));
+    // ui: il contenuto arriva una volta, con l'output del comando.
+    let content = recv_until(&mut ui_source, |m| matches!(m, ServerMsg::OutputWindowContent { .. })).await;
+    assert!(matches!(&content, ServerMsg::OutputWindowContent { window_id, markdown } if window_id == "c1" && markdown.contains("output: x")), "{content:?}");
+}
+
+/// `/ping` dalla shell: sonda `ui.exe` via `UiPing`/`UiPong` e riporta anche
+/// il plugin `ping` mancante (nessun plugin registrato in `spawn_server`).
+#[tokio::test]
+async fn shell_ping_reports_ui_and_missing_plugin() {
+    let url = spawn_server("tok-shell-5").await;
+    let (ui_ws, _) = connect_async(&url).await.unwrap();
+    let (mut ui_sink, mut ui_source) = ui_ws.split();
+    send(&mut ui_sink, &ui_hello("tok-shell-5")).await;
+    recv(&mut ui_source).await;
+    let (ws, _) = connect_async(&url).await.unwrap();
+    let (mut sink, mut source) = ws.split();
+    send(&mut sink, &shell_hello("tok-shell-5")).await;
+    recv(&mut source).await;
+    send(&mut sink, &command("c1", "/ping")).await;
+    let ping = recv_until(&mut ui_source, |m| matches!(m, ServerMsg::UiPing { .. })).await;
+    if let ServerMsg::UiPing { id } = ping {
+        send(&mut ui_sink, &ClientMsg::UiPong { id, version: "9.9.9".into() }).await;
+    }
+    let content = recv_until(&mut ui_source, |m| matches!(m, ServerMsg::OutputWindowContent { .. })).await;
+    let md = match content { ServerMsg::OutputWindowContent { markdown, .. } => markdown, _ => unreachable!() };
+    assert!(md.contains("| lare-shell | 2.0.0 | ok | sessione s1"), "{md}");
+    assert!(md.contains("| ui.exe | 9.9.9 | ok |"), "{md}");
+    assert!(md.contains("| plugin-ping | -- | non trovato |"), "{md}");
+    assert!(matches!(recv_until(&mut source, |m| matches!(m, ServerMsg::Done { .. })).await, ServerMsg::Done { exit_code: Some(0), .. }));
 }
