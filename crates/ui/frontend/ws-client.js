@@ -322,6 +322,13 @@ export class LareWsClient {
     return true;
   }
 
+  /** Risposta a `ui_ping` (built-in /ping): `{type:"ui_pong", id, version}`. */
+  sendUiPong(id, version) {
+    if (!this._isOpen()) return false;
+    this._send({ type: "ui_pong", id, version: String(version ?? "") });
+    return true;
+  }
+
   /**
    * Blocco note (Task 16): crea una nuova nota.
    *

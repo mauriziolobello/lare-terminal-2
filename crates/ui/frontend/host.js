@@ -31,6 +31,8 @@ import { createSearchBuffers } from "./search-buffer.js";
 import { createAiChatPushGate } from "./aichat-push.js";
 import { shareResultLine, shareReceivedLine } from "./share-view.mjs";
 import { classifyServerMsg } from "./host-dispatch.mjs";
+import { resolveUiLocal, markdownWindowLabel } from "./ui-local.mjs";
+import { EXTERNAL_TOOL_CHANNELS } from "./external-channels.js";
 
 // Buffer-and-replay dei risultati di ricerca: la finestra (webview separata)
 // può aprirsi DOPO che il backend ha già inviato hit/done. Accumuliamo qui e
@@ -78,6 +80,12 @@ async function getToken() {
 // WebSocket client — connessione di default (Hello senza `channel`)
 // ---------------------------------------------------------------------------
 let client = null;
+
+// Versione di ui.exe (get_ui_version, comando Rust): serve solo per
+// rispondere a `ui_ping` con `UiPong{id, version}` (built-in /ping) — non è
+// usata per nessun'altra decisione lato JS. Valorizzata in bootstrap() PRIMA
+// di initClient() così è già pronta al primo eventuale ui_ping in arrivo.
+let uiVersion = "";
 
 async function initClient() {
   if (!tauriInvoke) {
@@ -192,6 +200,30 @@ function handleServerMsg(msg) {
       openRoutinePreviewWindow(
         msg.id, msg.name, msg.description, msg.tags, msg.category, msg.script, msg.replace ?? null
       );
+      break;
+
+    // ── Canale shell (2.0, spec §3.2/§4.1) ─────────────────────────────────
+    // Finestra di output di un comando slash originato da una shell: si apre
+    // subito col segnaposto, il contenuto arriva a Done via evento globale.
+    case "open_output_window":
+      invokeCmd("open_output_window", { windowId: msg.window_id, title: msg.title })
+        .catch((e) => console.error("[host] open_output_window error:", e));
+      break;
+    case "output_window_content":
+      // emitToPlugin è un emit globale generico (nome storico): la finestra
+      // di output filtra per window_id come fanno le finestre plugin.
+      emitToPlugin("output:content", { window_id: msg.window_id, markdown: msg.markdown });
+      break;
+    // Finestra locale chiesta da una shell (/config, /library, /aichat, canali esterni).
+    case "open_ui_local": {
+      const target = resolveUiLocal(msg.name, EXTERNAL_TOOL_CHANNELS);
+      if (!target) { console.warn("[host] open_ui_local: nome ignoto", msg.name); break; }
+      invokeCmd(target.cmd, target.args).catch((e) => console.error(`[host] ${target.cmd} error:`, e));
+      break;
+    }
+    // Built-in /ping: rispondi con la versione di ui.exe.
+    case "ui_ping":
+      if (client) client.sendUiPong(msg.id, uiVersion);
       break;
 
     // ── AI Chat (Slice 1a-ui-B / Task 9/10) ─────────────────────────────────
@@ -332,7 +364,10 @@ function handleServerMsg(msg) {
  */
 async function openMarkdownWindow(title, content, kind = "markdown") {
   try {
-    await invokeCmd("open_markdown_window", { title, content, kind, sourceFile: "" });
+    // label: markdownWindowLabel(kind) è undefined/null per ogni kind tranne
+    // "help" (D15) — Rust la riceve come Option<String>::None e genera una
+    // label univoca come prima (comportamento invariato per le altre finestre).
+    await invokeCmd("open_markdown_window", { title, content, kind, sourceFile: "", label: markdownWindowLabel(kind) });
   } catch (e) {
     console.error("[host] open_markdown_window error:", e);
   }
@@ -734,6 +769,8 @@ function setupLibraryEvents() {
 // cursore), focus/editor/idle-duck/diagnosi (tutto cursore).
 // ---------------------------------------------------------------------------
 async function bootstrap() {
+  uiVersion = (await invokeCmd("get_ui_version")) ?? "";
+
   await initClient();
 
   // Listener per gli eventi della finestra di ricerca (click→/open, chiusura→cancel).

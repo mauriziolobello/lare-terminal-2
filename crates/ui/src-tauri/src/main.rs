@@ -241,23 +241,35 @@ async fn open_markdown_window(
     content: String,
     kind: String,
     source_file: String,
+    label: Option<String>,
     app: AppHandle,
     store: State<'_, WindowContentStore>,
 ) -> Result<(), String> {
-    // Step 1: generate a unique label.
-    // Format: "md-<unix_ms>-<monotonic_counter>"
-    // No external uuid crate; a timestamp + process-local AtomicU32 counter is
-    // collision-resistant for a local overlay UI (single process, single user).
-    let label = {
-        use std::sync::atomic::{AtomicU32, Ordering};
-        use std::time::{SystemTime, UNIX_EPOCH};
-        let ts = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_millis())
-            .unwrap_or(0);
-        static CTR: AtomicU32 = AtomicU32::new(0);
-        let ctr = CTR.fetch_add(1, Ordering::Relaxed);
-        format!("md-{ts}-{ctr}")
+    // Singleton (D15): con una label fissa (`/help`), se la finestra esiste
+    // già la si porta in primo piano e non se ne apre una seconda.
+    if let Some(fixed) = &label {
+        if let Some(win) = app.get_webview_window(fixed) {
+            win.set_focus().map_err(|e| format!("open_markdown_window set_focus error: {e}"))?;
+            return Ok(());
+        }
+    }
+    let label = match label {
+        Some(fixed) => fixed,
+        None => {
+            // Step 1: generate a unique label.
+            // Format: "md-<unix_ms>-<monotonic_counter>"
+            // No external uuid crate; a timestamp + process-local AtomicU32 counter is
+            // collision-resistant for a local overlay UI (single process, single user).
+            use std::sync::atomic::{AtomicU32, Ordering};
+            use std::time::{SystemTime, UNIX_EPOCH};
+            let ts = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_millis())
+                .unwrap_or(0);
+            static CTR: AtomicU32 = AtomicU32::new(0);
+            let ctr = CTR.fetch_add(1, Ordering::Relaxed);
+            format!("md-{ts}-{ctr}")
+        }
     };
 
     // Step 2: store content BEFORE creating the window.
@@ -267,19 +279,29 @@ async fn open_markdown_window(
         map.insert(label.clone(), (title.clone(), content, kind, source_file));
     } // lock released here
 
-    // Step 3: create the WebviewWindow.
-    // The window's label IS `label`. window.js retrieves its content via
-    // take_window_content, which derives the label SERVER-SIDE from the calling
-    // window (WebviewWindow::label()) — no fragile ?label= query param.
-    // `decorations(false)` + `transparent(true)`: required on Windows to obtain
-    // a chromeless, transparent frame (decorations must be off for transparency
-    // to take effect on the Win32 backend).  The window provides its own
-    // title bar, close button, and Esc handler via window.html/window.js.
-    // NOTE: `resizable(true)` is kept but native resize handles are absent on a
-    // decoration-free window; this is a known limitation flagged for the
-    // supervisor — custom resize handles are out of scope for this change.
-    WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("window.html".into()))
-        .title(&title)
+    // Step 3: create the WebviewWindow (estratto in build_markdown_window,
+    // riusato anche da open_output_window).
+    build_markdown_window(&app, &label, &title)
+}
+
+/// Crea una finestra Markdown chromeless (stile di ogni finestra Lare) con
+/// `label` e `title`. Il contenuto deve essere GIÀ in `WindowContentStore`.
+///
+/// # Why async caller?
+/// `WebviewWindowBuilder::build()` **deadlocks in synchronous Tauri commands
+/// on Windows** (Tauri v2 documented limitation) — questa funzione libera non
+/// è essa stessa un comando, ma va sempre chiamata da un comando `async`.
+///
+/// `decorations(false)` + `transparent(true)`: required on Windows to obtain
+/// a chromeless, transparent frame (decorations must be off for transparency
+/// to take effect on the Win32 backend).  The window provides its own
+/// title bar, close button, and Esc handler via window.html/window.js.
+/// NOTE: `resizable(true)` is kept but native resize handles are absent on a
+/// decoration-free window; this is a known limitation flagged for the
+/// supervisor — custom resize handles are out of scope for this change.
+fn build_markdown_window(app: &AppHandle, label: &str, title: &str) -> Result<(), String> {
+    WebviewWindowBuilder::new(app, label, WebviewUrl::App("window.html".into()))
+        .title(title)
         .inner_size(800.0, 600.0)
         .decorations(false)
         .transparent(true)
@@ -290,9 +312,40 @@ async fn open_markdown_window(
         .always_on_top(true)
         .focused(true)
         .build()
-        .map_err(|e| format!("WebviewWindowBuilder::build() failed: {e}"))?;
+        .map(|_| ())
+        .map_err(|e| format!("WebviewWindowBuilder::build() failed: {e}"))
+}
 
-    Ok(())
+/// Finestra di output di un comando slash originato da una shell (spec §3.2):
+/// si apre SUBITO con un segnaposto; il contenuto arriva dopo con l'evento
+/// Tauri globale `output:content` (emesso da host.js su `output_window_content`),
+/// che window.js filtra per `window_id` (derivato dalla label `output-<id>`).
+/// `take_window_content` resta one-shot: questa finestra è l'unica che si
+/// aggiorna dopo l'apertura, e lo fa via evento, non via store.
+#[tauri::command]
+async fn open_output_window(
+    window_id: String,
+    title: String,
+    app: AppHandle,
+    store: State<'_, WindowContentStore>,
+) -> Result<(), String> {
+    let label = format!("output-{window_id}");
+    if let Some(win) = app.get_webview_window(&label) {
+        // Stesso id due volte (non dovrebbe succedere): riusa la finestra.
+        win.set_focus().map_err(|e| format!("open_output_window set_focus error: {e}"))?;
+        return Ok(());
+    }
+    {
+        let mut map = store.0.lock().map_err(|e| format!("lock error: {e}"))?;
+        map.insert(label.clone(), (title.clone(), "_in corso\u{2026}_".to_string(), "markdown".to_string(), String::new()));
+    }
+    build_markdown_window(&app, &label, &title)
+}
+
+/// Versione di `ui.exe` (per `UiPong`, built-in `/ping`).
+#[tauri::command]
+fn get_ui_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
 }
 
 /// Apre una finestra di ricerca **live** (`window-search.html`).
@@ -1278,6 +1331,8 @@ fn main() {
             market_data_settings::set_market_data_settings,
             plugins_view::list_plugins,
             open_markdown_window,
+            open_output_window,
+            get_ui_version,
             open_search_window,
             open_screener_picker_window,
             open_plugin_window,

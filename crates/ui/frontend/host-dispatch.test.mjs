@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { classifyServerMsg } from "./host-dispatch.mjs";
 
 test("messaggi che aprono finestre sono classificati window", () => {
-  for (const type of ["open_window", "search_open", "open_plugin_window", "update_plugin_window", "close_plugin_window", "routine_save_preview"]) {
+  for (const type of ["open_window", "search_open", "open_plugin_window", "update_plugin_window", "close_plugin_window", "routine_save_preview", "open_output_window", "output_window_content", "open_ui_local", "ui_ping"]) {
     assert.equal(classifyServerMsg({ type }), "window");
   }
 });

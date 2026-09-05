@@ -1,9 +1,9 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "markdown-window",
-  "description": "Capability for Lare Terminal Markdown output windows (ADR-013). Grants core:default so window.js can invoke take_window_content and close_self via Tauri IPC. Grants core:window:allow-start-dragging to enable the data-tauri-drag-region titlebar on the chromeless, transparent window. Scoped to md-* labels (all runtime Markdown windows). Global-shortcut permissions are intentionally NOT included here — they are only needed by the main overlay window.",
+  "description": "Capability for Lare Terminal Markdown output windows (ADR-013). Grants core:default so window.js can invoke take_window_content and close_self via Tauri IPC. Grants core:window:allow-start-dragging to enable the data-tauri-drag-region titlebar on the chromeless, transparent window. Scoped to md-* labels (runtime Markdown windows with an auto-generated label), plus 'help' (the singleton /help window, D15, fixed label — not md-*) and output-* (canale shell 2.0, spec §3.2: window.js on these labels also needs the event API to listen for output:content). Global-shortcut permissions are intentionally NOT included here — they are only needed by the main overlay window.",
   "platforms": ["linux", "macOS", "windows"],
-  "windows": ["md-*"],
+  "windows": ["md-*", "help", "output-*"],
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging"

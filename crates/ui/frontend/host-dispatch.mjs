@@ -8,7 +8,9 @@
 // di quattro categorie:
 //
 //   "window":  apre o aggiorna una finestra (es. una finestra Markdown, la
-//              ricerca live, una finestra plugin, l'anteprima di una routine).
+//              ricerca live, una finestra plugin, l'anteprima di una routine),
+//              apre una finestra locale chiesta da una shell, o risponde a un
+//              ping di `ui`.
 //   "relay":   va rigirato a una finestra già aperta (AI Chat, Library/note,
 //              Share) via evento Tauri globale — host.js non lo rende, lo
 //              inoltra soltanto.
@@ -28,6 +30,11 @@ const WINDOW = new Set([
   "update_plugin_window",
   "close_plugin_window",
   "routine_save_preview",
+  // canale shell (2.0, spec §3.2/§4.1)
+  "open_output_window",
+  "output_window_content",
+  "open_ui_local",
+  "ui_ping",
 ]);
 
 const RELAY = new Set([

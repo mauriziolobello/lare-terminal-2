@@ -21,6 +21,7 @@
 import { LareWsClient } from "./ws-client.js";
 import { buildExpandPrompt, isConnectionFailureStatus, isEmptyExpandResult, isAiTurnFailure } from "./expand-prompt.mjs";
 import { sortedOrder } from "./table-sort.mjs";
+import { outputWindowIdFromLabel } from "./ui-local.mjs";
 
 // ---------------------------------------------------------------------------
 // Tauri IPC reference
@@ -202,7 +203,11 @@ async function bootstrap() {
   // We keep a reference to the original text rather than reading innerHTML to
   // ensure we save what was received, not what DOMPurify may have stripped.
   const saveTitle   = data.title || "Untitled";
-  const saveContent = data.content || "";
+  // `let`, non `const`: per una finestra di output del canale shell (2.0),
+  // il contenuto arriva DOPO l'apertura via evento `output:content` — il
+  // salvataggio in Library deve archiviare quel contenuto aggiornato, non
+  // il segnaposto "_in corso…_" con cui la finestra si apre (vedi sotto).
+  let saveContent = data.content || "";
 
   saveBtnEl.addEventListener("click", async () => {
     // Guard: disable immediately to prevent duplicate saves from rapid clicks
@@ -237,6 +242,22 @@ async function bootstrap() {
   let currentContent = data.content || "";
   const sourceFile = data.source_file || "";
   const docTitle = data.title || "Untitled";
+
+  // ── Finestra di output del canale shell (2.0, spec §3.2) ─────────────────
+  // Solo le finestre `output-<id>` ricevono aggiornamenti dopo l'apertura:
+  // host.js emette `output:content` a Done/Error; qui si filtra per window_id
+  // (dalla propria label) e si ri-renderizza. Il testo salvabile in Library è
+  // quello aggiornato, non il segnaposto.
+  const myOutputId = outputWindowIdFromLabel(window.__TAURI__?.window?.getCurrentWindow?.()?.label);
+  if (myOutputId && tauriEvent?.listen) {
+    tauriEvent.listen("output:content", (ev) => {
+      const p = ev.payload || {};
+      if (p.window_id !== myOutputId) return;
+      renderMarkdown(p.markdown || "");
+      saveContent = p.markdown || "";
+      currentContent = p.markdown || "";
+    }).catch((e) => console.error("[window] listen output:content error:", e));
+  }
 
   expandInputEl.addEventListener("input", () => {
     expandBtnEl.disabled = expandInputEl.value.trim().length === 0;
