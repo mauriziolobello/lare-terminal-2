@@ -35,7 +35,7 @@ indipendentemente a ogni round.
 | 4d | Resize → barre ridisegnate, niente doppioni | no | **sì** |
 | 5 | Ctrl+click su `/library` (OSC 8) apre l'URL | **sì** | sì |
 | 6 | Scrollback dopo un output lungo | — | **perso**: le righe scorse fuori dalla regione non finiscono nello scrollback |
-| 7 | Voce "Lare Terminal (spike)" nel menu profili di WT | non verificabile (WT mai riavviato: ospita la sessione Claude Code) | idem |
+| 7 | Voce "Lare Terminal (spike)" nel menu profili di WT | non verificabile (WT mai riavviato: ospita la sessione Claude Code) | **sì**, dopo il riavvio del PC (05/09 mattina): il fragment JSON basta |
 
 ## Cause trovate (lezioni da conservare)
 
