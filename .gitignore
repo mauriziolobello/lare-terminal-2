@@ -37,14 +37,16 @@ Test Run/pytools/**/*_cache.json
 Test Run/pytools/**/discoveries.json
 Test Run/pytools/**/tickers_us.json
 
-# Config generata al primo avvio (dati/percorsi specifici di questa macchina,
-# non un template) e ambiti pytools copiati da deploy_test_run.ps1 (duplicati
-# di scripts/pytools/, tranne il README segnaposto) — mai committare.
+# Config generata all'uso (al primo avvio o al primo salvataggio dalla UI —
+# dati/percorsi specifici di questa macchina, non un template) e ambiti
+# pytools copiati da deploy_test_run.ps1 (duplicati di scripts/pytools/,
+# tranne il README segnaposto) — mai committare.
 Test Run/Configuration/network.json
 Test Run/Configuration/search-paths.json
 Test Run/Configuration/search-content.json
 Test Run/Configuration/market_data.json
 Test Run/Configuration/aichat.json
+Test Run/Configuration/config.json
 Test Run/pytools/*/
 
 # Segreti e config locali (token Telegram, API key) — mai committare
