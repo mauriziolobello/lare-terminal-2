@@ -6,10 +6,16 @@
 //! - il **testo** (`Chunk`: risposta AI token-per-token + trasparenza dei
 //!   tool) viene **bufferizzato** e consegnato una volta sola alla finestra
 //!   di output su `ui` a `Done`/`Error` (`OutputWindowContent`);
-//! - `Done`/`Error` tornano alla shell, preceduti da UNA riga di conferma
-//!   (`Chunk`) — l'unico modo in cui la host sa che la finestra esiste;
+//! - `Done` torna alla shell preceduto da UNA riga di conferma (`Chunk`) —
+//!   l'unico modo in cui la host sa che la finestra esiste; `Error` torna
+//!   alla shell da solo, senza riga di conferma;
 //! - tutto il resto segue `ServerMsg::surface()`: `Origin` → shell
 //!   (gate, `ExecInShell`, heartbeat), `Ui` → sink `ui` (finestre, relay).
+//!
+//! Un turno ha **una sola terminazione** verso la shell: il contratto della
+//! host (piano 2b) è "il turno finisce al primo `Done`/`Error`", quindi un
+//! secondo `Done`/`Error` per lo stesso turno viene scartato (log `debug`) —
+//! il lato `ui` resta comunque consegnato una volta sola, come sempre.
 //!
 //! Questo task consuma da un `UnboundedReceiver` e scrive su due
 //! `UnboundedSender`: nessuna rete, testabile con tre canali.
@@ -108,10 +114,26 @@ pub async fn route_shell_turn(
         }
     };
 
+    // Il contratto della host (piano 2b) è "il turno finisce al primo
+    // Done/Error": un secondo terminale per lo stesso turno spezzerebbe la
+    // sua macchina a stati. `terminal_sent` fa da guardia SEPARATA da
+    // `flushed` (che governa solo il lato `ui`): un `Done` dopo un `Error`
+    // già inoltrato va scartato anche se `flushed` è già `true`.
+    let mut terminal_sent = false;
+
     while let Some(msg) = rx.recv().await {
         match msg {
             ServerMsg::Chunk { content, .. } => buffer.push_str(&content),
             ServerMsg::Done { id, exit_code } => {
+                if terminal_sent {
+                    tracing::debug!(
+                        "turno {} (sessione {}): Done tardivo dopo un terminale già inoltrato, scarto",
+                        turn.id,
+                        turn.session_id
+                    );
+                    continue;
+                }
+                terminal_sent = true;
                 let markdown = if buffer.trim().is_empty() {
                     PLACEHOLDER_EMPTY.to_string()
                 } else {
@@ -130,6 +152,15 @@ pub async fn route_shell_turn(
                 let _ = shell.send(ServerMsg::Done { id, exit_code });
             }
             ServerMsg::Error { id, code, message } => {
+                if terminal_sent {
+                    tracing::debug!(
+                        "turno {} (sessione {}): Error tardivo dopo un terminale già inoltrato, scarto",
+                        turn.id,
+                        turn.session_id
+                    );
+                    continue;
+                }
+                terminal_sent = true;
                 flush(format!("**Errore:** {message}\n\n{buffer}"), &mut flushed);
                 let _ = shell.send(ServerMsg::Error { id, code, message });
             }
@@ -270,14 +301,38 @@ mod tests {
         .unwrap();
         drop(tx);
         router.await.unwrap();
+
+        // ui: OpenOutputWindow, ActivityIndicator(on), OpenWindow (relay),
+        // OutputWindowContent (segnaposto a Done), ActivityIndicator(off).
         let ui = drain(&mut ui_rx);
-        assert!(ui.iter().any(|m| matches!(m, ServerMsg::OpenWindow { .. })));
-        assert!(ui.iter().any(|m| matches!(m, ServerMsg::OutputWindowContent { markdown, .. } if markdown == PLACEHOLDER_EMPTY)));
+        assert_eq!(ui.len(), 5, "{ui:?}");
+        assert!(
+            matches!(&ui[0], ServerMsg::OpenOutputWindow { .. }),
+            "{ui:?}"
+        );
+        assert!(
+            matches!(&ui[1], ServerMsg::ActivityIndicator { on: true, .. }),
+            "{ui:?}"
+        );
+        assert!(matches!(&ui[2], ServerMsg::OpenWindow { .. }), "{ui:?}");
+        assert!(
+            matches!(&ui[3], ServerMsg::OutputWindowContent { markdown, .. } if markdown == PLACEHOLDER_EMPTY),
+            "{ui:?}"
+        );
+        assert!(
+            matches!(&ui[4], ServerMsg::ActivityIndicator { on: false, .. }),
+            "{ui:?}"
+        );
+
+        // shell: ExecInShell (relay), Chunk (ack), Done.
         let shell = drain(&mut shell_rx);
+        assert_eq!(shell.len(), 3, "{shell:?}");
         assert!(
             matches!(&shell[0], ServerMsg::ExecInShell { .. }),
             "{shell:?}"
         );
+        assert!(matches!(&shell[1], ServerMsg::Chunk { .. }), "{shell:?}");
+        assert!(matches!(&shell[2], ServerMsg::Done { .. }), "{shell:?}");
     }
 
     /// `Error`: la finestra riceve l'errore (una sola volta) e la shell l'`Error`
@@ -385,6 +440,78 @@ mod tests {
             matches!(&shell[0], ServerMsg::Chunk { content, .. } if content == "\u{2192} finestra aperta"),
             "{shell:?}"
         );
+    }
+
+    /// Regola del controller: dopo il primo terminale (`Error`) un `Done`
+    /// tardivo per lo stesso turno va SCARTATO — niente secondo flush,
+    /// niente secondo invio alla shell (il contratto della host è "il turno
+    /// finisce al primo `Done`/`Error`").
+    #[tokio::test]
+    async fn done_after_error_is_dropped() {
+        let (tx, rx) = unbounded_channel();
+        let (shell_tx, mut shell_rx) = unbounded_channel();
+        let (ui_tx, mut ui_rx) = unbounded_channel();
+        let router = tokio::spawn(route_shell_turn(rx, shell_tx, Some(ui_tx), turn()));
+        tx.send(ServerMsg::Chunk {
+            id: "c1".into(),
+            content: "parziale".into(),
+        })
+        .unwrap();
+        tx.send(ServerMsg::Error {
+            id: "c1".into(),
+            code: ErrCode::AiError,
+            message: "boom".into(),
+        })
+        .unwrap();
+        tx.send(ServerMsg::Done {
+            id: "c1".into(),
+            exit_code: Some(0),
+        })
+        .unwrap();
+        drop(tx);
+        router.await.unwrap();
+
+        let ui = drain(&mut ui_rx);
+        let contents: Vec<&ServerMsg> = ui
+            .iter()
+            .filter(|m| matches!(m, ServerMsg::OutputWindowContent { .. }))
+            .collect();
+        assert_eq!(contents.len(), 1, "{ui:?}");
+        assert!(
+            matches!(contents[0], ServerMsg::OutputWindowContent { markdown, .. } if markdown.contains("boom")),
+            "{ui:?}"
+        );
+
+        let shell = drain(&mut shell_rx);
+        assert_eq!(shell.len(), 1, "{shell:?}");
+        assert!(matches!(&shell[0], ServerMsg::Error { .. }), "{shell:?}");
+    }
+
+    /// Due `Done` di fila per lo stesso turno: solo il primo produce la
+    /// coppia ack+`Done` verso la shell, il secondo viene scartato.
+    #[tokio::test]
+    async fn duplicate_done_sends_one_ack_and_one_done() {
+        let (tx, rx) = unbounded_channel();
+        let (shell_tx, mut shell_rx) = unbounded_channel();
+        let (ui_tx, _ui_rx) = unbounded_channel();
+        let router = tokio::spawn(route_shell_turn(rx, shell_tx, Some(ui_tx), turn()));
+        tx.send(ServerMsg::Done {
+            id: "c1".into(),
+            exit_code: Some(0),
+        })
+        .unwrap();
+        tx.send(ServerMsg::Done {
+            id: "c1".into(),
+            exit_code: Some(0),
+        })
+        .unwrap();
+        drop(tx);
+        router.await.unwrap();
+
+        let shell = drain(&mut shell_rx);
+        assert_eq!(shell.len(), 2, "{shell:?}");
+        assert!(matches!(&shell[0], ServerMsg::Chunk { .. }), "{shell:?}");
+        assert!(matches!(&shell[1], ServerMsg::Done { .. }), "{shell:?}");
     }
 
     #[test]
