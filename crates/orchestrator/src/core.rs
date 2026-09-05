@@ -71,27 +71,41 @@ use protocol::{CommandKind, ErrCode, ServerMsg, WindowKind};
 use tokio::sync::mpsc::UnboundedSender;
 use tokio_util::sync::CancellationToken;
 
-// ── Help content ─────────────────────────────────────────────────────────────
+// ── Routing dalla shell (2.0, spec §3) ────────────────────────────────────────
 //
-// Markdown reference for the `/help` command. Rendered in a special "Help"
-// window (WindowKind::Help) so the UI can style it differently from regular
-// `/show` output.
-//
-// Keep in sync with the actual commands supported by handle_slash + app.js.
+// Liste usate dal pre-router `shell_slash` per sapere quali slash del backend
+// v1 esistono e quali di questi producono già una finestra propria. Vivono
+// qui (non in `shell_slash.rs`) perché `handle_slash`, che le due liste
+// descrivono, è definita in questo modulo.
 
 /// Comandi slash che `handle_slash` dispaccia davvero (senza `/`), esclusi
 /// `reset` (che sulla shell ha una risposta propria, spec §3) e `find`/`nowin`
 /// (gestiti in `ws.rs`/`handle_command`, non disponibili dalla shell in questa
 /// versione). È l'unica fonte per "questo slash esiste" del pre-router
-/// `shell_slash` — chi aggiunge un braccio a `handle_slash` lo aggiunge qui
-/// (il test `known_backend_slashes_are_all_dispatched_by_handle_slash` tiene
-/// le due cose allineate).
+/// `shell_slash`.
+///
+/// Il test `known_backend_slashes_are_all_dispatched_by_handle_slash` prova
+/// SOLO la direzione lista → `handle_slash`: che ogni comando elencato qui sia
+/// davvero dispacciato (nessun `Error{"sconosciuto"}`). Non prova il
+/// contrario — un nuovo `match` arm aggiunto a `handle_slash` senza essere
+/// elencato qui non fa fallire alcun test: resterebbe raggiungibile dal
+/// backend ma invisibile a `shell_slash`, che lo scarterebbe in silenzio.
+/// Tenere le due cose allineate è quindi una responsabilità di revisione: chi
+/// aggiunge un braccio a `handle_slash` lo aggiunge anche qui.
 pub const KNOWN_BACKEND_SLASHES: &[&str] = &["open", "web", "show", "help"];
 
 /// Sottoinsieme di `KNOWN_BACKEND_SLASHES` il cui esito È già una finestra
 /// (`OpenWindow`): per questi la shell NON apre la finestra di output col
 /// segnaposto (spec §3.2, eccezione) — altrimenti ne comparirebbero due.
 pub const WINDOW_SLASHES: &[&str] = &["help", "show"];
+
+// ── Help content ─────────────────────────────────────────────────────────────
+//
+// Markdown reference for the `/help` command. Rendered in a special "Help"
+// window (WindowKind::Help) so the UI can style it differently from regular
+// `/show` output.
+//
+// Keep in sync with the actual commands supported by handle_slash + shell_slash (2.0).
 
 const HELP_MARKDOWN: &str = r#"# Lare — Comandi
 
@@ -104,7 +118,7 @@ L'esito di ogni comando slash compare in una finestra; nel terminale resta una r
 
 ## Comandi
 - `/help` — questa finestra.
-- `/ping` — verifica i tre strati (lare-shell, orchestratore, plugin, ui).
+- `/ping` — verifica gli strati di Lare (lare-shell, orchestratore, plugin-ping, ui.exe).
 - `/config` — configurazione (aspetto, ricerca web, AI, mercati).
 - `/library` — archivio dei documenti salvati (riapribili).
 - `/aichat` — AI Chat (comunicazione fra macchine Lare in rete, con partecipazione dell'AI).
