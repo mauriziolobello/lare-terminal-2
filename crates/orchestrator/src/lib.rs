@@ -68,6 +68,7 @@ pub mod router;
 pub mod runtime_config;
 pub mod search;
 pub mod shell_session;
+pub mod shell_slash;
 pub mod surface;
 pub mod telegram;
 pub mod token_store;

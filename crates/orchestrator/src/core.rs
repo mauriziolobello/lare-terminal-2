@@ -78,35 +78,49 @@ use tokio_util::sync::CancellationToken;
 // `/show` output.
 //
 // Keep in sync with the actual commands supported by handle_slash + app.js.
+
+/// Comandi slash che `handle_slash` dispaccia davvero (senza `/`), esclusi
+/// `reset` (che sulla shell ha una risposta propria, spec §3) e `find`/`nowin`
+/// (gestiti in `ws.rs`/`handle_command`, non disponibili dalla shell in questa
+/// versione). È l'unica fonte per "questo slash esiste" del pre-router
+/// `shell_slash` — chi aggiunge un braccio a `handle_slash` lo aggiunge qui
+/// (il test `known_backend_slashes_are_all_dispatched_by_handle_slash` tiene
+/// le due cose allineate).
+pub const KNOWN_BACKEND_SLASHES: &[&str] = &["open", "web", "show", "help"];
+
+/// Sottoinsieme di `KNOWN_BACKEND_SLASHES` il cui esito È già una finestra
+/// (`OpenWindow`): per questi la shell NON apre la finestra di output col
+/// segnaposto (spec §3.2, eccezione) — altrimenti ne comparirebbero due.
+pub const WINDOW_SLASHES: &[&str] = &["help", "show"];
+
 const HELP_MARKDOWN: &str = r#"# Lare — Comandi
 
-## Comandi slash
+Scrivi i comandi `/…` nella riga di comando di Lare Terminal (la tua sessione PowerShell).
+L'esito di ogni comando slash compare in una finestra; nel terminale resta una riga di conferma.
+
+## AI
+- `/ai "richiesta"` oppure `/ "richiesta"` — l'AI risponde ed esegue comandi **nella tua shell**
+  (ogni comando proposto chiede conferma `[Y/n]` prima di partire). Le virgolette sono obbligatorie.
+
+## Comandi
 - `/help` — questa finestra.
-- `/config` — configurazione (aspetto, posizione, indicatore di attività, ricerca web).
+- `/ping` — verifica i tre strati (lare-shell, orchestratore, plugin, ui).
+- `/config` — configurazione (aspetto, ricerca web, AI, mercati).
+- `/library` — archivio dei documenti salvati (riapribili).
+- `/aichat` — AI Chat (comunicazione fra macchine Lare in rete, con partecipazione dell'AI).
 - `/open <target>` — apri un URL, una cartella o un file con l'app di default.
 - `/web <query>` — cerca la query nel browser di default.
-- `/find [<query>] [in:"<frase>"] [folder:from-here]` — ricerca file dal vivo (finestra dedicata, pausa/riprendi, click apre):
-  - `<query>` cerca sul **nome** file — parole libere (tutte devono comparire, ordine libero), `*`/`?` per glob (es. `*.pdf`), `re:<pattern>` per regex (es. `re:^report-\d{4}\.pdf$`).
-  - `in:"<frase>"` cerca nel **contenuto** dei file (frase esatta, case-insensitive) — combinabile col nome, es. `/find in:"totale fattura" *.pdf`.
-  - `folder:from-here` restringe la ricerca alla sola cartella corrente (cwd) e sottocartelle — esclude standard/cloud/unità esterne. Combinabile con nome e `in:`.
 - `/show <markdown>` — apri una finestra con il Markdown indicato.
-- `/nowin <richiesta>` — l'AI risponde come testo nel cursore (niente finestra).
-- `/library` — apri l'archivio dei documenti salvati (riapribili).
-- `/aichat` — apri AI Chat (comunicazione fra macchine Lare in rete, con partecipazione dell'AI).
-- `/reset` — riavvia la sessione shell.
+- `/calc` — calcolatrice (plugin).
 
 ## Strumenti esterni (finestra dedicata)
 - `/markets` — strumenti sui mercati finanziari (ricerca ticker, report azionario, elenco titoli, screener).
 - `/nmap` — strumenti di scansione di rete (quick scan, rilevamento OS/versioni, host discovery, ricerca vulnerabilità).
 - `/pyping` — canale di prova per l'infrastruttura dei tool Python (eco di un messaggio).
 
-## A riga di comando
-- Scrivi un comando di sistema (es. `dir`, `git status`) e premi Invio: gira nella shell PowerShell persistente (cwd ed env persistono tra i comandi).
-- Prefissa con `$` per forzare l'esecuzione come comando OS.
-- Scrivi in linguaggio naturale: l'AI risponde, esegue comandi o cerca per te.
-
-## Tasti
-- **F2** mostra/nasconde Lare. **Esc** nasconde (il testo resta). **Ctrl+L** pulisce input e output.
+## Tutto il resto
+- Qualunque riga che non inizia con `/` è PowerShell, come sempre.
+- Uno slash sconosciuto viene ignorato in silenzio.
 "#;
 
 /// Handle a single client `Command`, emitting all response messages on `tx`.
@@ -1836,5 +1850,24 @@ mod tests {
             ServerMsg::Done { id: "chan-open-1".to_string(), exit_code: Some(1) },
             "expected Done{{1}} (not-ok open) — nessun target reale è mai stato aperto: {msgs:?}"
         );
+    }
+
+    /// `KNOWN_BACKEND_SLASHES` è l'UNICA lista dei comandi che `handle_slash`
+    /// dispaccia (esclusi `reset`, gestito a parte dalla shell): ognuno deve
+    /// davvero rispondere senza `Error{RoutingError, "sconosciuto"}`.
+    #[tokio::test]
+    async fn known_backend_slashes_are_all_dispatched_by_handle_slash() {
+        let tools = FakeToolClient::success("ok");
+        for cmd in KNOWN_BACKEND_SLASHES {
+            let input = match *cmd {
+                "show" => "/show # titolo".to_string(),
+                "open" => "/open C:\\x".to_string(),
+                "web" => "/web gatti".to_string(),
+                other => format!("/{other}"),
+            };
+            let out = handle_slash("id", &input, &tools, "").await;
+            let unknown = out.iter().any(|m| matches!(m, ServerMsg::Error { message, .. } if message.contains("sconosciuto")));
+            assert!(!unknown, "/{cmd} risulta sconosciuto a handle_slash: {out:?}");
+        }
     }
 }
