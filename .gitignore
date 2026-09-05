@@ -32,6 +32,7 @@ Test Run/Configuration/memory-*.md
 Test Run/Configuration/notes.json
 Test Run/Configuration/plugin-storage/
 Test Run/Configuration/library/
+Test Run/Configuration/logs/
 Test Run/pytools/**/*_cache.json
 Test Run/pytools/**/discoveries.json
 Test Run/pytools/**/tickers_us.json

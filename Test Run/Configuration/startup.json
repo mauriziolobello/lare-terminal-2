@@ -1,0 +1,14 @@
+{
+  "ws_port": 7331,
+  "paths": {
+    "shell": "shell/lare-shell.exe",
+    "mcp_server": "mcp-server.exe",
+    "mcp_nmap": "mcp-nmap.exe",
+    "plugins_dir": "plugins",
+    "pytools_dir": "pytools",
+    "routines_dir": "Configuration/routines"
+  },
+  "ai_model": "claude-sonnet-4-6",
+  "autostart": { "orchestrator": true, "ui": true },
+  "log": { "level": "info", "dir": "Configuration/logs" }
+}
