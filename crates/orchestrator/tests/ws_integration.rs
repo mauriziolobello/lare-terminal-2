@@ -185,6 +185,10 @@ async fn correct_token_gets_server_info_then_command_response() {
         &ClientMsg::Hello {
             token: "test-token-correct".to_string(),
             channel: None,
+            role: protocol::Role::Ui,
+            session_id: None,
+            cwd: None,
+            version: None,
         },
     )
     .await;
@@ -251,6 +255,10 @@ async fn wrong_token_closes_connection() {
         &ClientMsg::Hello {
             token: "wrong-token".to_string(),
             channel: None,
+            role: protocol::Role::Ui,
+            session_id: None,
+            cwd: None,
+            version: None,
         },
     )
     .await;
@@ -289,6 +297,10 @@ async fn unknown_channel_gets_error_and_connection_closes_not_panics() {
         &ClientMsg::Hello {
             token: "unknown-channel-token".to_string(),
             channel: Some("nope".to_string()),
+            role: protocol::Role::Ui,
+            session_id: None,
+            cwd: None,
+            version: None,
         },
     )
     .await;
@@ -334,6 +346,10 @@ async fn ping_receives_pong() {
         &ClientMsg::Hello {
             token: "ping-test-token".to_string(),
             channel: None,
+            role: protocol::Role::Ui,
+            session_id: None,
+            cwd: None,
+            version: None,
         },
     )
     .await;
@@ -361,7 +377,7 @@ async fn tool_confirm_response_unknown_id_keeps_connection_alive() {
     let (ws, _) = connect_async(&url).await.unwrap();
     let (mut sink, mut source) = ws.split();
 
-    send(&mut sink, &ClientMsg::Hello { token: "test-token-confirm".to_string(), channel: None }).await;
+    send(&mut sink, &ClientMsg::Hello { token: "test-token-confirm".to_string(), channel: None, role: protocol::Role::Ui, session_id: None, cwd: None, version: None, }).await;
     let info = recv(&mut source).await;
     assert!(matches!(info, ServerMsg::ServerInfo { .. }), "expected ServerInfo, got {info:?}");
 
@@ -385,6 +401,10 @@ async fn nl_command_returns_stub_response() {
         &ClientMsg::Hello {
             token: "nl-test-token".to_string(),
             channel: None,
+            role: protocol::Role::Ui,
+            session_id: None,
+            cwd: None,
+            version: None,
         },
     )
     .await;
@@ -442,7 +462,7 @@ async fn find_command_streams_search_results() {
     let url = spawn_server("find-token").await;
     let (ws, _) = connect_async(&url).await.unwrap();
     let (mut sink, mut source) = ws.split();
-    send(&mut sink, &ClientMsg::Hello { token: "find-token".to_string(), channel: None }).await;
+    send(&mut sink, &ClientMsg::Hello { token: "find-token".to_string(), channel: None, role: protocol::Role::Ui, session_id: None, cwd: None, version: None, }).await;
     let _info = recv(&mut source).await;
 
     send(
@@ -496,7 +516,7 @@ async fn find_folder_invalid_value_errors_before_opening_search_window() {
     let url = spawn_server("find-folder-token").await;
     let (ws, _) = connect_async(&url).await.unwrap();
     let (mut sink, mut source) = ws.split();
-    send(&mut sink, &ClientMsg::Hello { token: "find-folder-token".to_string(), channel: None }).await;
+    send(&mut sink, &ClientMsg::Hello { token: "find-folder-token".to_string(), channel: None, role: protocol::Role::Ui, session_id: None, cwd: None, version: None, }).await;
     let _info = recv(&mut source).await;
 
     send(
@@ -557,7 +577,7 @@ async fn loop_stays_responsive_during_find() {
     let url = spawn_server("resp-token").await;
     let (ws, _) = connect_async(&url).await.unwrap();
     let (mut sink, mut source) = ws.split();
-    send(&mut sink, &ClientMsg::Hello { token: "resp-token".to_string(), channel: None }).await;
+    send(&mut sink, &ClientMsg::Hello { token: "resp-token".to_string(), channel: None, role: protocol::Role::Ui, session_id: None, cwd: None, version: None, }).await;
     let _info = recv(&mut source).await;
 
     send(
@@ -606,7 +626,7 @@ async fn cancel_search_keeps_connection_alive() {
     let url = spawn_server("cancel-token").await;
     let (ws, _) = connect_async(&url).await.unwrap();
     let (mut sink, mut source) = ws.split();
-    send(&mut sink, &ClientMsg::Hello { token: "cancel-token".to_string(), channel: None }).await;
+    send(&mut sink, &ClientMsg::Hello { token: "cancel-token".to_string(), channel: None, role: protocol::Role::Ui, session_id: None, cwd: None, version: None, }).await;
     let _info = recv(&mut source).await;
 
     send(
@@ -722,7 +742,7 @@ async fn connection_emits_initial_cwd() {
     let (ws, _) = connect_async(&url).await.unwrap();
     let (mut sink, mut source) = ws.split();
 
-    send(&mut sink, &ClientMsg::Hello { token: "cwd-init-token".to_string(), channel: None }).await;
+    send(&mut sink, &ClientMsg::Hello { token: "cwd-init-token".to_string(), channel: None, role: protocol::Role::Ui, session_id: None, cwd: None, version: None, }).await;
 
     let info = recv(&mut source).await;
     assert!(matches!(info, ServerMsg::ServerInfo { .. }), "expected ServerInfo, got {info:?}");
@@ -748,7 +768,7 @@ async fn command_that_changes_cwd_emits_new_cwd() {
     let (ws, _) = connect_async(&url).await.unwrap();
     let (mut sink, mut source) = ws.split();
 
-    send(&mut sink, &ClientMsg::Hello { token: "cwd-change-token".to_string(), channel: None }).await;
+    send(&mut sink, &ClientMsg::Hello { token: "cwd-change-token".to_string(), channel: None, role: protocol::Role::Ui, session_id: None, cwd: None, version: None, }).await;
 
     // Consume ServerInfo + initial Cwd.
     let _info = recv(&mut source).await;
@@ -810,7 +830,7 @@ async fn find_uses_tracked_cwd() {
     let (ws, _) = connect_async(&url).await.unwrap();
     let (mut sink, mut source) = ws.split();
 
-    send(&mut sink, &ClientMsg::Hello { token: "find-cwd-token".to_string(), channel: None }).await;
+    send(&mut sink, &ClientMsg::Hello { token: "find-cwd-token".to_string(), channel: None, role: protocol::Role::Ui, session_id: None, cwd: None, version: None, }).await;
     let _info = recv(&mut source).await; // ServerInfo
     let _cwd_msg = recv(&mut source).await; // initial Cwd
 
@@ -875,7 +895,7 @@ async fn pause_resume_search_loop_stays_responsive() {
     let url = spawn_server("pause-token").await;
     let (ws, _) = connect_async(&url).await.unwrap();
     let (mut sink, mut source) = ws.split();
-    send(&mut sink, &ClientMsg::Hello { token: "pause-token".to_string(), channel: None }).await;
+    send(&mut sink, &ClientMsg::Hello { token: "pause-token".to_string(), channel: None, role: protocol::Role::Ui, session_id: None, cwd: None, version: None, }).await;
     let _info = recv(&mut source).await; // ServerInfo
 
     // Launch /find.
@@ -1028,7 +1048,7 @@ async fn aichat_send_dispatches_human_say_event() {
     let (mut sink, mut source) = ws.split();
 
     // Handshake.
-    send(&mut sink, &ClientMsg::Hello { token: token.to_string(), channel: None }).await;
+    send(&mut sink, &ClientMsg::Hello { token: token.to_string(), channel: None, role: protocol::Role::Ui, session_id: None, cwd: None, version: None, }).await;
     // Drena ServerInfo (e l'eventuale Cwd iniziale) prima di procedere.
     loop {
         match recv(&mut source).await {
@@ -1151,7 +1171,7 @@ async fn test_market_data_source_echoes_id_and_reports_unreachable_when_venv_mis
 
     send(
         &mut sink,
-        &ClientMsg::Hello { token: "market-data-test-token".to_string(), channel: None },
+        &ClientMsg::Hello { token: "market-data-test-token".to_string(), channel: None, role: protocol::Role::Ui, session_id: None, cwd: None, version: None, },
     )
     .await;
     let _info = recv(&mut source).await; // ServerInfo

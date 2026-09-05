@@ -76,6 +76,37 @@ pub enum WindowKind {
     Search,
 }
 
+/// Ruolo di una connessione WS (spec §4.1). Deciso dal client nella `Hello`.
+///
+/// - `Ui`: `ui.exe` (pagina host nascosta, finestre) — è il default per
+///   compatibilità: un client v1 non manda il campo e resta valido.
+/// - `Shell`: una sessione `lare-shell` (host PowerShell). Il suo `ToolClient`
+///   è la shell dell'utente stesso (`ExecInShell`/`ExecResult`), la sua cwd è
+///   per-connessione, e l'output dei comandi slash va in una finestra su `ui`.
+///
+/// Wire: `"ui"` | `"shell"`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum Role {
+    #[default]
+    Ui,
+    Shell,
+}
+
+/// Superficie di destinazione di un `ServerMsg` emesso durante un turno
+/// originato da una connessione **shell** (spec §3.2/§4). Per una connessione
+/// `ui` non cambia nulla: tutto torna alla connessione stessa, come in v1.
+///
+/// - `Origin`: torna alla connessione che ha mandato il `Command` (la shell):
+///   avanzamento del turno, gate, esecuzioni, risposte a richieste puntuali.
+/// - `Ui`: apre o aggiorna finestre, o alimenta un relay (AI Chat, Library,
+///   Share): va al sink `ui` unico della macchina.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Surface {
+    Origin,
+    Ui,
+}
+
 /// Voce nella lista screener mostrata dal picker (canale `financial-markets`).
 /// `id` è lo `screener_id` da passare al tool `run_screener`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -159,6 +190,20 @@ pub enum ClientMsg {
         /// default). Vedi `Docs/superpowers/specs/2026-07-16-external-tool-channel-design.md`.
         #[serde(default)]
         channel: Option<String>,
+        /// Ruolo della connessione (2.0, spec §4.1). Assente → `Ui`.
+        #[serde(default)]
+        role: Role,
+        /// Id della sessione shell (generato dalla host, o passato da `ui.exe`
+        /// con `--session`): lega la connessione alla finestra terminale.
+        /// Solo per `role: Shell`; `ui` lo lascia assente.
+        #[serde(default)]
+        session_id: Option<String>,
+        /// cwd iniziale della sessione shell (`$PWD` del runspace all'avvio).
+        #[serde(default)]
+        cwd: Option<String>,
+        /// Versione del client (es. `lare-shell 2.0.0`), mostrata da `/ping`.
+        #[serde(default)]
+        version: Option<String>,
     },
 
     /// Execute a command. `id` must be unique per session for correlation.
@@ -354,6 +399,17 @@ pub enum ClientMsg {
     /// `id` correla la risposta (`ServerMsg::MarketDataSourceTestResult`),
     /// stesso pattern di `Command`/`Done`.
     TestMarketDataSource { id: String },
+
+    // ── Canale shell (2.0, spec §4.1) — additivi ─────────────────────────
+    // Wire names: ExecResult → "exec_result", UiPong → "ui_pong".
+
+    /// Esito di un `ServerMsg::ExecInShell`: la host ha eseguito `command`
+    /// nel runspace dell'utente. `output` è vuoto con `capture: false`
+    /// (§4.5); `cwd` è `$PWD` dopo il comando (aggiorna la cwd per sessione).
+    ExecResult { turn_id: String, exec_id: String, exit_code: i32, output: String, cwd: String },
+
+    /// Risposta di `ui.exe` a `ServerMsg::UiPing` (built-in `/ping`, §3.1).
+    UiPong { id: String, version: String },
 }
 
 // ── ServerMsg ─────────────────────────────────────────────────────────────
@@ -713,6 +769,65 @@ pub enum ServerMsg {
     /// `ok`: true se la connessione alla fonte dati è riuscita, false altrimenti.
     /// `message`: feedback umano-leggibile (es. "Connesso a IBKR", "Timeout", ecc).
     MarketDataSourceTestResult { id: String, ok: bool, message: String },
+
+    // ── Canale shell (2.0, spec §3.2/§4.1) — additivi ────────────────────
+    // Wire names: exec_in_shell, open_output_window, output_window_content,
+    // open_ui_local, ui_ping, activity_indicator.
+
+    /// Esegui `command` nella shell dell'utente (solo verso `role: Shell`,
+    /// SEMPRE dopo un `ToolConfirmRequest` accettato — spec §8). `capture`
+    /// (§4.5): `true` = output catturato e restituito in `ExecResult.output`;
+    /// `false` = console attaccata (programmi interattivi), output vuoto.
+    ExecInShell { turn_id: String, exec_id: String, command: String, capture: bool },
+
+    /// Apre su `ui` la finestra Markdown di output di un comando slash
+    /// originato dalla shell, con un segnaposto ("in corso…").
+    OpenOutputWindow { window_id: String, title: String },
+
+    /// Sostituisce il contenuto della finestra `window_id` (a `Done`/`Error`).
+    OutputWindowContent { window_id: String, markdown: String },
+
+    /// Chiede a `ui` di aprire (o portare in primo piano, D15) una finestra
+    /// locale: `"config"`, `"library"`, `"aichat"`, oppure l'id di un canale
+    /// esterno (`"nmap"`, `"financial-markets"`, `"python-ping"`).
+    OpenUiLocal { name: String },
+
+    /// Richiesta di vita a `ui.exe` (built-in `/ping`); risposta `UiPong`.
+    UiPing { id: String },
+
+    /// Segnalino di stato per la finestra terminale della sessione
+    /// (`kind`: `"ai_busy"`); consumato dal piano 3, già emesso qui.
+    ActivityIndicator { session_id: String, kind: String, on: bool },
+}
+
+impl ServerMsg {
+    /// Superficie di destinazione durante un turno originato da una shell
+    /// (vedi [`Surface`]). Il `match` è esaustivo **senza wildcard** di
+    /// proposito: chi aggiunge una variante deve decidere dove va, e il
+    /// compilatore glielo ricorda.
+    pub fn surface(&self) -> Surface {
+        use ServerMsg::*;
+        match self {
+            // Avanzamento del turno e risposte puntuali: alla connessione origine.
+            ServerInfo { .. } | Chunk { .. } | Done { .. } | Error { .. } | Pong { .. }
+            | Cwd { .. } | Heartbeat { .. } | ToolConfirmRequest { .. }
+            | RoutineSavePreview { .. } | MarketDataSourceTestResult { .. }
+            | ExecInShell { .. } => Surface::Origin,
+            // Finestre e relay: al sink `ui` della macchina.
+            OpenWindow { .. } | OpenScreenerPicker { .. } | SearchOpen { .. }
+            | SearchHit { .. } | SearchDone { .. } | OpenPluginWindow { .. }
+            | UpdatePluginWindow { .. } | ClosePluginWindow { .. }
+            | AiChatMessage { .. } | AiChatRoster { .. } | AiChatJoinRequest { .. }
+            | AiChatHistory { .. } | AiChatSelf { .. } | AiChatPeerLost { .. }
+            | AiChatReachablePeers { .. } | NotesSnapshot { .. } | NoteUpserted { .. }
+            | ShareRequest { .. } | ShareResult { .. } | ShareContentRequest { .. }
+            | ShareIncomingData { .. } | AiChatJoinPrompt { .. }
+            | AiChatAdmissionRequest { .. } | AiChatPending { .. } | AiChatAdmitted { .. }
+            | AiChatRejected { .. } | AiChatAdmissionResolved { .. }
+            | OpenOutputWindow { .. } | OutputWindowContent { .. } | OpenUiLocal { .. }
+            | UiPing { .. } | ActivityIndicator { .. } => Surface::Ui,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -726,6 +841,10 @@ mod tests {
         let msg = ClientMsg::Hello {
             token: "secret".to_string(),
             channel: None,
+            role: Role::Ui,
+            session_id: None,
+            cwd: None,
+            version: None,
         };
         let json = serde_json::to_string(&msg).unwrap();
         let back: ClientMsg = serde_json::from_str(&json).unwrap();
@@ -900,6 +1019,10 @@ mod tests {
         let msg = ClientMsg::Hello {
             token: "tok".to_string(),
             channel: None,
+            role: Role::Ui,
+            session_id: None,
+            cwd: None,
+            version: None,
         };
         let json = serde_json::to_string(&msg).unwrap();
         assert!(
@@ -989,6 +1112,10 @@ mod tests {
             ClientMsg::Hello {
                 token: "my-secret-token".to_string(),
                 channel: None,
+                role: Role::Ui,
+                session_id: None,
+                cwd: None,
+                version: None,
             }
         );
     }
@@ -1010,6 +1137,10 @@ mod tests {
         let msg = ClientMsg::Hello {
             token: "secret".to_string(),
             channel: Some("nmap".to_string()),
+            role: Role::Ui,
+            session_id: None,
+            cwd: None,
+            version: None,
         };
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains(r#""channel":"nmap""#), "missing channel in: {json}");
@@ -2019,5 +2150,113 @@ mod tests {
         let json = serde_json::to_string(&msg).unwrap();
         let back: ServerMsg = serde_json::from_str(&json).unwrap();
         assert_eq!(msg, back);
+    }
+
+    // ── Piano 2a: ruolo della connessione e messaggi host↔orchestratore (spec §4.1) ──
+
+    /// Un client v1 manda `Hello` senza `role`: deve restare valido e valere `ui`.
+    #[test]
+    fn hello_without_role_defaults_to_ui() {
+        let msg: ClientMsg = serde_json::from_str(r#"{"type":"hello","token":"t"}"#).unwrap();
+        match msg {
+            ClientMsg::Hello { token, channel, role, session_id, cwd, version } => {
+                assert_eq!(token, "t");
+                assert_eq!(channel, None);
+                assert_eq!(role, Role::Ui);
+                assert_eq!(session_id, None);
+                assert_eq!(cwd, None);
+                assert_eq!(version, None);
+            }
+            other => panic!("atteso Hello, ricevuto {other:?}"),
+        }
+    }
+
+    #[test]
+    fn hello_shell_round_trips_all_new_fields() {
+        let msg = ClientMsg::Hello {
+            token: "t".into(),
+            channel: None,
+            role: Role::Shell,
+            session_id: Some("a1b2".into()),
+            cwd: Some("C:\\Users\\x".into()),
+            version: Some("2.0.0".into()),
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains(r#""role":"shell""#), "wire: {json}");
+        let back: ClientMsg = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, msg);
+    }
+
+    #[test]
+    fn exec_in_shell_and_exec_result_wire_names() {
+        let s = ServerMsg::ExecInShell {
+            turn_id: "t1".into(), exec_id: "e1".into(), command: "dir".into(), capture: true,
+        };
+        let json = serde_json::to_string(&s).unwrap();
+        assert!(json.starts_with(r#"{"type":"exec_in_shell""#), "wire: {json}");
+        let c: ClientMsg = serde_json::from_str(
+            r#"{"type":"exec_result","turn_id":"t1","exec_id":"e1","exit_code":0,"output":"x","cwd":"C:\\"}"#,
+        ).unwrap();
+        assert_eq!(c, ClientMsg::ExecResult {
+            turn_id: "t1".into(), exec_id: "e1".into(), exit_code: 0, output: "x".into(), cwd: "C:\\".into(),
+        });
+    }
+
+    #[test]
+    fn output_window_ui_local_ping_indicator_wire_names() {
+        let cases = vec![
+            (ServerMsg::OpenOutputWindow { window_id: "w".into(), title: "T".into() }, "open_output_window"),
+            (ServerMsg::OutputWindowContent { window_id: "w".into(), markdown: "# x".into() }, "output_window_content"),
+            (ServerMsg::OpenUiLocal { name: "config".into() }, "open_ui_local"),
+            (ServerMsg::UiPing { id: "p".into() }, "ui_ping"),
+            (ServerMsg::ActivityIndicator { session_id: "s".into(), kind: "ai_busy".into(), on: true }, "activity_indicator"),
+        ];
+        for (msg, wire) in cases {
+            let json = serde_json::to_string(&msg).unwrap();
+            assert!(json.contains(&format!(r#""type":"{wire}""#)), "wire: {json}");
+            let back: ServerMsg = serde_json::from_str(&json).unwrap();
+            assert_eq!(back, msg);
+        }
+        let pong: ClientMsg = serde_json::from_str(r#"{"type":"ui_pong","id":"p","version":"2.1.0"}"#).unwrap();
+        assert_eq!(pong, ClientMsg::UiPong { id: "p".into(), version: "2.1.0".into() });
+    }
+
+    /// `surface()`: ciò che torna alla connessione che ha emesso il comando
+    /// (`Origin`) contro ciò che apre/aggiorna finestre su `ui.exe` (`Ui`).
+    /// Il `match` in `surface()` è esaustivo senza wildcard: una variante
+    /// nuova senza riga nella tabella NON compila — questo test copre solo un
+    /// campione rappresentativo per superficie.
+    #[test]
+    fn surface_origin_for_turn_messages_and_ui_for_window_messages() {
+        let id = || "c1".to_string();
+        let origin = vec![
+            ServerMsg::Chunk { id: id(), content: "x".into() },
+            ServerMsg::Done { id: id(), exit_code: None },
+            ServerMsg::Error { id: id(), code: ErrCode::RoutingError, message: "m".into() },
+            ServerMsg::Pong { ts: 1 },
+            ServerMsg::Cwd { path: "C:\\".into() },
+            ServerMsg::Heartbeat { id: id() },
+            ServerMsg::ToolConfirmRequest { id: id(), commands: "$ dir".into() },
+            ServerMsg::ExecInShell { turn_id: id(), exec_id: "e".into(), command: "dir".into(), capture: true },
+            ServerMsg::MarketDataSourceTestResult { id: id(), ok: true, message: String::new() },
+        ];
+        for m in origin {
+            assert_eq!(m.surface(), Surface::Origin, "{m:?}");
+        }
+        let ui = vec![
+            ServerMsg::OpenWindow { title: "t".into(), kind: WindowKind::Markdown, content: "c".into() },
+            ServerMsg::SearchOpen { id: id(), title: "t".into() },
+            ServerMsg::OpenPluginWindow { window_id: 1, title: "t".into(), html: "<p/>".into(), width: None, height: None },
+            ServerMsg::AiChatRoster { participants: vec![] },
+            ServerMsg::NotesSnapshot { notes: vec![] },
+            ServerMsg::OpenOutputWindow { window_id: "w".into(), title: "T".into() },
+            ServerMsg::OutputWindowContent { window_id: "w".into(), markdown: "m".into() },
+            ServerMsg::OpenUiLocal { name: "library".into() },
+            ServerMsg::UiPing { id: id() },
+            ServerMsg::ActivityIndicator { session_id: "s".into(), kind: "ai_busy".into(), on: false },
+        ];
+        for m in ui {
+            assert_eq!(m.surface(), Surface::Ui, "{m:?}");
+        }
     }
 }

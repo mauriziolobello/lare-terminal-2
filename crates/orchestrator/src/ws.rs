@@ -722,6 +722,14 @@ async fn handle_connection(
                     let _ = h.send(ServiceEvent::NoteDeleteRequested { id });
                 }
             }
+
+            // ── Piano 2a (Task 1): varianti additive del canale shell ──────
+            // Il dispatch vero (correlare `turn_id`/`exec_id`, riprendere il
+            // turno sospeso su `ExecResult`; girare `UiPong` alla logica di
+            // `/ping`) arriva in un task successivo del piano. Qui bastano
+            // arm che compilano: nessun comportamento nuovo in questo task.
+            ClientMsg::ExecResult { .. } => {}
+            ClientMsg::UiPong { .. } => {}
         }
     }
 
@@ -791,7 +799,7 @@ fn parse_hello(msg: &Message) -> Option<(String, Option<String>)> {
     let text = msg.to_text().ok()?;
     let client_msg: ClientMsg = serde_json::from_str(text).ok()?;
     match client_msg {
-        ClientMsg::Hello { token, channel } => Some((token, channel)),
+        ClientMsg::Hello { token, channel, .. } => Some((token, channel)),
         _ => None,
     }
 }

@@ -4,6 +4,48 @@ All notable changes to this crate are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Versioning: `major.minor.update` (SemVer).
 
+## 2.1.0 (in lavorazione) — ruolo della connessione + canale shell (piano 2a, Task 1)
+
+Fondamenta del canale "shell" (spec `Docs/i18n/ita/superpowers/specs/2026-09-04-lare-terminal-2-design.md`
+§3.2/§4.1): la connessione WS dichiara ora un **ruolo** (`ui` o `shell`), e l'orchestratore
+può instradare un `ServerMsg` verso l'origine del turno o verso il sink `ui.exe` a seconda
+del messaggio.
+
+- **`Role { Ui, Shell }`** (nuovo enum di supporto) — wire `"ui"`/`"shell"`. `Default = Ui`:
+  un client v1 che non manda il campo resta valido.
+- **`ClientMsg::Hello`** guadagna quattro campi additivi (tutti `#[serde(default)]`, nessuna
+  regressione sui client esistenti): `role: Role`, `session_id: Option<String>`,
+  `cwd: Option<String>`, `version: Option<String>`.
+- **`ClientMsg::ExecResult { turn_id, exec_id, exit_code, output, cwd }`** (wire:
+  `"exec_result"`) — esito di un `ExecInShell` eseguito da `lare-shell` nel runspace
+  dell'utente.
+- **`ClientMsg::UiPong { id, version }`** (wire: `"ui_pong"`) — risposta di `ui.exe` a
+  `ServerMsg::UiPing` (built-in `/ping`).
+- **`ServerMsg::ExecInShell { turn_id, exec_id, command, capture }`** (wire:
+  `"exec_in_shell"`) — chiede alla shell dell'utente di eseguire `command`; `capture`
+  distingue output catturato da console attaccata (programmi interattivi).
+- **`ServerMsg::OpenOutputWindow { window_id, title }`** (wire: `"open_output_window"`) —
+  apre su `ui` la finestra Markdown di output di un comando slash originato dalla shell.
+- **`ServerMsg::OutputWindowContent { window_id, markdown }`** (wire:
+  `"output_window_content"`) — sostituisce il contenuto di quella finestra.
+- **`ServerMsg::OpenUiLocal { name }`** (wire: `"open_ui_local"`) — chiede a `ui` di aprire
+  (o portare in primo piano) una finestra locale (`"config"`, `"library"`, `"aichat"`, o
+  l'id di un canale esterno).
+- **`ServerMsg::UiPing { id }`** (wire: `"ui_ping"`) — richiesta di vita a `ui.exe`
+  (built-in `/ping`); risposta `UiPong`.
+- **`ServerMsg::ActivityIndicator { session_id, kind, on }`** (wire:
+  `"activity_indicator"`) — segnalino di stato per la finestra terminale della sessione
+  (consumato dal piano 3, già emesso qui).
+- **`Surface { Origin, Ui }`** (nuovo enum, non serializzato) + **`ServerMsg::surface(&self)
+  -> Surface`** — decide, per ogni variante `ServerMsg`, se torna alla connessione origine
+  del turno (`Origin`) o va al sink `ui` della macchina (`Ui`). Il `match` è esaustivo
+  **senza wildcard** di proposito: una variante nuova senza riga nella tabella non compila.
+
+Tutte le aggiunte sono additive (Contratto A): nessuna variante esistente cambia forma sul
+wire. Test: `hello_without_role_defaults_to_ui`, `hello_shell_round_trips_all_new_fields`,
+`exec_in_shell_and_exec_result_wire_names`, `output_window_ui_local_ping_indicator_wire_names`,
+`surface_origin_for_turn_messages_and_ui_for_window_messages`.
+
 ## 2.0.0 — 2026-09-05 — fork da v1 0.15.4
 
 Copia del crate dalla v1 (`mauriziolobello/lare-terminal`) nel repo 2.0. Nessuna modifica

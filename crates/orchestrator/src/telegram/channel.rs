@@ -202,6 +202,18 @@ pub fn format_response(msgs: &[ServerMsg]) -> String {
             // test nella finestra di configurazione), il canale Telegram non ha
             // un equivalente, quindi no-op permanente come ToolConfirmRequest sopra.
             ServerMsg::MarketDataSourceTestResult { .. } => {}
+            // Piano 2a (canale shell, Task 1): superficie `lare-shell`/`ui.exe`.
+            // `ExecInShell` torna alla connessione shell che ha emesso il comando
+            // (esecuzione nel runspace dell'utente); le altre aprono/aggiornano
+            // finestre o segnalano stato su `ui.exe`. Il canale Telegram non ha né
+            // una shell propria né finestre: no-op permanente, come le altre
+            // superfici UI-only sopra (OpenPluginWindow, RoutineSavePreview, ...).
+            ServerMsg::ExecInShell { .. }
+            | ServerMsg::OpenOutputWindow { .. }
+            | ServerMsg::OutputWindowContent { .. }
+            | ServerMsg::OpenUiLocal { .. }
+            | ServerMsg::UiPing { .. }
+            | ServerMsg::ActivityIndicator { .. } => {}
         }
     }
 

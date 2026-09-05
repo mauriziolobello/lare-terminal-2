@@ -83,6 +83,52 @@ v0.9.0 (precedente): vedi CHANGELOG per le 6 varianti AI Chat (Slice 1a-ui).
 
 > Note: versioni 0.3.0–0.8.0 in CHANGELOG.
 
+## Ruolo della connessione e superficie (2.1.0, piano 2a Task 1)
+
+Piano 2a aggiunge un canale "shell" (una sessione `lare-shell`, host PowerShell in
+`shell/lare-shell/`) accanto al canale "ui" (`ui.exe`) già esistente. Le due connessioni
+condividono lo stesso WS e lo stesso `ClientMsg`/`ServerMsg`, ma differiscono per **ruolo**
+e per **dove va la risposta**:
+
+- **`Role { Ui, Shell }`** — dichiarato dal client nella `Hello` (`role: Role`, default
+  `Ui` per compatibilità: un client v1 non manda il campo). Una connessione `Shell` porta
+  con sé una `session_id` (lega la connessione alla finestra terminale) e una `cwd`
+  iniziale (il `$PWD` del runspace all'avvio) — entrambe assenti per `Ui`.
+- **`Surface { Origin, Ui }`**, esposto da **`ServerMsg::surface(&self) -> Surface`** —
+  per una connessione `ui` non cambia nulla (tutto torna alla connessione stessa, come in
+  v1). Per un turno originato da una connessione **shell**, `surface()` distingue:
+  - `Origin`: torna alla connessione shell che ha mandato il `Command` — avanzamento del
+    turno (`Chunk`/`Done`/`Error`/`Pong`/`Cwd`/`Heartbeat`), il gate di conferma
+    (`ToolConfirmRequest`), l'esecuzione nel suo stesso runspace (`ExecInShell`), risposte
+    puntuali (`MarketDataSourceTestResult`).
+  - `Ui`: apre/aggiorna finestre o alimenta un relay (AI Chat, Library, Share, plugin,
+    Notes) — va sempre al sink `ui` unico della macchina, mai alla shell che ha originato
+    il turno. Include le tre novità di questo task pensate apposta per l'output dei
+    comandi slash lanciati da una shell (`OpenOutputWindow`, `OutputWindowContent`,
+    `OpenUiLocal`) più `UiPing`/`ActivityIndicator`.
+
+  Il `match` dentro `surface()` è **esaustivo senza wildcard di proposito**: chi aggiunge
+  una variante `ServerMsg` deve decidere esplicitamente `Origin` o `Ui`, e il compilatore
+  glielo impone (niente `_ => ...` che nasconderebbe la scelta).
+
+- **Esecuzione nella shell dell'utente**: `ServerMsg::ExecInShell { turn_id, exec_id,
+  command, capture }` (verso `role: Shell`, sempre dopo un `ToolConfirmRequest` accettato)
+  e la sua risposta `ClientMsg::ExecResult { turn_id, exec_id, exit_code, output, cwd }` —
+  `capture: true` cattura l'output in `ExecResult.output`; `capture: false` lascia la
+  console attaccata (programmi interattivi), `output` vuoto. `cwd` nella risposta aggiorna
+  la cwd *per sessione* (non più una cwd unica di processo come in v1).
+
+- **`/ping` per `ui.exe`**: `ServerMsg::UiPing { id }` / `ClientMsg::UiPong { id, version }`
+  — simmetrico al `Ping`/`Pong` già esistente, ma verso `ui` invece che verso il client
+  generico; `version` compare nella riga `lare-shell` di `/ping` (nota di spec: `Hello.
+  version` è un'aggiunta del piano non ancora in spec §4.1 — l'emendamento arriva nel Task 11
+  del piano 2a, non è una deviazione).
+
+Nessun consumatore reale ancora in questo task: `orchestrator::ws.rs` e
+`orchestrator::telegram::channel.rs` hanno arm che compilano (no-op) per le varianti nuove
+— il dispatch vero (instradare per `Role`, usare `surface()`, correlare `ExecInShell`/
+`ExecResult`) arriva nei task successivi del piano.
+
 ## Scope (SRP)
 
 This crate owns **only the contract types** for the Lare Terminal WebSocket
