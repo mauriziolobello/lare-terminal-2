@@ -12,9 +12,12 @@ AI Chat), cambiando solo il punto d'ingresso e ciò che vi è accoppiato.
 
 ## Stato
 
-**Brainstorming in corso** (dal 2026-09-04). Nessun codice ancora. Spec di design in
-`Docs/i18n/ita/superpowers/specs/`; da lì il piano di implementazione. Tutta la documentazione
-sta sotto `Docs/i18n/<lingua>/` (italiano come riferimento).
+**Brainstorming concluso, spec in revisione** (2026-09-05). Nessun codice di prodotto ancora:
+solo due spike usa-e-getta in `spikes/` (host PowerShell custom in C#; finestra Tauri + xterm.js +
+ConPTY), entrambi riusciti — esiti in `Docs/i18n/ita/spikes/`. Spec di design riscritto sulla forma
+finale in `Docs/i18n/ita/superpowers/specs/`; prossimo passo il piano di implementazione in
+`Docs/i18n/ita/superpowers/plans/`. Tutta la documentazione sta sotto `Docs/i18n/<lingua>/`
+(italiano come riferimento).
 
 ## Punti di partenza
 
