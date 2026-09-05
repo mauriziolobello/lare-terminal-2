@@ -93,7 +93,7 @@ durata della sessione, resa a schermo da una finestra Tauri.
 | Componente | Stato | Cosa fa nel 2.0 |
 |---|---|---|
 | `shell/lare-shell/` → `lare-shell.exe` | **nuovo (C#, .NET 10, `Microsoft.PowerShell.SDK` 7.6.x)** | Host custom: `PSHost`/`PSHostUserInterface`/`PSHostRawUserInterface`; runspace con PSReadLine (funzione `PSConsoleHostReadLine`, come `ConsoleHost.cs`); REPL; riga `/…` → WS; altro → `AddScript(riga) \| Out-Default`; `NotifyBegin/EndApplication` come `ConsoleHost`; client WS persistente; `[Y/n]` del gate; `ExecInShell`; OSC 9001 verso l'emulatore |
-| `crates/ui` (Tauri) | esteso | Finestra terminale (xterm.js vendored + `portable-pty`, chrome HTML); finestra Markdown di output; `startup.json`/`--config-dir` (fase 2 v1, mai fatta); `UiPing`; `OpenUiLocal`; singleton (D15). **Rimosso**: overlay F2, line-editor, tab-completion, global-shortcut (D2) |
+| `crates/ui` (Tauri) | esteso | **Pagina host headless** (`host.html`/`host.js`: finestra `main` nascosta che possiede la connessione WS di default, lancia ogni finestra e fa da relay per AI Chat, `/find`, plugin — vedi §5); finestra terminale (xterm.js vendored + `portable-pty`, chrome HTML); finestra Markdown di output; `startup.json`/`--config-dir` (fase 2 v1, mai fatta); `UiPing`; `OpenUiLocal`; singleton (D15). **Rimosso**: cursore overlay F2, line-editor, tab-completion, global-shortcut, idle-duck (D2) |
 | `orchestrator` — `ws.rs` | esteso | Registro connessioni con ruolo (`ui`/`shell`), cwd e history **per connessione shell** (la history v1 è già per connessione: `ws.rs:298`); routing di superficie |
 | `orchestrator` — `shell_session_tool_client.rs` | **nuovo** | `impl ToolClient`: `run_in_session` → `ExecInShell` sul WS della sessione, attesa `ExecResult` |
 | `orchestrator` — `router.rs` / `core.rs` | esteso | `/ai "…"` ≡ `/ "…"`; discard+log; `/ping`; apertura finestra Markdown per l'output slash (D14) |
@@ -297,8 +297,28 @@ Indipendente dal WS: la host emette `ESC ] 9001 ; lare ; <evento> ; <dato> ESC \
   contenuto, `💾` Library come v1.
 - **Singleton (D15)**: AI Chat, Library, `/config`, `/help` — una finestra per macchina; richiesta a
   finestra aperta → focus. Registro per etichetta nel crate `ui`.
-- **Rimosso (D2)**: `index.html`/`app.js` dell'overlay, line-editor, tab-completion, global-shortcut,
-  idle-duck, gestione F2. Il crate `ui` non ha più un "cursore".
+- **Pagina host headless — ciò che dell'overlay deve sopravvivere.** Verificato sulla v1: `app.js`
+  (la pagina del cursore) non è solo il cursore — è **l'unico proprietario della connessione WS di
+  default** (`Hello` senza `channel`), **l'unico lanciatore** di ogni finestra (tutti gli
+  `open_*_window` sono invocati solo da lì) e il **relay** che riceve `AiChat*`/`Search*`/
+  `OpenPluginWindow` su quella connessione e li rigira alle finestre come eventi Tauri; solo la
+  connessione principale alimenta il sink del `PluginHost` (`ws.rs:253`,
+  `connection_owns_plugin_sink`). Togliere l'overlay senza sostituire questo ruolo spegne AI Chat,
+  `/find` e le finestre plugin. Quindi: la finestra `main` resta, **nascosta** (`visible:false`,
+  `skipTaskbar`, non trasparente), con `host.html`/`host.js` = client WS di default + dispatcher
+  dei `ServerMsg` verso le finestre + i tre moduli di relay v1 (`search-buffer.js`,
+  `aichat-push.js`, `external-channels.js`) importati invariati. Niente input, niente rendering.
+  Le finestre che aprono una connessione propria (`window.js` per `library-expand`,
+  `external-channel-window.js` per `/nmap` ecc.) restano com'erano.
+- **Rimosso (D2)**: il cursore di `app.js` (rendering, `Chunk`, line-editor, tab-completion,
+  routing slash digitato), `index.html`, `line-editor.js`, `idle-duck.js`, `page-scroll.js`,
+  `cwd-format.js`, `connection-diagnosis.js` coi loro test, il plugin global-shortcut e
+  `apply_hotkey`, i comandi `hide_overlay`/`show_overlay`/`list_path_completions`, e dalla `Config`
+  i campi `action_key`, `cursor_*`, `position`, `activity_indicator`, `idle_duck_minutes` (restano
+  `window_alpha`, `web_search_enabled`) con la relativa tab di `/config`.
+- **Flag di sviluppo temporaneo** `ui.exe --open config|library`: fra la rimozione dell'overlay
+  (piano 1) e l'arrivo del canale shell (piano 2) nessuna superficie può aprire una finestra; il
+  flag rende verificabile il piano 1 dal vivo. Etichettato dev-only, rimosso nel piano 3.
 
 ## 6. Configurazione
 
