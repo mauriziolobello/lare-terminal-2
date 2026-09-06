@@ -1,3 +1,5 @@
+using System.Net;
+using System.Net.Sockets;
 using System.Text.Json.Nodes;
 using LareShell.Config;
 using LareShell.Protocol;
@@ -184,5 +186,49 @@ public class OrchestratorClientTests
         Assert.Equal("sess1", (string?)hello2["session_id"]);
         Assert.Equal(@"C:\altro", (string?)hello2["cwd"]);
         Assert.True(client.IsConnected);
+    }
+
+    [Fact]
+    public void Connect_con_timeout_ritorna_motivo_senza_lanciare()
+    {
+        // TcpListener nudo che accetta la connessione TCP ma non fa MAI l'upgrade WebSocket
+        // (nessun AcceptAsync/risposta 101): il client resta appeso ad aspettare l'handshake finché
+        // non scatta il timeout passato a Connect. Verifica il fix del round 1: il socket va
+        // disposto e il motivo tornato, non un'eccezione che scappa fuori da Connect.
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        try
+        {
+            var uri = new Uri("ws://127.0.0.1:" + ((IPEndPoint)listener.LocalEndpoint).Port + "/");
+            using var client = new OrchestratorClient(uri, () => "tok", "s", "2.0.0", HostLog.Null);
+
+            string? reason = client.Connect(@"C:\", TimeSpan.FromMilliseconds(500));
+
+            Assert.NotNull(reason);
+            Assert.False(client.IsConnected);
+        }
+        finally
+        {
+            listener.Stop();
+        }
+    }
+
+    [Fact]
+    public async Task Connect_quando_gia_connesso_non_riconnette_e_non_accoda_Disconnected()
+    {
+        CancellationToken ct = Timeout();
+        await using FakeOrchestrator server = FakeOrchestrator.Start();
+        using OrchestratorClient client = NewClient(server);
+        Task<JsonObject> accepted = server.AcceptAsync(ct);
+        Assert.Null(await client.ConnectAsync(@"C:\", ct));
+        await accepted;
+
+        // La connessione è già viva: una seconda Connect deve essere un no-op, non smontare il
+        // socket né accodare un Disconnected fasullo (fix del round 1).
+        string? reason = await client.ConnectAsync(@"C:\altro", ct);
+
+        Assert.Null(reason);
+        Assert.True(client.IsConnected);
+        Assert.False(client.Incoming.TryRead(out _));
     }
 }

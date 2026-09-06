@@ -59,6 +59,14 @@ internal sealed class OrchestratorClient : IDisposable
     /// leggibile (da stampare nel terminale). Non lancia per gli errori di rete attesi.</summary>
     public async Task<string?> ConnectAsync(string cwd, CancellationToken ct)
     {
+        // Una connessione viva non va mai smontata da una Connect ridondante: la riconnessione
+        // avviene solo dopo un vero Disconnected (altrimenti accoderemmo un Disconnected fasullo
+        // per un socket che in realtà stava benissimo).
+        if (IsConnected)
+        {
+            return null;
+        }
+
         string? token = _tokenProvider();
         if (string.IsNullOrEmpty(token))
         {
@@ -91,6 +99,13 @@ internal sealed class OrchestratorClient : IDisposable
             socket.Dispose();
             return "connessione fallita: " + ex.Message;
         }
+        catch (OperationCanceledException)
+        {
+            // Il chiamante (di solito il ponte sincrono Connect, con un CancellationTokenSource a
+            // tempo) ha cancellato: senza questo catch il socket resterebbe vivo fino al GC.
+            socket.Dispose();
+            return "timeout di connessione";
+        }
 
         _socket = socket;
         _receiveLoop = Task.Run(() => ReceiveLoopAsync(socket));
@@ -108,6 +123,9 @@ internal sealed class OrchestratorClient : IDisposable
         }
         catch (OperationCanceledException)
         {
+            // Cintura e bretelle: ConnectAsync gestisce già OperationCanceledException al suo
+            // interno (e dispone il socket); questo catch resta per qualunque cancellazione che
+            // sfuggisse comunque fino a qui (es. cancellata prima ancora di entrare nel try interno).
             return "timeout di connessione (" + timeout.TotalSeconds + " s)";
         }
     }
