@@ -7,6 +7,13 @@
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <!-- RID esplicito: senza, gli asset specifici di Windows del NuGet Microsoft.PowerShell.SDK
+         (System.Management.Automation.dll compresa) finiscono in runtimes\win\lib\net10.0\ e
+         $PSHOME diventa QUELLA cartella — powershell.config.json accanto all'exe non verrebbe
+         letto (scoperto nel Task 4). Con il RID gli asset stanno nella radice dell'output, come
+         nel publish del deploy (-r win-x64, framework-dependent). -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
   </PropertyGroup>
 
   <ItemGroup>
