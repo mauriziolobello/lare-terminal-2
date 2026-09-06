@@ -93,8 +93,8 @@ Copiate dallo spec e dai contratti; ogni task le include implicitamente.
 - **Versioni/doc**: componente nuovo, `lare-shell` **2.0.0** (`shell/lare-shell/CHANGELOG.md` +
   `IMPLEMENTATION.md`, HANDOFF, ADR-019 nel task di release). Codice, test e commenti in italiano,
   didattici (§11). TDD con RED reale: ogni step "verifica che fallisca" va eseguito davvero.
-- **Modelli**: implementer Sonnet (Haiku dove il task è trascrizione: 1, 3, 8), reviewer Sonnet,
-  Task 5 (concorrenza) e review finale su Opus.
+- **Modelli**: implementer Sonnet (Haiku dove il task è trascrizione pura: 1, 8 — il Task 3 copia
+  quattro classi con modifiche mirate: Sonnet), reviewer Sonnet, Task 5 (concorrenza) e review finale su Opus.
 
 ## Struttura dei file
 
@@ -145,10 +145,11 @@ il `PSModulePath` del processo è condiviso). Tutto il resto gira in parallelo.
 2. **Riconnessione "on demand"**: nessun task di riconnessione in background; alla prossima riga
    `/…` la host prova a riconnettersi (con autostart e finestra di 5 s). Soddisfa §9 ("riconnessione
    automatica con backoff") dal punto di vista dell'utente con molta meno concorrenza.
-3. **`exit_code`** = `0` se `$?` è vero e la pipeline non ha avuto errori; altrimenti `$LASTEXITCODE`
-   se ≠ 0, altrimenti `1`. `$?` e `$LASTEXITCODE` sono letti in una pipeline separata subito dopo
-   (stessa tecnica della funzione `prompt` di pwsh). Per i comandi digitati dall'utente NON si
-   legge nulla (così `$?` resta corretto per il prompt/oh-my-posh).
+3. **`exit_code`** = `0` se `$?` del comando è vero; altrimenti `$LASTEXITCODE` se ≠ 0, altrimenti
+   `1`. `$?` è catturato **in coda allo stesso script** (`$global:__lare_ok = $?` come ultima
+   istruzione: letto da una pipeline separata rifletterebbe la pipeline esterna, che riesce
+   sempre); `$LASTEXITCODE` è azzerato prima del comando, così un valore ≠ 0 dopo è suo. Per i
+   comandi digitati dall'utente NON si tocca nulla (così `$?` resta corretto per il prompt/oh-my-posh).
 4. **Processi figli con `UseShellExecute = true`** (nessun handle ereditato) e `WindowStyle =
    Hidden` per `orchestrator.exe` (app console): equivalente pratico di `DETACHED_PROCESS` in
    .NET; `ui.exe` (app GUI) con `WindowStyle = Normal`. Emendamento a §6.4.
@@ -193,8 +194,11 @@ a mano come sotto (il template xunit di .NET 10 aggiunge `coverlet` e `Using`, n
 ```powershell
 New-Item -ItemType Directory -Force shell/lare-shell/src/LareShell/Config, shell/lare-shell/tests/LareShell.Tests/Config | Out-Null
 Set-Location shell/lare-shell
-dotnet new sln -n LareShell
+dotnet new sln -n LareShell --format sln
 ```
+
+Se il flag `--format` venisse rifiutato, riportalo nel report e usa il file che il template produce
+(`.slnx`): NON riscrivere i comandi del piano, che citano `LareShell.sln`, prima di averlo detto.
 
 `src/LareShell/LareShell.csproj`:
 
@@ -1064,6 +1068,8 @@ internal static class Wire
     // Tipi anonimi con i nomi snake_case scritti a mano: il JSON che ne esce è esattamente
     // quello che serde si aspetta; non serve una naming policy né classi dedicate.
 
+    /// <summary><c>version</c> è la SOLA versione ("2.0.0", HostInfo.Version): la riga di /ping la
+    /// stampa come <c>| lare-shell | 2.0.0 | …</c> (orchestrator/ping.rs), il nome lo mette lui.</summary>
     public static string Hello(string token, string sessionId, string cwd, string version) =>
         JsonSerializer.Serialize(new { type = "hello", token, role = "shell", session_id = sessionId, cwd, version });
 
@@ -3128,6 +3134,9 @@ internal sealed class Executor : IExecutor
 
     public Executor(RunspaceSession session) => _session = session;
 
+    /// <summary>Segnaposto globale in cui lo script cattura il proprio $? (vedi Run).</summary>
+    private const string OkVariable = "__lare_ok";
+
     public ExecOutcome Run(string command, bool capture)
     {
         if (capture)
@@ -3135,28 +3144,39 @@ internal sealed class Executor : IExecutor
             _session.Host.HostUI.Recorder.Begin();
         }
 
-        (bool stopped, bool caughtError) = Invoke(command, capture);
+        // Prima del comando: $LASTEXITCODE azzerato, così un valore ≠ 0 letto DOPO appartiene a
+        // QUESTO comando e non a un nativo fallito in un turno precedente; il segnaposto di $?
+        // rimosso, così se il comando non arriva in fondo (errore terminante) la variabile manca.
+        SessionStateProxy state = _session.Runspace.SessionStateProxy;
+        state.SetVariable("LASTEXITCODE", null);
+        state.PSVariable.Remove(OkVariable);
+
+        // $? va letto NELLO stesso script del comando, come ultima istruzione: vale il risultato
+        // dell'istruzione precedente, cioè del comando dell'utente (anche per un nativo con exit ≠ 0).
+        // Letto da fuori, in una pipeline separata, rifletterebbe la pipeline ESTERNA
+        // (… | ForEach-Object | Out-Default), che riesce sempre. L'assegnazione non emette output.
+        (bool stopped, bool caughtError) = Invoke(command + "\n$global:" + OkVariable + " = $?", capture);
 
         string output = capture ? _session.Host.HostUI.Recorder.End() : string.Empty;
-        int exitCode = stopped ? StoppedExitCode : caughtError ? 1 : ReadExitCode();
+        int exitCode = stopped ? StoppedExitCode : caughtError ? 1 : ReadExitCode(state);
         return new ExecOutcome(exitCode, output, _session.CurrentDirectory, stopped);
     }
 
     /// <summary>Comando digitato dall'utente al prompt: pipeline pura, nessuna cattura, nessuna
-    /// lettura di $?/$LASTEXITCODE (che resterebbero alterati per la funzione prompt — ruling 3).
-    /// Ritorna true se fermato da Ctrl+C.</summary>
+    /// istruzione aggiunta, $LASTEXITCODE/$? intatti (che resterebbero alterati per la funzione
+    /// prompt — ruling 3). Ritorna true se fermato da Ctrl+C.</summary>
     public bool RunInteractive(string line) => Invoke(line, capture: false).Stopped;
 
     public void StopCurrent() => _current?.Stop();
 
-    private (bool Stopped, bool CaughtError) Invoke(string command, bool capture)
+    private (bool Stopped, bool CaughtError) Invoke(string script, bool capture)
     {
         using var ps = PowerShell.Create();
         ps.Runspace = _session.Runspace;
         _current = ps;
         try
         {
-            ps.AddScript(command, useLocalScope: false);
+            ps.AddScript(script, useLocalScope: false);
             ps.Commands.Commands[0].MergeMyResults(PipelineResultTypes.Error, PipelineResultTypes.Output);
             if (capture)
             {
@@ -3186,33 +3206,22 @@ internal sealed class Executor : IExecutor
         }
     }
 
-    /// <summary>Legge $? e $LASTEXITCODE in una pipeline separata subito dopo il comando — la
-    /// stessa tecnica della funzione prompt di pwsh, che vede il $? del comando dell'utente.
-    /// Regola (ruling 3): 0 se $? è vero; altrimenti $LASTEXITCODE se ≠ 0, altrimenti 1.</summary>
-    private int ReadExitCode()
+    /// <summary>Regola (ruling 3): 0 se il $? catturato dallo script è vero; altrimenti
+    /// $LASTEXITCODE se ≠ 0, altrimenti 1. Variabile assente = il comando non è arrivato in fondo
+    /// (errore terminante dentro lo script) → non ok. Pulisce il segnaposto.</summary>
+    private static int ReadExitCode(SessionStateProxy state)
     {
-        try
-        {
-            using var ps = PowerShell.Create();
-            ps.Runspace = _session.Runspace;
-            ps.AddScript("[pscustomobject]@{ ok = $?; code = $global:LASTEXITCODE }");
-            PSObject r = ps.Invoke().Single();
-            bool ok = r.Properties["ok"]?.Value is bool b && b;
-            int code = r.Properties["code"]?.Value is int c ? c : 0;
-            return ok ? 0 : code != 0 ? code : 1;
-        }
-        catch (RuntimeException)
-        {
-            return 1;
-        }
+        bool ok = state.GetVariable(OkVariable) is bool b && b;
+        int code = state.GetVariable("LASTEXITCODE") is int c ? c : 0;
+        state.PSVariable.Remove(OkVariable);
+        return ok ? 0 : code != 0 ? code : 1;
     }
 }
 ```
 
-**Se `Programma_nativo…` o `Dopo_un_comando_fallito…` restano rossi** perché `$?` letto nella pipeline
-successiva non riflette il comando precedente: passa al piano B **documentandolo nel report** —
-prima di `Invoke` esegui `SessionStateProxy.SetVariable("LASTEXITCODE", 0)`, e dopo usa
-`ps.HadErrors ? 1 : LASTEXITCODE`. Il test `Dopo_un_comando_fallito…` resta valido in entrambi i piani.
+**Se `Programma_nativo…` o `Capture_false…` restano rossi** (il `$?` catturato in coda allo script non
+riflette il nativo fallito), riporta l'output esatto e fermati con **BLOCKED**: è l'assunzione da
+verificare di questo task, non va aggirata con un altro meccanismo inventato sul momento.
 
 - [ ] **Step 9: Verifica che passi (GREEN) e commit**
 
@@ -3836,8 +3845,10 @@ internal sealed class SlashTurn
         return TurnResult.Cancelled;
     }
 
-    /// <summary>true se in coda c'è già la fine del turno (Done/Error con questo id) o la caduta
-    /// della connessione: il gate smette di aspettare l'utente.</summary>
+    /// <summary>true se in TESTA alla coda c'è già la fine del turno (Done/Error con questo id) o
+    /// la caduta della connessione: il gate smette di aspettare l'utente. Limite noto: TryPeek vede
+    /// solo il primo messaggio — se prima del Done c'è un Chunk (l'ack di conferma), il prompt resta
+    /// finché l'utente non preme un tasto; poi il turno si chiude normalmente.</summary>
     private bool TerminalPending(string id) =>
         _client.Incoming.TryPeek(out ServerMessage? next) &&
         (next is Done d && d.Id == id || next is TurnError e && e.Id == id || next is Disconnected);
@@ -4832,7 +4843,8 @@ apri la scheda "Lare Terminal" e verifica, annotando l'esito di ognuno in TESTIN
 8. Ctrl+C in attesa del turno (`/ai "conta fino a un milione lentamente"`, subito Ctrl+C) → "annullato (Ctrl+C)", prompt; Ctrl+C durante un `ExecInShell` lungo (`/ai "esegui Start-Sleep 60"`, Y, Ctrl+C) → "comando interrotto (Ctrl+C): turno annullato";
 9. `/ai "apri python in modo interattivo"` (o `/ai "avvia python"`) con `interactive` → REPL di python utilizzabile, `exit()` torna al prompt;
 10. chiudi `ui.exe` → `/help` la riavvia (self-heal, ruling 8); uccidi l'orchestratore (`Stop-Process -Name orchestrator`) → `/ping` → "orchestratore non raggiungibile … avvio …" → riconnesso e finestra aperta;
-11. `exit` → la scheda si chiude; `Get-Process lare-shell -ErrorAction SilentlyContinue` → nulla;
+11. `exit` → la scheda si chiude; `Get-Process lare-shell -ErrorAction SilentlyContinue` → nulla, ma
+    `Get-Process orchestrator, ui` → ANCORA vivi (è il senso di `UseShellExecute=true`: figli staccati);
 12. copia `Test Run\` in `%TEMP%\LareCopia\`, esegui `LareCopia\shell\lare-shell.exe --selftest` → `[OK]` con la Configuration di LareCopia (percorsi relativi, §6.3).
 
 - [ ] **Step 1: `CHANGELOG.md` e `IMPLEMENTATION.md` di `shell/lare-shell/`**
@@ -4888,8 +4900,8 @@ pwsh. (2) PSReadLine viene dai moduli di pwsh, anteposti al `PSModulePath` del p
 fra script e `Out-Default` perché anche i nativi passino dalla pipe; `capture:false` = pipeline pura.
 (5) Un solo thread (REPL) possiede runspace e console; il socket accoda in un `Channel`; nessun
 `async` nel REPL. (6) Riconnessione on demand con autostart (5 s), processi figli con
-`UseShellExecute=true` (nessuna console ereditata). (7) `exit_code` = `$?`/`$LASTEXITCODE` letti in
-una pipeline separata (tecnica della funzione `prompt`).
+`UseShellExecute=true` (nessuna console ereditata). (7) `exit_code` = `$?` catturato in coda allo
+stesso script (`$global:__lare_ok = $?`) e `$LASTEXITCODE` azzerato prima del comando.
 
 **Conseguenze.** La host è un pwsh "vero" per l'utente (PSReadLine, profilo, prompt) più i `/…`;
 i test girano contro un server WS finto su `TcpListener` (mai `HttpListener`); debiti in HANDOFF.
