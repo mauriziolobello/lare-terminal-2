@@ -25,6 +25,8 @@ dist
 # segreti e dati generati dall'uso no.
 Test Run/**/*.exe
 Test Run/**/*.dll
+# Output di `dotnet publish` della host (lare-shell.exe + DLL + Modules\ + .json del motore)
+Test Run/shell/
 Test Run/Configuration/token
 Test Run/Configuration/llms.json
 Test Run/Configuration/telegram-state.json

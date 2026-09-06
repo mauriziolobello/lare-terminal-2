@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <!-- Nome dell'eseguibile (lare-shell.exe, spec §7) e namespace radice del codice. -->
+    <AssemblyName>lare-shell</AssemblyName>
+    <RootNamespace>LareShell</RootNamespace>
+    <Version>2.0.0</Version>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!-- Il NuGet Microsoft.PowerShell.SDK porta le risorse localizzate di decine di lingue:
+         teniamo solo l'inglese nell'output (≈ -30 MB nel publish). -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.PowerShell.SDK" Version="7.6.5" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Execution policy di scope LocalMachine (spec §4.4/§13, ADR-019): PowerShell 7 la legge da
+         $PSHOME\powershell.config.json, e $PSHOME di un'app che ospita il motore è la cartella
+         dell'app. Copiato accanto all'exe (e, transitivamente, nell'output dei test). -->
+    <None Include="powershell.config.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- I tipi sono `internal`: i test li vedono grazie a questo attributo di assembly. -->
+    <InternalsVisibleTo Include="LareShell.Tests" />
+  </ItemGroup>
+
+</Project>
