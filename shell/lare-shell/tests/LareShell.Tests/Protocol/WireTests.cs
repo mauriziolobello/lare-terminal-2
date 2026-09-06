@@ -70,6 +70,8 @@ public class WireParseTests
     [InlineData("{\"id\":\"t1\"}")]                       // manca type
     [InlineData("{\"type\":\"chunk\",\"id\":\"t1\"}")]     // manca content
     [InlineData("[1,2]")]                                  // non un oggetto
+    [InlineData("{\"type\":\"done\",\"id\":\"t\",\"exit_code\":\"x\"}")]  // exit_code malformato
+    [InlineData("{\"type\":\"pong\"}")]                   // manca ts
     public void Parse_invalido_lancia_WireException(string json)
     {
         Assert.Throws<WireException>(() => Wire.Parse(json));

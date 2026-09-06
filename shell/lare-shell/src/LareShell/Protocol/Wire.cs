@@ -67,12 +67,12 @@ internal static class Wire
         {
             "server_info" => new ServerInfo(Str(obj, "version"), Str(obj, "ai_provider")),
             "chunk" => new Chunk(Str(obj, "id"), Str(obj, "content")),
-            "done" => new Done(Str(obj, "id"), obj["exit_code"]?.GetValue<int>()),
+            "done" => new Done(Str(obj, "id"), NullableInt(obj, "exit_code")),
             "error" => new TurnError(Str(obj, "id"), Str(obj, "code"), Str(obj, "message")),
             "tool_confirm_request" => new ToolConfirmRequest(Str(obj, "id"), Str(obj, "commands")),
             "exec_in_shell" => new ExecInShell(Str(obj, "turn_id"), Str(obj, "exec_id"), Str(obj, "command"), Bool(obj, "capture")),
             "heartbeat" => new Heartbeat(Str(obj, "id")),
-            "pong" => new Pong(obj["ts"]?.GetValue<long>() ?? 0),
+            "pong" => new Pong(Long(obj, "ts")),
             _ => new Unknown(type),
         };
     }
@@ -140,6 +140,44 @@ internal static class Wire
         catch (Exception ex) when (ex is InvalidOperationException or FormatException)
         {
             throw new WireException("campo " + name + " non è un booleano", ex);
+        }
+    }
+
+    /// <summary>Legge un numero intero obbligatorio; lancia WireException se assente o malformato.</summary>
+    private static long Long(JsonObject obj, string name)
+    {
+        JsonNode? node = obj[name];
+        if (node is null)
+        {
+            throw new WireException("campo mancante: " + name);
+        }
+
+        try
+        {
+            return node.GetValue<long>();
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or FormatException)
+        {
+            throw new WireException("campo " + name + " non è un intero", ex);
+        }
+    }
+
+    /// <summary>Legge un numero intero opzionale: null se il campo è assente o JSON null, lancia WireException se malformato.</summary>
+    private static int? NullableInt(JsonObject obj, string name)
+    {
+        JsonNode? node = obj[name];
+        if (node is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return node.GetValue<int?>();
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or FormatException)
+        {
+            throw new WireException("campo " + name + " non è un intero", ex);
         }
     }
 }
