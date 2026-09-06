@@ -157,6 +157,7 @@ public class HostLogTests
         // Un percorso impossibile (carattere non valido): il log deve degradare in silenzio,
         // mai far cadere la shell per un problema di log (spec §9: la shell resta usabile).
         HostLog log = HostLog.Open("Z:\\<>|\0impossibile");
+        Assert.Same(HostLog.Null, log);
         log.Info("niente");
     }
 }

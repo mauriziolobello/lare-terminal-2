@@ -21,7 +21,10 @@ internal static class TokenFile
             string token = File.ReadAllText(path).Trim();
             return token.Length == 0 ? null : token;
         }
-        catch (IOException)
+        // UnauthorizedAccessException NON deriva da IOException (sono due rami distinti della
+        // gerarchia): un permesso negato sul file token va catturato esplicitamente, altrimenti
+        // risalirebbe al chiamante invece di degradare a null come previsto dal commento sopra.
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return null;
         }

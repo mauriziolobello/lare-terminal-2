@@ -29,7 +29,10 @@ internal sealed class StartupConfig
         {
             return Parse(File.ReadAllText(path));
         }
-        catch (IOException ex)
+        // UnauthorizedAccessException NON deriva da IOException (sono due rami distinti della
+        // gerarchia): un permesso negato sul file va catturato esplicitamente, altrimenti
+        // risalirebbe fino a Main e farebbe cadere la host, contro la regola "mai un'eccezione".
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
             return new StartupConfig { Warnings = new[] { "startup.json non leggibile (" + ex.Message + "): uso i default" } };
         }
