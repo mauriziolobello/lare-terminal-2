@@ -135,9 +135,9 @@ un elenco di comandi proprio (lo possiede l'orchestratore). Tutto il resto va al
 | `/ai testo` · `/ testo` (senza virgolette) | `Error` "sintassi: `/ai \"testo\"`", stampato nel terminale |
 | `/open <target>` · `/web <query>` | Backend slash v1; esito nella finestra Markdown (D14), una riga di conferma nel terminale |
 | `/help` | Backend slash v1 (`core.rs`, `HELP_MARKDOWN`) → `OpenWindow` → `ui` (singleton, D15) |
-| `/config` · `/library` | `OpenUiLocal{name}` → `ui` (singleton) |
+| `/config` · `/library` · `/aichat` | `OpenUiLocal{name}` → `ui` (singleton) |
 | `/calc` | Plugin → `OpenPluginWindow` → `ui` (una finestra per invocazione, v1) |
-| `/markets`, `/nmap`, `/pyping`, `/lc`, `/crypto`, `/counter`, `/aichat` | Come v1 (finestra → `ui`); **non verificati nell'MVP** (D10) |
+| `/markets`, `/nmap`, `/pyping`, `/lc`, `/crypto`, `/counter` | Come v1 (finestra → `ui`); **non verificati nell'MVP** (D10) |
 | `/ping` | §3.1 |
 | `/reset` | `Done` con "non applicabile: la sessione è la tua" |
 | `/qualunque-altro` | **Scartato**: `Done` muta; log `info` nell'orchestratore (`discard slash: …`) |

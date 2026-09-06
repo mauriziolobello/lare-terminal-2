@@ -135,13 +135,18 @@ Nuovo modulo **`shell_turn.rs`**: l'unica cosa che `ws.rs` fa per un `Command` s
 
 ### Cosa NON cambia
 
-Le connessioni **`ui`** e **Telegram** sono bit-per-bit invariate: stesso `Cwd` iniziale, stesso
-`SetServerTx`/`UiClosed`, stesso dispatch v1 di `Command`. `orchestrator::telegram::channel.rs`
-non ha ricevuto NESSUNA modifica in questo piano — Telegram non ha un ruolo `Shell`, quindi non
-vede mai le varianti nuove del protocollo (`ExecInShell`, `OpenOutputWindow`, …) sul proprio
-percorso. Nessun consumatore reale del gate _routine_ dedicato (`RoutineSavePreview`) è cambiato:
-`ShellConfirmer` eredita lo stesso comportamento di default (appiattito nel testo `[Y/n]`) della
-UI locale per quel caso, come documentato nel Task 3.
+Le connessioni **`ui`** e **Telegram** hanno lo stesso comportamento di v1, non lo stesso codice
+bit-per-bit: stesso `Cwd` iniziale, stesso `SetServerTx`/`UiClosed`, stesso dispatch v1 di
+`Command` — ma `ws.rs` ha guadagnato guardie esplicite (`if hello.role == Role::Ui`) attorno a
+questi punti, non un percorso nuovo. `orchestrator::telegram::channel.rs` non ha ricevuto nessun
+cambio di **comportamento**: ha ricevuto solo i bracci no-op richiesti dal `match` esaustivo
+(Task 1, `44e025a` — `ExecInShell`, `OpenOutputWindow`, `OutputWindowContent`, `OpenUiLocal`,
+`UiPing`, `ActivityIndicator`), perché Telegram non ha una shell propria né finestre — stesso
+trattamento permanente delle altre superfici UI-only già no-op lì (`OpenPluginWindow`,
+`RoutineSavePreview`, …), come già documentato in `crates/protocol/IMPLEMENTATION.md`. Nessun
+consumatore reale del gate _routine_ dedicato (`RoutineSavePreview`) è cambiato: `ShellConfirmer`
+eredita lo stesso comportamento di default (appiattito nel testo `[Y/n]`) della UI locale per
+quel caso, come documentato nel Task 3.
 
 ## Fix wave della review finale del piano 1 (v2.0.2)
 
