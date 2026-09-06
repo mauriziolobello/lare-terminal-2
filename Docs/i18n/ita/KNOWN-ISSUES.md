@@ -1,8 +1,10 @@
 # Known issues — Lare Terminal 2.0
 
-Problemi noti ereditati dalla v1 e ancora presenti nel codice 2.0: nessun task del piano 1 ha
-toccato le aree coinvolte. Per lo storico completo dei problemi v1 (inclusi quelli già risolti)
-vedi `C:\Users\Maurizio\Documents\Progetti\Lare Terminal\Docs\KNOWN-ISSUES.md` (sola lettura).
+Due famiglie di problemi noti: quelli **ereditati dalla v1** (sezioni sotto, nessun task del
+piano 1/2a ha toccato le aree coinvolte) e quelli **nativi del 2.0**, introdotti da una decisione
+di design del piano corrente (marcati come tali). Per lo storico completo dei problemi v1
+(inclusi quelli già risolti) vedi
+`C:\Users\Maurizio\Documents\Progetti\Lare Terminal\Docs\KNOWN-ISSUES.md` (sola lettura).
 
 ---
 
@@ -56,3 +58,22 @@ messaggio d'errore stabile e smettere.
 `url` di `ws-client.js` (per rendere la porta configurabile via `startup.json`), mai la logica di
 retry. Resta un debito architetturale aperto da affrontare quando si costruirà l'esperienza utente
 attorno ai canali esterni.
+
+---
+
+## [APERTO] Markdown della finestra di output: chunk di trasparenza e testo AI concatenati senza separatore
+
+**Introdotto nel piano 2a** (nativo del 2.0, non ereditato dalla v1): `surface::route_shell_turn`
+bufferizza ogni `ServerMsg::Chunk` di un turno shell (testo di trasparenza dell'AI — "eseguo
+`dir`…" — e la risposta vera e propria) concatenandoli in un unico `String`, consegnato una volta
+alla finestra come `OutputWindowContent` a `Done`/`Error`. Nessun separatore (newline doppia,
+riga orizzontale, …) viene inserito fra un chunk e il successivo.
+
+**Sintomo.** Se l'AI produce trasparenza multi-riga seguita da testo di risposta, i due possono
+finire attaccati nella stessa "riga" Markdown renderizzata (es. l'ultima riga della trasparenza e
+la prima del testo si fondono in un solo paragrafo) — puramente cosmetico, il contenuto informativo
+resta tutto presente e leggibile.
+
+**Rilevanza per il piano 2b/3.** Nessun impatto funzionale: non blocca né la lettura né il salvataggio
+del contenuto in Library. Da affrontare quando si rivedrà la resa della finestra di output (insieme
+allo streaming token-per-token, fuori MVP — spec §12).

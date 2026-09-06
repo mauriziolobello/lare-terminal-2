@@ -2392,7 +2392,7 @@ checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
 
 [[package]]
 name = "orchestrator"
-version = "2.0.2"
+version = "2.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2744,7 +2744,7 @@ dependencies = [
 
 [[package]]
 name = "protocol"
-version = "2.0.0"
+version = "2.1.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -4545,7 +4545,7 @@ checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
 
 [[package]]
 name = "ui"
-version = "2.0.3"
+version = "2.1.0"
 dependencies = [
  "notify-debouncer-mini",
  "serde",

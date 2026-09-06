@@ -1,4 +1,147 @@
-# Implementation — orchestrator v0.33.0 (Ammissione alla stanza — AI Chat)
+# Implementation — orchestrator v2.1.0 (Canale shell — piano 2a)
+
+## Canale shell: registro, gate, superficie, `/ping` (v2.1.0)
+
+Piano `Docs/i18n/ita/superpowers/plans/2026-09-05-piano-2a-protocollo-shell.md` (Task 2-8, 10),
+spec `Docs/i18n/ita/superpowers/specs/2026-09-04-lare-terminal-2-design.md` §3/§4, ADR-018. Una
+sessione `lare-shell` (host C# del piano 2b — qui ancora impersonata dal client di sviluppo
+`scripts/dev/shell-client.mjs`) si connette con `Hello{role:"shell", session_id, cwd, version}` e
+manda `Command`/righe `/…` esattamente come farebbe una `ui`; l'orchestratore instrada l'output
+verso la finestra Markdown di `ui.exe` invece che nel terminale. Sette moduli nuovi/estesi, in
+ordine di dipendenza:
+
+### `connections.rs` — registro delle connessioni vive (Task 2)
+
+`Registry` (dietro `SharedRegistry = Arc<Mutex<Registry>>`, `Registry::shared()`) è l'UNICO posto
+che sa "chi è connesso": il **sink `ui`** (la connessione `role: Ui` senza canale, l'ultima vince
+— stessa regola di `PluginHost::set_server_tx`; `clear_ui_sink_if(&tx)` lo azzera solo se `tx` è
+ANCORA il sink corrente, via `same_channel`, così una `ui` più recente non viene scalzata dalla
+disconnessione di una vecchia), le **sessioni shell** per `session_id` (mappa verso il piano 3,
+push di segnalini), e i **ping `ui` pendenti** (`register_ui_ping(id) -> oneshot::Receiver<String>`,
+risolto da `resolve_ui_ping(id, version)` quando arriva `UiPong`; id ignoto/già risolto → `false`,
+stesso principio di `PendingConfirms::resolve`). Puro stato + `tokio::sync`, nessun I/O: testabile
+senza socket.
+
+### `local_confirm::ShellConfirmer` — gate di conferma per la shell (Task 3)
+
+Composizione sopra `LocalUiConfirmer` (non ereditarietà: uno struct con un campo `inner`), stessa
+meccanica (`ToolConfirmRequest` sulla connessione + `PendingConfirms` + timeout che nega), politica
+diversa: `should_gate`/`confirm_routine_save` restano il **default del trait** — quindi TUTTO tranne
+`show_markdown` è gateizzato, `run_in_session`/`open_target` inclusi (spec §4.3/§8; la UI locale li
+lascia invece autonomi). `ShellConfirmer::new(out_tx, pending, timeout, command_id)`. Ripple in
+`agent::display_invocation`: `run_in_session` con `interactive: true` nell'input aggiunge la nota
+`(interattivo)` al comando mostrato nel prompt `[Y/n]` (spec §4.5) — l'utente deve sapere PRIMA di
+accettare che l'output non sarà catturato.
+
+### `shell_session.rs` — la shell dell'utente come `ToolClient` (Task 4)
+
+Due oggetti a vita diversa: **`ShellSessionState`** (per **connessione**: `session_id`, cwd di
+sessione dietro `Mutex` — mai il `cwd_state` globale v1, D17 — mappa `exec_id → oneshot<ExecReply>`
+delle esecuzioni pendenti, canale d'uscita, `McpToolClient` condiviso per i tool non-shell) con
+`{new, session_id, cwd, set_cwd, exec, resolve_exec, abort_turn, abort_all}`; **`ShellSessionToolClient`**
+(per **turno**, via `ShellSessionToolClient::for_turn(&state, turn_id)`: conosce il `turn_id` da
+scrivere in ogni `ExecInShell`, implementa `ToolClient`, è ciò che `core::handle_command` riceve
+come `tools`). `run_in_session` diventa un round-trip `ServerMsg::ExecInShell{turn_id, exec_id,
+command, capture}` → la host esegue → `ClientMsg::ExecResult{exec_id, exit_code, output, cwd}`,
+correlato da un `oneshot` per `exec_id` (`exec()` lo registra e attende, `resolve_exec()` lo
+risolve dal reader loop di `ws.rs`). `abort_turn(turn_id)` sblocca (con esito "annullato") solo le
+esecuzioni pendenti di QUEL turno — usato da `CancelCommand` e da Ctrl+C nella host (spec §4.4, la
+pipeline si è già fermata lì, nessun `ExecResult` arriverà mai); `abort_all()` (disconnessione)
+sblocca tutto.
+
+### `surface.rs` — router di superficie per un turno shell (Task 5, fix `5f863d7`)
+
+`route_shell_turn(rx, shell, ui, turn: ShellTurn)` consuma da un canale interno i `ServerMsg` che
+`core::handle_command`/il built-in `/ping` producono per UN turno e li smista: i `Chunk` (testo AI
++ trasparenza dei tool) si accumulano in un buffer in memoria e vengono consegnati **una sola
+volta**, a `Done`/`Error`, come `ServerMsg::OutputWindowContent` verso `ui` (`ShellTurn.output_window
+= false` per `/help`/`/show` — `core::WINDOW_SLASHES` — niente finestra col segnaposto, altrimenti
+se ne aprirebbero due); tutto il resto del traffico del turno segue `ServerMsg::surface()`: `Origin`
+→ la connessione shell (gate, `ExecInShell`, heartbeat), `Ui` → il sink registrato. **Una sola
+terminazione per turno** verso la shell: un secondo `Done`/`Error` per lo stesso `turn_id` dopo che
+il primo è già stato inoltrato viene scartato con un log `debug` (guardia `terminal_sent`, separata
+da `flushed` che governa solo il lato `ui`) — è il contratto che la host del piano 2b potrà
+assumere ("il turno finisce al primo terminale"). Senza `ui.exe` connesso (`ui: None`) i messaggi
+per `ui` vengono scartati con un log `warn` e la shell riceve `NO_UI_ACK`
+(`"→ ui.exe non connesso: output non mostrato"`) al posto della riga di conferma — il turno
+completa comunque, l'autostart di `ui.exe` è del piano 3. `output_window_title(input)` deriva il
+titolo dal testo fra virgolette di `/ai`/`/ ` (max 60 caratteri) o da `Lare — /<comando>`.
+
+### `shell_slash.rs` — pre-router degli slash della shell (Task 6) + `/help` 2.0
+
+`classify_shell_input(input, is_known_backend)` è pura classificazione (nessun I/O, nessun
+`await`): decide, per OGNI riga `/…` che la host manda (non ha un elenco proprio), se è `Nl(testo)`
+(`/ai "…"`/`/ "…"`, virgolette obbligatorie — D8, altrimenti `SyntaxError(AI_SYNTAX_ERROR)`),
+`OpenUiLocal(nome)` (`config`/`library`/`aichat` — `UI_LOCAL_SLASHES` — o l'id di un canale esterno
+user-facing risolto da `shell_channel_table()`, derivata dal registro reale `EXTERNAL_TOOL_CHANNELS`
+filtrato su `/nmap`/`/pyping`/`/markets`), `Reset`, `Ping`, `Backend` (predicato `is_known_backend`
+iniettato dal chiamante — costruito da `core::KNOWN_BACKEND_SLASHES`, un'unica fonte), o
+`Discard(nome)` (slash ignoto: `Done` muto + log `info`, `/find`/`/nowin` inclusi in questa
+versione — debito, vedi `HANDOFF.md`). `read_web_search_enabled(config_dir)` legge
+`config.json.web_search_enabled` (il file di `ui`): la shell non ha una propria casella, quindi
+vale la scelta fatta in `/config`. Ripple in `core.rs`: `KNOWN_BACKEND_SLASHES = ["open", "web",
+"show", "help"]` (l'unica fonte di "questo slash esiste" per il pre-router — allineamento con
+`handle_slash` è responsabilità di revisione, provata solo in una direzione dal test
+`known_backend_slashes_are_all_dispatched_by_handle_slash`) e `WINDOW_SLASHES = ["help", "show"]`
+(sottoinsieme il cui esito È già una finestra, consumato da `surface.rs` sopra). `HELP_MARKDOWN`
+riscritto per la 2.0: via i tasti/hotkey F2 della v1, dentro `/ping`, `/aichat`, `/calc`, i comandi
+realmente supportati dalla shell.
+
+### `ping.rs` — built-in `/ping` (Task 7, spec §3.1)
+
+`run_ping(session_id, shell_version, plugin, ui)` formatta una tabella Markdown con una riga per
+strato: `lare-shell` (dalla `Hello`), `orchestrator` (versione del crate + uptime da
+`crate::PROCESS_START`, `LazyLock<Instant>` forzato in `main()` all'avvio), `plugin-ping` e
+`ui.exe` arrivano già **risolti** (`Option<Result<(versione, tempo), motivo>>`: `None` = strato
+assente, `Some(Err)` = presente ma in errore) — chi chiama (`shell_turn::run_ping_turn`) esegue le
+sonde vere con le sue dipendenze, questo modulo SOLO formatta (testabile senza plugin host né
+registro). `probe(plugin, storage_dir, make)` (in `plugins/host.rs`) è la sonda usa-e-getta:
+spawna un'istanza NUOVA del plugin (mai l'eager già viva, che non va disturbata), misura
+Init→Ready, manda `Deinit` best-effort e la lascia morire (`kill_on_drop`); `PluginHost::find(id)`
+(nuovo) risolve manifest + storage dir senza toccare `writers`. Verso `ui.exe`:
+`ServerMsg::UiPing{id}` sul sink del registro, `UI_PING_TIMEOUT` (2 s) su un `oneshot` da
+`register_ui_ping`; timeout o sink assente → riga `ui.exe -- non connesso`. Il comando finisce
+sempre con `Done`, qualunque strato sia assente.
+
+### `ws.rs` — cablaggio (Task 8) + `shell_turn.rs` (nuovo)
+
+`HelloInfo { token, channel, role, session_id, cwd, version }` sostituisce la tupla `(token,
+channel)` di v1 (troppi campi per restare una tupla leggibile). Una connessione `role: Shell`:
+non riceve MAI il sink `ui`/AI Chat (`SetServerTx` resta per `role: Ui`); registra una
+`ShellSessionState` (Task 4) con la `cwd` iniziale della `Hello`; ogni `Command` va SPAWNATO a
+`shell_turn::run_shell_command` (il loop della connessione resta libero per `CancelCommand`/
+`ExecResult` nel frattempo); `ClientMsg::ExecResult` risolve l'`exec_id` pendente sulla sessione;
+`ClientMsg::UiPong` risolve il ping pendente nel registro. Alla disconnessione:
+`shell.abort_all()` sblocca ogni `run_in_session` in attesa (niente deadlock silenziosi),
+`registry.unregister_shell(session_id)`, poi `registry.clear_ui_sink_if(&out_tx)` (no-op se questa
+non era `role: Ui`, o se il sink è già stato preso da una connessione più recente). Una
+connessione `ui` **non cambia**: stesso `Cwd` iniziale, stesso `SetServerTx`, stesso `UiClosed`
+alla disconnessione — tutti gli `if hello.role == Role::Ui` intorno a questi punti sono guardie
+additive, non un percorso nuovo.
+
+Nuovo modulo **`shell_turn.rs`**: l'unica cosa che `ws.rs` fa per un `Command` shell è costruire
+`ShellTurnDeps` (le collaborazioni esplicite: `ai`, `history`, `pending_confirms`, `registry`,
+`plugin_host`, `rt`, `shell`, `out_tx`, `shell_version`) e spawnare `run_shell_command`. Dentro:
+1. `shell_slash::classify_shell_input` decide il tipo di riga;
+2. le risposte immediate (`SyntaxError`, `Discard`, `Reset`, `OpenUiLocal` — quest'ultima manda
+   `OpenUiLocal{name}` al sink `ui` se connesso, altrimenti `NO_UI_ACK` + `Done{1}`) vanno
+   direttamente sulla connessione shell, nessun turno aperto;
+3. `/ai`/backend/`/ping` aprono un **turno** (`start_turn`: crea `ShellTurn` con
+   `output_window = !is_window_slash(input)`, apre subito la finestra tramite
+   `surface::route_shell_turn` spawnato su un canale interno) e alimentano quel canale con
+   `core::handle_command` (via `run_ai_turn`, che costruisce `ShellSessionToolClient`/
+   `ShellConfirmer` per il turno e calcola `web_search = richiesta del turno || config.json.
+   web_search_enabled`) o col built-in `run_ping_turn` (Task 7).
+
+### Cosa NON cambia
+
+Le connessioni **`ui`** e **Telegram** sono bit-per-bit invariate: stesso `Cwd` iniziale, stesso
+`SetServerTx`/`UiClosed`, stesso dispatch v1 di `Command`. `orchestrator::telegram::channel.rs`
+non ha ricevuto NESSUNA modifica in questo piano — Telegram non ha un ruolo `Shell`, quindi non
+vede mai le varianti nuove del protocollo (`ExecInShell`, `OpenOutputWindow`, …) sul proprio
+percorso. Nessun consumatore reale del gate _routine_ dedicato (`RoutineSavePreview`) è cambiato:
+`ShellConfirmer` eredita lo stesso comportamento di default (appiattito nel testo `[Y/n]`) della
+UI locale per quel caso, come documentato nel Task 3.
 
 ## Fix wave della review finale del piano 1 (v2.0.2)
 

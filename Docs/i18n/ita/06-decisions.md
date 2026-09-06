@@ -240,3 +240,23 @@ Provata dallo spike `spikes/2026-09-05-lare-terminal-window.md`. L'overlay F2 de
 Decisione: `--config-dir` o `<exe>\Configuration\`; percorsi relativi alla radice del deploy;
 i figli ricevono `--config-dir` per argomento. Motivo: nella v1 tre lettori indipendenti della
 stessa env var divergevano in silenzio (`llms_config.rs:119-125` v1).
+
+## ADR-018 — Canale shell: registro delle connessioni, router di superficie, output a `Done` (2026-09-05)
+
+**Contesto.** Con la host C# (ADR-015) l'orchestratore riceve comandi da sessioni shell che non
+hanno una superficie di rendering: l'output va nelle finestre di `ui.exe` (D14), i comandi
+proposti dall'AI girano nella shell del client (modello B), e `ui.exe` è uno per macchina.
+
+**Decisione.** (1) Ogni connessione dichiara un `role` (`ui`|`shell`, default `ui`); un registro
+in-process (`connections.rs`) tiene il sink `ui` (la connessione `ui` senza canale, l'ultima
+vince) e le sessioni shell. (2) Per un turno originato da una shell, `ServerMsg::surface()`
+decide la destinazione di ogni messaggio (`Origin` = la shell, `Ui` = il sink); i `Chunk` sono
+bufferizzati e consegnati una volta a `Done`/`Error` (`OutputWindowContent`), la shell riceve
+una sola riga di conferma. (3) `run_in_session` sul canale shell è un round-trip
+`ExecInShell`→`ExecResult` sulla stessa connessione, gateizzato SEMPRE (`ShellConfirmer`);
+la cwd è per sessione. (4) Slash ignoto dalla shell → `Done` muto + log; `/ai "x"` ≡ `/ "x"`.
+
+**Conseguenze.** Le connessioni `ui`/Telegram non cambiano (nessuna regressione v1). Senza
+`ui.exe` connesso un turno shell completa comunque (riga di avviso al posto della conferma);
+l'autostart è del piano 3. Lo streaming nella finestra resta fuori MVP (§12). `/find` e `/nowin`
+dalla shell sono scartati in questa versione (debito, HANDOFF).

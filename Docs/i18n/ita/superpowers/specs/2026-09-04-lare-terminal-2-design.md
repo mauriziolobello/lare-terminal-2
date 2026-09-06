@@ -137,10 +137,11 @@ un elenco di comandi proprio (lo possiede l'orchestratore). Tutto il resto va al
 | `/help` | Backend slash v1 (`core.rs`, `HELP_MARKDOWN`) → `OpenWindow` → `ui` (singleton, D15) |
 | `/config` · `/library` | `OpenUiLocal{name}` → `ui` (singleton) |
 | `/calc` | Plugin → `OpenPluginWindow` → `ui` (una finestra per invocazione, v1) |
-| `/markets`, `/nmap`, `/pyping`, `/lc`, `/crypto`, `/counter`, `/aichat`, `/find` | Come v1 (finestra → `ui`); **non verificati nell'MVP** (D10) |
+| `/markets`, `/nmap`, `/pyping`, `/lc`, `/crypto`, `/counter`, `/aichat` | Come v1 (finestra → `ui`); **non verificati nell'MVP** (D10) |
 | `/ping` | §3.1 |
 | `/reset` | `Done` con "non applicabile: la sessione è la tua" |
 | `/qualunque-altro` | **Scartato**: `Done` muta; log `info` nell'orchestratore (`discard slash: …`) |
+| `/find …` · `/nowin …` | **Scartati** in questa versione (come uno slash ignoto): `/find` vive in `ws.rs` fuori dal turno, `/nowin` non ha senso con l'output già in finestra — debito del piano 2a |
 | riga senza `/` | Mai vista dall'orchestratore |
 
 ### 3.1 `/ping`
@@ -172,6 +173,10 @@ comando, che gira lì.
 Messaggi: `OpenOutputWindow{window_id, title}` (apre col segnaposto), `OutputWindowContent
 {window_id, markdown}` (sostituisce il contenuto; a `Done` o su `Error`). Instradati a `ui`.
 
+**Eccezione**: i comandi il cui esito È già una finestra (`/help`, `/show` — `core::WINDOW_SLASHES`)
+non aprono anche la finestra di output; la riga di conferma nel terminale è generica (`→ finestra
+aperta`).
+
 Nel terminale, per un comando slash, compaiono solo: il prompt `[Y/n]` del gate (§4.3), l'output
 reale dei comandi eseguiti dall'AI, una riga di conferma finale (`→ finestra "…" aperta` oppure
 l'errore), gli errori di sintassi.
@@ -186,7 +191,7 @@ all'orchestratore di fare **push** verso la sessione (segnalini, notifiche) anch
 
 ```jsonc
 // host → orchestratore (ClientMsg)
-{ "type": "Hello",      "token": "…", "channel": null, "role": "shell", "session_id": "a1b2…", "cwd": "C:\\…" }
+{ "type": "Hello",      "token": "…", "channel": null, "role": "shell", "session_id": "a1b2…", "cwd": "C:\\…", "version": "2.0.0" }  // versione del client, per /ping
 { "type": "Command",    "id": "…", "input": "/ai \"…\"", "input_mode": "…", "command_type": "Auto", "cwd": "C:\\…" }  // v1
 { "type": "ExecResult", "turn_id": "…", "exec_id": "…", "exit_code": 0, "output": "…", "cwd": "C:\\…" }
 { "type": "ToolConfirmResponse", "id": "…", "accept": true }                                                    // v1

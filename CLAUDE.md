@@ -21,7 +21,8 @@ ui.exe (Tauri) = finestra terminale + host di finestre (Markdown, /config, /libr
 
 Crate in `crates/`: `protocol`, `startup-config`, `mcp-server`, `mcp-nmap`, `orchestrator`,
 `plugin-protocol`, `plugin-*`, `ui` (in `crates/ui/src-tauri`). Host C# in `shell/lare-shell/`
-(dal piano 2). Tool Python in `scripts/pytools/<dominio>/` (un venv per dominio, creato a mano).
+(dal piano 2b — il canale che parlerà è già pronto lato orchestratore/`ui`, piano 2a). Tool
+Python in `scripts/pytools/<dominio>/` (un venv per dominio, creato a mano).
 
 ## Configurazione (regola unica, D6)
 
@@ -45,7 +46,8 @@ cargo clippy --all-targets ; cargo fmt --check
 # Avvio in sviluppo (due terminali), stessa config del deploy:
 cargo run -p orchestrator -- --config-dir "Test Run\Configuration" --console-log
 cargo run -p ui -- --config-dir "Test Run\Configuration"
-# Flag di sviluppo (solo finché non c'è il canale shell, piano 2): ui.exe --open config|library
+node scripts/dev/shell-client.mjs -- '/ping'   # canale shell senza la host (piano 2a)
+# Flag di sviluppo (solo finché non c'è lare-shell, piano 2b/3): ui.exe --open config|library
 ```
 
 Gotcha Windows: build che fallisce con `Accesso negato (os error 5)` = processo in esecuzione →

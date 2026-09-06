@@ -1,10 +1,12 @@
 # RUN-LOCAL — sviluppo locale di Lare Terminal 2.0
 
-> Stato a fine piano 1 ("fondamenta"): esistono `orchestrator`, `mcp-server`, `mcp-nmap`, `ui`,
-> i plugin (`plugin-ping`, `plugin-counter`, `plugin-calc`, `plugin-lc`, `plugin-crypto`) e gli
-> script Python in `scripts/pytools/`. **`shell\` e `lare-shell.exe` NON esistono ancora** —
-> arrivano col piano 2 (protocollo + host C#). Fino ad allora `ui.exe` non ha un canale per
-> aprire finestre da solo: si usa il flag di sviluppo `--open config|library` (vedi sotto).
+> Stato a fine piano 2a ("protocollo shell"): esistono `orchestrator`, `mcp-server`, `mcp-nmap`,
+> `ui`, i plugin (`plugin-ping`, `plugin-counter`, `plugin-calc`, `plugin-lc`, `plugin-crypto`) e
+> gli script Python in `scripts/pytools/`. Il canale shell (protocollo + registro + turni con
+> finestra di output) esiste lato orchestratore/`ui`, ma **`shell\` e `lare-shell.exe` (la host
+> C# vera) NON esistono ancora** — arrivano col piano 2b. Fino ad allora si parla il canale shell
+> con `scripts/dev/shell-client.mjs` (vedi sotto) o si continua a usare il flag di sviluppo
+> `--open config|library` per aprire una finestra senza passare dal canale.
 
 ## Build
 
@@ -71,13 +73,41 @@ cargo run -p ui -- --config-dir "Test Run\Configuration" --open config
 Un valore diverso da `config`/`library` (o l'assenza del flag) non apre nulla — comportamento
 identico a prima dell'introduzione del flag.
 
+### Canale shell senza la host (client di sviluppo)
+
+`lare-shell.exe` (host C#, piano 2b) non esiste ancora, ma il canale che parlerà è già completo
+lato orchestratore/`ui`. `scripts/dev/shell-client.mjs` imita quel lato (Node ≥ 22, `WebSocket`
+globale, nessuna dipendenza): manda `Hello{role:"shell"}`, UN `Command`, poi risponde ai messaggi
+dell'orchestratore come farebbe la host — `[Y/n]` su stdin per il gate, esegue con `pwsh` per
+`exec_in_shell` (`capture` sceglie stdio ereditata o catturata) e manda `exec_result`.
+
+```powershell
+# Con orchestrator e ui.exe già avviati (vedi "Avvio in sviluppo" sopra):
+node scripts/dev/shell-client.mjs -- '/ping'          # finestra su ui.exe con la tabella; qui "→ finestra … aperta"
+node scripts/dev/shell-client.mjs -- '/nonesiste'     # solo "[done exit_code=0]" (slash scartato)
+node scripts/dev/shell-client.mjs -- '/ai ciao'       # [error routing_error] sintassi: /ai "testo" (virgolette obbligatorie)
+node scripts/dev/shell-client.mjs -- '/config'        # si apre /config su ui.exe
+node scripts/dev/shell-client.mjs -- '/ai "elenca i 3 file più grandi qui"'   # [Y/n] → esegue → finestra
+```
+
+`--config-dir`/`--session` accettano lo stesso valore di default degli altri binari (`Test Run\
+Configuration`, un id generato dal pid): `node scripts/dev/shell-client.mjs --config-dir "Test
+Run/Configuration" --session s1 -- '/ping'`. `--selftest` verifica `exec_in_shell` in locale,
+senza orchestratore (utile per controllare a occhio che il marcatore interno di cwd non finisca
+mai sulla console reale con `capture:false`).
+
+**Gotcha (Git Bash/MSYS)**: da Git Bash, MSYS riscrive un argomento che sembra un path assoluto
+Unix — `/ping` diventa `C:/Program Files/Git/ping`, `/config` una cosa simile — prima che Node lo
+veda. Lancia il client da **PowerShell** (come negli esempi sopra), oppure, se devi restare in
+Git Bash, disattiva la riscrittura per quel comando: `MSYS_NO_PATHCONV=1 node scripts/dev/shell-client.mjs -- '/ping'`.
+
 ## Test
 
 ```powershell
 cargo test                                    # test dei crate backend (default-members)
 cargo test -p orchestrator <substring>        # un singolo test (o un sottoinsieme per nome)
 cargo test -p orchestrator -- --ignored       # test di integrazione reale (API esterne, binari, venv)
-node --test crates/ui/frontend/*.test.mjs     # test JS puri del frontend (219 test, nessuna webview)
+node --test crates/ui/frontend/*.test.mjs     # test JS puri del frontend (231 test, nessuna webview)
 cargo clippy --all-targets                    # lint su tutti i target del workspace
 cargo fmt --check                             # verifica formattazione (v1 non è fmt-clean: differenze note)
 ```

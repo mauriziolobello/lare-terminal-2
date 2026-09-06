@@ -15,10 +15,15 @@ AI Chat), cambiando solo il punto d'ingresso e ciò che vi è accoppiato.
 **Piano 1 ("fondamenta") completato** (2026-09-05): workspace con tutti i crate della v1 copiati e
 versionati `2.0.x`, regola unica di configurazione (`--config-dir`/`startup.json`, nessuna
 variabile d'ambiente `LARE_*`), `ui.exe` ridotto a puro host di finestre (overlay F2 rimosso), e
-`Test Run\` come layout di deploy verificato dal vivo dentro il repo. Dettagli, versioni correnti
-e debiti noti in `Docs/i18n/ita/HANDOFF.md`; checklist e2e in `Docs/i18n/ita/TESTING-e2e.md`.
-**`shell\lare-shell.exe` non esiste ancora** — prossimo passo il **piano 2** (protocollo
-host↔orchestratore + host C# del motore PowerShell), seguito dal piano 3 (finestra terminale
+`Test Run\` come layout di deploy verificato dal vivo dentro il repo.
+**Piano 2a ("protocollo shell") completato** (2026-09-06): il canale shell (`protocol`/
+`orchestrator`/`ui` 2.1.0, ADR-018) è pronto lato server — registro delle connessioni, gate di
+conferma, router di superficie con output in finestra Markdown, built-in `/ping` — verificabile
+oggi con il client di sviluppo `scripts/dev/shell-client.mjs` (nessuna dipendenza da `lare-shell`).
+Dettagli, versioni correnti e debiti noti in `Docs/i18n/ita/HANDOFF.md`; checklist e2e in
+`Docs/i18n/ita/TESTING-e2e.md`.
+**`shell\lare-shell.exe` (la host C# vera) non esiste ancora** — prossimo passo il **piano 2b**
+(quella host, che parla il protocollo già pronto), seguito dal piano 3 (finestra terminale
 Tauri). Tutta la documentazione sta sotto `Docs/i18n/<lingua>/` (italiano come riferimento).
 
 ## Punti di partenza

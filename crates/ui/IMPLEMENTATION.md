@@ -1,4 +1,97 @@
-# Implementation — crates/ui v2.0.3
+# Implementation — crates/ui v2.1.0
+
+## Finestra di output, `open_ui_local`, `/help` singleton, `ui_pong`, output-buffer (v2.1.0)
+
+Piano `Docs/i18n/ita/superpowers/plans/2026-09-05-piano-2a-protocollo-shell.md` Task 9, spec
+`Docs/i18n/ita/superpowers/specs/2026-09-04-lare-terminal-2-design.md` §3.2/§4.1/§5, ADR-018.
+`ui.exe` guadagna la superficie che riceve l'output dei comandi slash lanciati da una sessione
+`lare-shell`: nessuna finestra/flusso v1 esistente cambia.
+
+### Finestra di output (`open_output_window`)
+
+Stessa "forma" delle finestre Markdown esistenti (chromeless, `window.html`/`window.js`), ma con
+un ciclo di vita diverso: si apre SUBITO (all'inizio del turno, dall'orchestratore) col
+segnaposto `"_in corso…_"`, e riceve il contenuto vero DOPO, una volta sola, via evento Tauri
+globale — non tramite `WindowContentStore`/`take_window_content` come le altre. `main.rs`:
+`build_markdown_window(app, label, title)` è stata estratta da `open_markdown_window` (v1) proprio
+per essere condivisa dal nuovo comando `open_output_window(window_id, title, …)`, che usa la label
+`output-<window_id>` — se la stessa label arriva due volte (non dovrebbe succedere: un `window_id`
+è un `turn_id`, univoco) riusa la finestra esistente invece di aprirne una seconda.
+
+`window.js`/`host.js` fanno **buffer-and-replay** del contenuto (vedi sotto): il messaggio
+`ServerMsg::OutputWindowContent` arriva sul canale WS dentro `host.js` (la pagina host nascosta),
+che lo re-inoltra alla finestra di output tramite l'evento globale Tauri `output:content` — le due
+webview sono processi separati, comunicano SOLO con `invoke`/eventi, mai per import diretto.
+
+### `open_ui_local` — finestre locali chieste da una shell
+
+`ServerMsg::OpenUiLocal{name}` arriva su `host.js`, che risolve `name` in un comando Tauri
+esistente tramite `resolveUiLocal(name, EXTERNAL_TOOL_CHANNELS)` (nuovo modulo puro
+`ui-local.mjs`, senza DOM/Tauri — testabile con `node:test`): `"config"`/`"library"`/`"aichat"` →
+i tre comandi singleton già esistenti (`open_config_window`, `open_library_window`,
+`open_aichat_window`); l'id di un canale esterno (`/nmap`, `/markets`, `/pyping`) →
+`open_external_channel_window`. Nome ignoto → `console.warn`, nessuna finestra (stesso trattamento
+conservativo di uno slash ignoto lato orchestratore). Nessun comando Tauri nuovo: `open_ui_local`
+riusa interamente la superficie v1, orchestrata da un modulo di puro instradamento.
+
+### `/help` singleton (D15) — `open_markdown_window` guadagna `label`
+
+`open_markdown_window` accetta ora un quinto parametro opzionale, `label: Option<String>`: con
+una label fissa, se `app.get_webview_window(&label)` trova già una finestra con quel nome, la
+porta in primo piano (`set_focus`) e ritorna SENZA aprirne una seconda — altrimenti genera la
+label univoca `md-<ts>-<ctr>` di sempre. `host.js::openMarkdownWindow` passa
+`markdownWindowLabel(kind)` (`ui-local.mjs`): `"help"` per `kind === "help"`, `undefined`/`null`
+per ogni altro kind — Rust lo riceve come `None`, comportamento invariato per tutte le altre
+finestre Markdown (`/show`, routine, ecc.). Motivo: il piano vuole UNA finestra `/help` per
+macchina, non una nuova ogni volta che l'utente digita il comando (coerente con `/config`/
+`/library`/`/aichat`, già singleton in v1).
+
+### `ui_pong` — risposta al built-in `/ping`
+
+`get_ui_version()` (comando Tauri, `env!("CARGO_PKG_VERSION")`) è letta UNA volta in
+`bootstrap()`, prima di `initClient()`, e tenuta in una variabile di modulo (`uiVersion`): quando
+arriva `ServerMsg::UiPing{id}`, `host.js` risponde subito con `client.sendUiPong(id, uiVersion)`
+(nuovo metodo su `LareWsClient`, wire `{"type":"ui_pong", id, version}`) — nessuna chiamata IPC
+nel percorso caldo della risposta.
+
+### `output-buffer.mjs` — fix round 1: buffer-and-replay di `output:content`
+
+Bug trovato in review (stesso principio del bug già risolto per la ricerca live in
+`search-buffer.js`): la finestra di output è una webview separata che si apre in modo
+**asincrono** — `open_output_window` crea la finestra, poi `window.js` deve caricare ed eseguire
+il proprio bootstrap prima di potersi mettere in ascolto. L'evento Tauri globale `output:content`,
+a differenza di una coda, **non è bufferizzato dal runtime**: se l'orchestratore risponde PRIMA
+che la finestra abbia registrato il listener (un comando slash veloce, es. `/open x`), quel
+contenuto va perso per sempre e la finestra resta bloccata sul segnaposto — senza che nessuna
+superficie se ne accorga.
+
+Soluzione (stesso pattern di `search-buffer.js`/`createSearchBuffers()`): `createOutputBuffers()`
+(nuovo modulo **puro**, niente Tauri/DOM — 62 test in `output-buffer.test.mjs`) accumula il
+contenuto per `windowId` finché la finestra non si iscrive esplicitamente. Protocollo a tre
+eventi:
+- `host.js` chiama `outputBuffers.open(windowId)` **PRIMA** di invocare `open_output_window`
+  (sincrono, come per `search_open`): non c'è mai una finestra di tempo scoperta fra apertura e
+  buffer pronto.
+- Quando arriva `output_window_content`, `outputBuffers.content(windowId, markdown)` ritorna
+  `{emit: true}` se la finestra è GIÀ sottoscritta (emette subito l'evento `output:content`) o
+  `{emit: false}` se non lo è ancora (bufferizza, in attesa).
+- `window.js` si mette in ascolto di `output:content` **PRIMA** di annunciarsi (`await` sul
+  `listen`, poi `emit("output:subscribe", {window_id})`): `host.js` risponde con
+  `outputBuffers.subscribe(windowId)` — se c'era contenuto bufferizzato, lo rigioca come lo
+  STESSO evento `output:content` (un evento live e un replay arrivano quindi allo stesso
+  handler, nessuna logica duplicata in `window.js`).
+- `closeWindow()` (`window.js`) emette `output:closed` PRIMA di `close_self`; `host.js` libera il
+  buffer (`outputBuffers.close(windowId)`) — un contenuto arrivato dopo la chiusura non deve
+  restare in memoria per sempre (mini leak altrimenti, una entry per ogni comando slash lanciato
+  e mai più riaperto).
+
+### `capabilities/markdown-window.json`
+
+Lo scope `windows` passa da `["md-*"]` a `["md-*", "help", "output-*"]`: le due nuove label fisse
+(il singleton `/help`, le finestre `output-<id>`) non avrebbero altrimenti i permessi IPC
+(`take_window_content`, `close_self`, l'API eventi per `output:content`/`output:subscribe`) che
+`window.js` richiede — la capability era scoperta solo per il pattern `md-*` generato
+dinamicamente.
 
 ## Fix wave della review finale del piano 1 (v2.0.3)
 

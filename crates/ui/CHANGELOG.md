@@ -5,6 +5,46 @@ Versioning: `major.minor.update`.
 
 ---
 
+## 2.1.0 — 2026-09-06 — finestra di output del canale shell, `open_ui_local`, `/help` singleton, `ui_pong` (piano 2a, Task 9)
+
+Consuma i messaggi additivi di `protocol` 2.1.0 verso `ui` (`OpenOutputWindow`,
+`OutputWindowContent`, `OpenUiLocal`, `UiPing`, tutti instradati da `orchestrator` 2.1.0):
+`ui.exe` guadagna la superficie che riceve l'output dei comandi slash lanciati da una sessione
+`lare-shell` (spec §3.2, ADR-018). Nessuna finestra/flusso esistente cambia comportamento.
+
+- **`open_output_window`/`get_ui_version`** (comandi Tauri nuovi, `main.rs`): la finestra di
+  output è una finestra Markdown chromeless col segnaposto `"_in corso…_"`, costruita da
+  `build_markdown_window` (estratta da `open_markdown_window`, ora condivisa dalle due). Label
+  `output-<window_id>`; stesso `window_id` due volte → riusa la finestra invece di aprirne una
+  seconda. `get_ui_version` espone `env!("CARGO_PKG_VERSION")` a `host.js` per rispondere a
+  `ui_ping` col numero di versione reale.
+- **`open_markdown_window` guadagna `label: Option<String>`** — singleton per `/help` (D15):
+  con una label fissa, se la finestra esiste già viene portata in primo piano invece di aprirne
+  una seconda; `label: None` ricade sul comportamento v1 (label generata `md-<ts>-<ctr>`).
+  `host.js::openMarkdownWindow` passa `markdownWindowLabel(kind)` (`ui-local.mjs`) — `"help"`
+  solo per `kind === "help"`, `undefined` per tutto il resto.
+- **`host.js`**: nuovi arm per `open_output_window` (invoca il comando Tauri), `output_window_content`
+  (emette `output:content` — evento globale, filtrato per `window_id` come le finestre plugin),
+  `open_ui_local` (risolve nome→comando via `resolveUiLocal`, nuovo modulo `ui-local.mjs`, e
+  invoca), `ui_ping` (risponde con `client.sendUiPong(id, uiVersion)`, `LareWsClient` nuovo
+  metodo). `host-dispatch.mjs` classifica le quattro nuove varianti come categoria `"window"`.
+- **Fix round 1 (`63b99f6`) — buffer-and-replay di `output:content`**: bug di review, stesso
+  identico problema già risolto per la ricerca live (`search-buffer.js`) — l'evento Tauri globale
+  `output:content` NON è bufferizzato dal runtime: se l'orchestratore risponde prima che la
+  finestra di output abbia finito il proprio bootstrap e registrato il listener (un comando slash
+  veloce), il contenuto si perde per sempre e la finestra resta bloccata sul segnaposto. Nuovo
+  modulo puro `output-buffer.mjs` (`createOutputBuffers()`, stesso pattern di
+  `createSearchBuffers()`, testabile senza Tauri/DOM: 62 test in `output-buffer.test.mjs`) +
+  protocollo `output:subscribe`/`output:closed` fra `window.js` (la finestra) e `host.js` (il
+  bootstrap): `window.js` si mette in ascolto di `output:content` PRIMA di annunciarsi con
+  `output:subscribe`; `host.js` bufferizza il contenuto arrivato in anticipo e lo rigioca allo
+  stesso evento alla ricezione di `output:subscribe`; `output:closed` (emesso da `closeWindow()`)
+  libera il buffer alla chiusura, evitando una perdita di memoria per finestre mai sottoscritte.
+- **`capabilities/markdown-window.json`**: lo scope `windows` si estende da `["md-*"]` a
+  `["md-*", "help", "output-*"]` — le nuove label fisse (`/help` singleton, finestre di output)
+  altrimenti non avrebbero i permessi IPC (`take_window_content`, `close_self`, l'API eventi per
+  `output:content`/`output:subscribe`) che `window.js` richiede.
+
 ## 2.0.3 — 2026-09-05 — fix wave della review finale (piano 1)
 
 Solo pulizia, nessun cambio di comportamento:

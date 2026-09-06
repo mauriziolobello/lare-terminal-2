@@ -4,7 +4,7 @@ All notable changes to this crate are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Versioning: `major.minor.update` (SemVer).
 
-## 2.1.0 (in lavorazione) — ruolo della connessione + canale shell (piano 2a, Task 1)
+## 2.1.0 — 2026-09-06 — ruolo della connessione + canale shell (piano 2a, Task 1)
 
 Fondamenta del canale "shell" (spec `Docs/i18n/ita/superpowers/specs/2026-09-04-lare-terminal-2-design.md`
 §3.2/§4.1): la connessione WS dichiara ora un **ruolo** (`ui` o `shell`), e l'orchestratore

@@ -1,4 +1,4 @@
-# Implementation — `protocol` v0.12.0
+# Implementation — `protocol` v2.1.0
 
 v0.15.3: `ChatLine`/`ServerMsg::AiChatMessage` guadagnano due campi additivi
 `#[serde(default)]`: `display_name: Option<String>` (nickname risolto dal
@@ -120,14 +120,16 @@ e per **dove va la risposta**:
 
 - **`/ping` per `ui.exe`**: `ServerMsg::UiPing { id }` / `ClientMsg::UiPong { id, version }`
   — simmetrico al `Ping`/`Pong` già esistente, ma verso `ui` invece che verso il client
-  generico; `version` compare nella riga `lare-shell` di `/ping` (nota di spec: `Hello.
-  version` è un'aggiunta del piano non ancora in spec §4.1 — l'emendamento arriva nel Task 11
-  del piano 2a, non è una deviazione).
+  generico; `version` compare nella riga `lare-shell` di `/ping`. `Hello.version` è stato
+  aggiunto qui (Task 1) prima che lo spec §4.1 lo documentasse — l'emendamento (Task 11 del
+  piano 2a) ha allineato lo spec al codice, non il contrario.
 
-Nessun consumatore reale ancora in questo task: `orchestrator::ws.rs` e
-`orchestrator::telegram::channel.rs` hanno arm che compilano (no-op) per le varianti nuove
-— il dispatch vero (instradare per `Role`, usare `surface()`, correlare `ExecInShell`/
-`ExecResult`) arriva nei task successivi del piano.
+Consumo reale a fine piano 2a (Task 2-8, vedi `orchestrator/IMPLEMENTATION.md` §"Canale
+shell"): il registro delle connessioni (`connections.rs`) instrada per `Role`, `surface.rs`
+usa `ServerMsg::surface()` per dividere `Origin`/`Ui`, `shell_session.rs` correla
+`ExecInShell`/`ExecResult` per `exec_id`. `orchestrator::telegram::channel.rs` non cambia:
+Telegram non ha un ruolo `Shell`, quindi le nuove varianti restano arm no-op lì, per design
+(non un debito).
 
 ## Scope (SRP)
 
@@ -149,7 +151,9 @@ library — they never bypass the types.
 
 | Variant | Fields | Purpose |
 |---------|--------|---------|
-| `Hello` | `token: String`, `channel: Option<String>` | Handshake; must be first message per session. `channel: Some(id)` requests a scoped external-tool-channel connection (default `None` = today's behaviour) |
+| `Hello` | `token: String`, `channel: Option<String>`, `role: Role`, `session_id: Option<String>`, `cwd: Option<String>`, `version: Option<String>` | Handshake; must be first message per session. `channel: Some(id)` requests a scoped external-tool-channel connection (default `None` = today's behaviour). Gli ultimi quattro campi sono additivi `#[serde(default)]` (v2.1.0): `role` dichiara `ui`/`shell` (default `ui`), `session_id`/`cwd` solo per `shell`, `version` è la versione del client (usata da `/ping`) |
+| `ExecResult` | `turn_id: String`, `exec_id: String`, `exit_code: i32`, `output: String`, `cwd: String` | Esito di un `ExecInShell` eseguito dalla shell dell'utente; `cwd` aggiorna la cwd della sessione (v2.1.0) |
+| `UiPong` | `id: String`, `version: String` | Risposta di `ui.exe` a `ServerMsg::UiPing` (built-in `/ping`) (v2.1.0) |
 | `Command` | `id`, `input`, `input_mode`, `command_type`, `cwd`, `web_search` | Execute a command |
 | `Ping` | `ts: u64` | Keep-alive; `ts` is a client-supplied timestamp |
 | `CancelSearch` | `id: String` | Cancel an in-progress file search |
@@ -193,6 +197,23 @@ library — they never bypass the types.
 | `ShareResult` | `share_id: String`, `target_label: String`, `outcome: ShareOutcome` | Esito per mittente (una per ogni destinatario); rilevante da Slice 3+ (v0.12.0) |
 | `ToolConfirmRequest` | `id: String`, `commands: String` | Gate di conferma locale per tool sensibili — comando/e in stringa libera, banner Sì/No (v0.14.3) |
 | `RoutineSavePreview` | `id: String`, `name: String`, `description: String`, `tags: Vec<String>`, `category: String`, `script: String`, `replace: Option<String>` | Finestra di anteprima dedicata per `save_routine`, con campi STRUTTURATI; risposta è `ClientMsg::ToolConfirmResponse` riusata (v0.15.0) |
+| `ExecInShell` | `turn_id: String`, `exec_id: String`, `command: String`, `capture: bool` | Chiede alla shell dell'utente di eseguire `command`; `capture` distingue output catturato da console attaccata (v2.1.0) |
+| `OpenOutputWindow` | `window_id: String`, `title: String` | Apre su `ui` la finestra Markdown di output di un comando slash originato dalla shell, col segnaposto (v2.1.0) |
+| `OutputWindowContent` | `window_id: String`, `markdown: String` | Sostituisce il contenuto di quella finestra, a `Done`/`Error` (v2.1.0) |
+| `OpenUiLocal` | `name: String` | Chiede a `ui` di aprire (o portare in primo piano) una finestra locale (`"config"`, `"library"`, `"aichat"`, o l'id di un canale esterno) (v2.1.0) |
+| `UiPing` | `id: String` | Richiesta di vita a `ui.exe` (built-in `/ping`); risposta `UiPong` (v2.1.0) |
+| `ActivityIndicator` | `session_id: String`, `kind: String`, `on: bool` | Segnalino di stato per la finestra terminale della sessione; emesso da questa versione, consumato dal piano 3 (v2.1.0) |
+
+### `Role` e `Surface` (2.1.0)
+
+| Enum | Variants | Wire values |
+|------|----------|-------------|
+| `Role` | `Ui`, `Shell` | `"ui"`, `"shell"` — `Default = Ui` |
+
+`Surface { Origin, Ui }` non è serializzato (nessuna presenza sul wire): è il tipo di ritorno di
+`ServerMsg::surface(&self) -> Surface`, che decide per ogni variante se il messaggio torna alla
+connessione che ha originato il turno (`Origin`) o va al sink `ui` della macchina (`Ui`). Vedi la
+sezione "Ruolo della connessione e superficie" sopra.
 
 ### Supporting enums
 
