@@ -83,6 +83,51 @@ per modulo. Riassunto per task:
   `capture:true` finiva stampato anche su un comando interattivo con stdio ereditata); `--selftest`
   verifica `execInShell` in locale, senza orchestratore.
 
+### Fix wave della review finale (whole-branch, piano 2a: I1-I4/M1/M8)
+
+Nessun cambio di comportamento visibile per una connessione `ui`/Telegram normale — tutto il
+resto riguarda solo il canale shell:
+
+- **I1 — `ws.rs`: leak del task scrittore/socket/`ShellSessionState` a ogni disconnessione
+  shell.** Il teardown droppava `out_tx` mentre `ShellSessionState` (tenuto vivo dal binding
+  `shell`) ne teneva ancora una clone al suo interno: `out_rx.recv()` nel task scrittore non
+  tornava mai `None`, quindi quel task (che possiede il sink WS, cioè il socket TCP) non usciva
+  mai dal suo loop. `shell` è ora `mut`; il teardown fa `shell.take()` (che droppa lo stato
+  shell, compresa la sua clone di `out_tx`) PRIMA di `drop(out_tx)`. Il join del task scrittore ha
+  ora un timeout di 5 s con `abort()` di sicurezza (un turno sospeso nel gate `[Y/n]`, fino a
+  180 s, può teoricamente ritardarlo) e un `tracing::info!("connessione chiusa …")` finale —
+  l'unico modo per il controller di verificare dal vivo che la connessione sia davvero chiusa
+  (nessun test automatico può osservare un task che vive nel processo server).
+- **I2 — `surface.rs`: l'ack "finestra aperta" mentiva quando il sink `ui` cadeva a metà
+  turno.** `to_ui` ignorava gli errori di invio (`let _ = u.send(m)`); l'ack a `Done` era scelto
+  guardando solo `ui.is_some()`, mai aggiornato se un invio successivo falliva. `to_ui`/`flush`
+  sono ora funzioni libere che aggiornano un flag `ui_lost: &mut bool`: l'ack diventa `NO_UI_ACK`
+  se `ui.exe` non è mai stato connesso O se il sink è caduto durante il turno; un `warn` viene
+  loggato una sola volta per turno. Nuovo test `ui_sink_dropped_mid_turn_yields_no_ui_ack`.
+- **I3 — `crates/ui/frontend/host.js`: `get_ui_version` non guardato in `bootstrap()`.** Vedi
+  `crates/ui/CHANGELOG.md` per il dettaglio (il fix è lì, non in questo crate).
+- **I4 — nuovo scenario e2e `shell_cancel_command_during_pending_exec_unblocks_the_turn`**
+  (`tests/ws_integration.rs`): `CancelCommand` mentre un `ExecInShell` è pendente (Ctrl+C sulla
+  host, che non manda mai un `ExecResult`) deve sbloccare il turno via `abort_turn` — copertura
+  mancante, il round-trip esistente copriva solo l'esito "successo".
+- **M8 — `shell_session.rs`: `ExecResult.turn_id` non era validato.**
+  `ShellSessionState::resolve_exec` prende ora anche `turn_id` e lo confronta con quello
+  memorizzato per l'`exec_id`: un mismatch viene scartato con `tracing::warn!` SENZA rimuovere
+  l'esecuzione pendente (una risposta sbagliata non deve poter consumare l'attesa di un turno
+  diverso). `ws.rs` passa il `turn_id` ricevuto invece di scartarlo. Nuovo test
+  `resolve_exec_with_wrong_turn_id_is_rejected`.
+- **M1 — `surface.rs`: testo bufferizzato di un turno `WINDOW_SLASHES` scartato in
+  silenzio.** Un turno con `output_window == false` (`/help`, `/show`) non apre mai la finestra
+  di output — ma se l'AI/il built-in avevano comunque prodotto del testo (`Chunk`), quel buffer
+  non veniva letto da nessuna parte. A `Done`, se il buffer non è vuoto, viene ora inoltrato alla
+  shell come UN `Chunk` normale, PRIMA della riga di conferma. Test
+  `window_slash_turn_skips_the_output_window` esteso con un `Chunk("nota")` prima di `Done`.
+- **M3 — documentazione**: nuova sezione "Contratti per la host (piano 2b)" in
+  `crates/protocol/IMPLEMENTATION.md` (i quattro vincoli impliciti che la host C# deve rispettare:
+  un turno AI alla volta, `Command.id` unico, un solo terminale per turno, `ExecResult.turn_id`
+  corrispondente) e bullet gemelli in `Docs/i18n/ita/HANDOFF.md` §"Debiti / decisioni del piano
+  2a".
+
 ## 2.0.2 — 2026-09-05 — fix wave della review finale (piano 1)
 
 Solo pulizia dopo la review whole-branch, nessun cambio di comportamento visibile:

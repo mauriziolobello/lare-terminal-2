@@ -131,6 +131,40 @@ usa `ServerMsg::surface()` per dividere `Origin`/`Ui`, `shell_session.rs` correl
 Telegram non ha un ruolo `Shell`, quindi le nuove varianti restano arm no-op lì, per design
 (non un debito).
 
+## Contratti per la host (piano 2b)
+
+Il protocollo del canale shell (sopra) lascia alla host C# (`lare-shell`, ancora da scrivere,
+piano 2b) quattro vincoli impliciti che il lato orchestratore già assume — trovati/consolidati
+durante la review finale del piano 2a. Non sono campi o messaggi nuovi: sono comportamenti che
+la host DEVE rispettare perché il codice lato orchestratore (`ws.rs`/`shell_turn.rs`/`surface.rs`/
+`shell_session.rs`) è scritto assumendoli.
+
+- **(a) Un solo turno AI alla volta per connessione.** La `history` conversazionale è dietro un
+  `tokio::sync::Mutex` tenuto per l'INTERA durata del turno, gate `[Y/n]` incluso (fino a 180 s):
+  se la host manda un secondo `Command` (`/ai`/backend) mentre il primo è ancora in corso sulla
+  stessa connessione, la sua finestra di output si apre subito (`start_turn` lo fa prima di
+  qualunque `.await` sulla history) ma il turno resta bloccato in attesa del lock — nessun errore,
+  nessun messaggio di scusa, semplicemente in coda. La host non deve mandare un secondo `Command`
+  prima di aver ricevuto `Done`/`Error` del precedente sulla stessa sessione.
+- **(b) `Command.id` deve essere UNICO per connessione.** L'`id` fa da chiave sia per il cancel
+  token (`ws.rs`, mappa `commands: HashMap<String, CancellationToken>`) sia per `window_id`/
+  `turn_id` (`shell_turn::start_turn`, `ShellSessionToolClient::for_turn`). Un `id` duplicato
+  mentre il primo turno con quell'`id` è ancora vivo sovrascrive silenziosamente la entry
+  `commands` (un `CancelCommand` successivo annullerebbe solo il SECONDO turno) e riusa la stessa
+  finestra di output (stesso `window_id`) invece di aprirne una nuova.
+- **(c) Il turno finisce al PRIMO `Done`/`Error`.** `surface::route_shell_turn` consegna una sola
+  terminazione per turno alla shell: un secondo `Done`/`Error` con lo stesso `id`/`turn_id` viene
+  scartato (log `debug`, non un errore visibile). La host deve considerare il turno chiuso al
+  primo dei due che arriva e ignorare ogni messaggio successivo per quell'`id` — l'orchestratore
+  non ne manderà comunque un secondo per il tramite normale, ma un client difensivo non deve
+  fare affidamento sul contrario.
+- **(d) `ExecResult.turn_id` deve corrispondere al `turn_id` ricevuto nell'`ExecInShell` a cui si
+  risponde** (fix M8, review finale). `ShellSessionState::resolve_exec` valida il `turn_id`
+  memorizzato per quell'`exec_id`: un `turn_id` diverso viene scartato con un `tracing::warn!`
+  e — punto importante — l'esecuzione pendente NON viene rimossa (una risposta sbagliata non deve
+  poter consumare l'attesa di un turno diverso). La host deve sempre echeggiare il `turn_id`
+  ricevuto nell'`ExecInShell` corrispondente, mai un `turn_id` proprio o ricostruito.
+
 ## Scope (SRP)
 
 This crate owns **only the contract types** for the Lare Terminal WebSocket

@@ -1394,6 +1394,60 @@ async fn shell_ai_turn_round_trips_gate_exec_and_output_window() {
     assert!(matches!(&content, ServerMsg::OutputWindowContent { window_id, markdown } if window_id == "c1" && markdown.contains("output: x")), "{content:?}");
 }
 
+/// I4 (review finale): `CancelCommand` mentre un `ExecInShell` è pendente —
+/// Ctrl+C sulla host non manda MAI un `ExecResult` (spec §4.4: la pipeline è
+/// già stata fermata lì), quindi è `CancelCommand` (→ `abort_turn`) a dover
+/// sbloccare `run_in_session` in attesa. `run_in_session` torna con
+/// `exit_code: -1` e il testo `EXEC_ABORTED`; l'adapter finto lo tratta come
+/// un output qualunque e il turno finisce regolarmente con `Done` — la
+/// cancellazione durante un exec pendente NON deve bloccare o far
+/// deragliare il turno.
+#[tokio::test]
+async fn shell_cancel_command_during_pending_exec_unblocks_the_turn() {
+    let url = spawn_server_with("tok-shell-cancel-exec", Arc::new(ToolCallingStubAdapter)).await;
+    let (ui_ws, _) = connect_async(&url).await.unwrap();
+    let (mut ui_sink, mut ui_source) = ui_ws.split();
+    send(&mut ui_sink, &ui_hello("tok-shell-cancel-exec")).await;
+    recv(&mut ui_source).await;
+    let (ws, _) = connect_async(&url).await.unwrap();
+    let (mut sink, mut source) = ws.split();
+    send(&mut sink, &shell_hello("tok-shell-cancel-exec")).await;
+    recv(&mut source).await;
+
+    send(&mut sink, &command("c1", "/ai \"stampa x\"")).await;
+    // ui: la finestra si apre subito, come nel round-trip normale.
+    let m = recv_until(&mut ui_source, |m| matches!(m, ServerMsg::OpenOutputWindow { .. })).await;
+    assert!(matches!(&m, ServerMsg::OpenOutputWindow { window_id, title } if window_id == "c1" && title == "stampa x"), "{m:?}");
+    // shell: gate → accetta.
+    let gate = recv_until(&mut source, |m| matches!(m, ServerMsg::ToolConfirmRequest { .. })).await;
+    let gate_id = match gate { ServerMsg::ToolConfirmRequest { id, commands } => { assert_eq!(commands, "$ echo x"); id } _ => unreachable!() };
+    send(&mut sink, &ClientMsg::ToolConfirmResponse { id: gate_id, accept: true }).await;
+    // shell: ExecInShell pendente — invece di rispondere con ExecResult (come
+    // farebbe la host per un comando che termina normalmente), la shell manda
+    // CancelCommand{id: "c1"} (Ctrl+C): nessun ExecResult arriverà mai.
+    recv_until(&mut source, |m| matches!(m, ServerMsg::ExecInShell { .. })).await;
+    send(&mut sink, &ClientMsg::CancelCommand { id: "c1".to_string() }).await;
+
+    // shell: riga di conferma + Done — il turno finisce regolarmente
+    // nonostante l'exec non sia mai stato risolto da un ExecResult.
+    let ack = recv(&mut source).await;
+    assert!(matches!(&ack, ServerMsg::Chunk { content, .. } if content == "\u{2192} finestra \"stampa x\" aperta"), "{ack:?}");
+    assert!(matches!(recv(&mut source).await, ServerMsg::Done { .. }));
+    // ui: il contenuto della finestra riporta l'esecuzione interrotta
+    // (EXEC_ABORTED), non l'output normale di "echo x".
+    let content = recv_until(&mut ui_source, |m| matches!(m, ServerMsg::OutputWindowContent { .. })).await;
+    match &content {
+        ServerMsg::OutputWindowContent { window_id, markdown } => {
+            assert_eq!(window_id, "c1");
+            assert!(
+                markdown.contains(orchestrator::shell_session::EXEC_ABORTED),
+                "atteso EXEC_ABORTED nel markdown, got: {markdown}"
+            );
+        }
+        other => panic!("atteso OutputWindowContent, got {other:?}"),
+    }
+}
+
 /// `/ping` dalla shell: sonda `ui.exe` via `UiPing`/`UiPong` e riporta anche
 /// il plugin `ping` mancante (nessun plugin registrato in `spawn_server`).
 #[tokio::test]

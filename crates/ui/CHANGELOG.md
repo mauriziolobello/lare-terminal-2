@@ -45,6 +45,15 @@ Consuma i messaggi additivi di `protocol` 2.1.0 verso `ui` (`OpenOutputWindow`,
   altrimenti non avrebbero i permessi IPC (`take_window_content`, `close_self`, l'API eventi per
   `output:content`/`output:subscribe`) che `window.js` richiede.
 
+### Fix wave della review finale (whole-branch, piano 2a: I3)
+
+- **I3 — `frontend/host.js`: `get_ui_version` non guardato in `bootstrap()`.** Una `await
+  invokeCmd("get_ui_version")` senza `try/catch` faceva fallire l'INTERO `bootstrap()` se il
+  comando Tauri rifiutava per qualunque motivo — incluso `initClient()` subito dopo, cioè la
+  connessione WS non partiva mai. Ora avvolto in `try/catch`: un errore viene loggato
+  (`console.error`) e `uiVersion` resta `""`, ma il resto di `bootstrap()` (client WS, listener)
+  parte comunque.
+
 ## 2.0.3 — 2026-09-05 — fix wave della review finale (piano 1)
 
 Solo pulizia, nessun cambio di comportamento:

@@ -5,10 +5,20 @@
 //! shell (spec §3.2, D14) i messaggi si dividono:
 //! - il **testo** (`Chunk`: risposta AI token-per-token + trasparenza dei
 //!   tool) viene **bufferizzato** e consegnato una volta sola alla finestra
-//!   di output su `ui` a `Done`/`Error` (`OutputWindowContent`);
+//!   di output su `ui` a `Done`/`Error` (`OutputWindowContent`) — ECCEZIONE
+//!   (fix M1, review finale): un turno `WINDOW_SLASHES` (`turn.output_window
+//!   == false`, es. `/help`) non ha una finestra di output dove metterlo, quindi
+//!   il buffer non vuoto va invece alla shell come un `Chunk` normale, subito
+//!   PRIMA della riga di conferma — prima di questo fix veniva scartato senza
+//!   lasciare traccia;
 //! - `Done` torna alla shell preceduto da UNA riga di conferma (`Chunk`) —
-//!   l'unico modo in cui la host sa che la finestra esiste; `Error` torna
-//!   alla shell da solo, senza riga di conferma;
+//!   l'unico modo in cui la host sa che la finestra esiste. La conferma
+//!   diventa `NO_UI_ACK` non solo quando `ui.exe` non è mai stato connesso,
+//!   ma anche se il sink `ui` è caduto A METÀ turno (fix I2, review finale:
+//!   prima l'ack mentiva sempre "finestra aperta" quando il sink esisteva
+//!   all'inizio ma un invio successivo falliva in silenzio — `let _ =
+//!   u.send(m)` — perché la scelta guardava solo `ui.is_some()`, mai
+//!   aggiornato). `Error` torna alla shell da solo, senza riga di conferma;
 //! - tutto il resto segue `ServerMsg::surface()`: `Origin` → shell
 //!   (gate, `ExecInShell`, heartbeat), `Ui` → sink `ui` (finestre, relay).
 //!
@@ -67,6 +77,74 @@ pub fn output_window_title(input: &str) -> String {
     }
 }
 
+/// Manda `m` a `ui`. Ritorna `false` (invio fallito) se il sink non esiste,
+/// o se esiste ma l'invio fallisce (canale chiuso — `ui.exe` disconnesso a
+/// metà turno). Il chiamante usa il valore per aggiornare `*ui_lost`: PRIMA
+/// di questo fix (I2, review finale) un invio fallito veniva ignorato del
+/// tutto (`let _ = u.send(m)`) — l'ack finale "finestra aperta" mentiva,
+/// perché era scelto guardando solo `ui.is_some()`, vero anche quando il
+/// sink era ormai stale. Il `warn` è loggato UNA sola volta per turno (guardia
+/// su `*ui_lost` già `true`): i messaggi successivi del turno vengono
+/// scartati allo stesso modo, ma senza inondare i log.
+///
+/// # Nota di stile (funzione libera, non closure)
+/// `to_ui`/`flush` erano closure che catturavano `ui`/`turn` per riferimento;
+/// per farle aggiornare un flag di stato condiviso (`ui_lost`) servirebbe
+/// `FnMut`, e sia `to_ui` sia `flush` (che chiama `to_ui`) verrebbero invocate
+/// più volte nello stesso scope — il borrow-checker sulle catture annidiate
+/// è più fragile che con parametri espliciti. Funzioni libere con `&mut bool`
+/// esplicito (come consigliato dalla review) sono equivalenti e più semplici.
+fn to_ui(
+    ui: &Option<UnboundedSender<ServerMsg>>,
+    ui_lost: &mut bool,
+    turn: &ShellTurn,
+    m: ServerMsg,
+) {
+    let ok = match ui {
+        Some(u) => u.send(m).is_ok(),
+        None => false,
+    };
+    if !ok {
+        if !*ui_lost {
+            tracing::warn!(
+                "turno {} (sessione {}): ui.exe non raggiungibile (mai connesso o sink caduto a metà turno), scarto i messaggi verso la finestra",
+                turn.id,
+                turn.session_id
+            );
+        }
+        *ui_lost = true;
+    }
+}
+
+/// Consegna il Markdown bufferizzato alla finestra di output — UNA sola
+/// volta per turno (`*flushed` fa da guardia, come nella versione a closure).
+/// No-op verso `ui` per un turno `WINDOW_SLASHES` (`turn.output_window ==
+/// false`): il suo esito È già una finestra propria (`/help`, `/show`), niente
+/// segnaposto — ma la guardia `*flushed` scatta comunque, così una successiva
+/// `Error` tardiva non ritenta l'invio.
+fn flush(
+    ui: &Option<UnboundedSender<ServerMsg>>,
+    ui_lost: &mut bool,
+    turn: &ShellTurn,
+    flushed: &mut bool,
+    markdown: String,
+) {
+    if !*flushed {
+        *flushed = true;
+        if turn.output_window {
+            to_ui(
+                ui,
+                ui_lost,
+                turn,
+                ServerMsg::OutputWindowContent {
+                    window_id: turn.window_id.clone(),
+                    markdown,
+                },
+            );
+        }
+    }
+}
+
 /// Consuma i `ServerMsg` del turno da `rx` finché il produttore droppa il
 /// sender (`handle_command` lo fa a fine turno), instradando come descritto
 /// nel doc-comment del modulo. `ui: None` = `ui.exe` non connesso: i
@@ -78,41 +156,37 @@ pub async fn route_shell_turn(
     ui: Option<UnboundedSender<ServerMsg>>,
     turn: ShellTurn,
 ) {
-    let to_ui = |m: ServerMsg| match &ui {
-        Some(u) => {
-            let _ = u.send(m);
-        }
-        None => tracing::warn!(
-            "turno {} (sessione {}): ui.exe non connesso, scarto {m:?}",
-            turn.id,
-            turn.session_id
-        ),
-    };
+    // `ui_lost` (I2): parte `false` e diventa `true` alla prima volta che un
+    // invio a `ui` fallisce (sink assente FIN DALL'INIZIO, o caduto a metà
+    // turno) — l'`ActivityIndicator{on:true}` qui sotto viene mandato PRIMA
+    // di qualunque altra cosa, quindi se `ui` è `None` fin dall'inizio
+    // `ui_lost` è già `true` ben prima che serva per l'ack a `Done`.
+    let mut ui_lost = false;
+
     if turn.output_window {
-        to_ui(ServerMsg::OpenOutputWindow {
-            window_id: turn.window_id.clone(),
-            title: turn.title.clone(),
-        });
+        to_ui(
+            &ui,
+            &mut ui_lost,
+            &turn,
+            ServerMsg::OpenOutputWindow {
+                window_id: turn.window_id.clone(),
+                title: turn.title.clone(),
+            },
+        );
     }
-    to_ui(ServerMsg::ActivityIndicator {
-        session_id: turn.session_id.clone(),
-        kind: "ai_busy".into(),
-        on: true,
-    });
+    to_ui(
+        &ui,
+        &mut ui_lost,
+        &turn,
+        ServerMsg::ActivityIndicator {
+            session_id: turn.session_id.clone(),
+            kind: "ai_busy".into(),
+            on: true,
+        },
+    );
 
     let mut buffer = String::new();
     let mut flushed = false;
-    let flush = |markdown: String, flushed: &mut bool| {
-        if !*flushed {
-            *flushed = true;
-            if turn.output_window {
-                to_ui(ServerMsg::OutputWindowContent {
-                    window_id: turn.window_id.clone(),
-                    markdown,
-                });
-            }
-        }
-    };
 
     // Il contratto della host (piano 2b) è "il turno finisce al primo
     // Done/Error": un secondo terminale per lo stesso turno spezzerebbe la
@@ -139,11 +213,28 @@ pub async fn route_shell_turn(
                 } else {
                     buffer.clone()
                 };
-                flush(markdown, &mut flushed);
-                let ack = match (ui.is_some(), turn.output_window) {
-                    (false, _) => NO_UI_ACK.to_string(),
-                    (true, true) => format!("\u{2192} finestra \"{}\" aperta", turn.title),
-                    (true, false) => "\u{2192} finestra aperta".to_string(),
+                flush(&ui, &mut ui_lost, &turn, &mut flushed, markdown);
+
+                // M1 (review finale): un turno WINDOW_SLASHES non apre MAI la
+                // finestra di output — ma se nel frattempo è arrivato del
+                // testo (Chunk, es. trasparenza tool o risposta AI), quel
+                // testo non ha altrove dove andare: la shell lo stampa come
+                // un Chunk normale, PRIMA della riga di conferma. Prima di
+                // questo fix il buffer per questi turni non veniva MAI letto
+                // — testo prodotto e silenziosamente perso.
+                if !turn.output_window && !buffer.is_empty() {
+                    let _ = shell.send(ServerMsg::Chunk {
+                        id: id.clone(),
+                        content: buffer.clone(),
+                    });
+                }
+
+                let ack = if ui_lost {
+                    NO_UI_ACK.to_string()
+                } else if turn.output_window {
+                    format!("\u{2192} finestra \"{}\" aperta", turn.title)
+                } else {
+                    "\u{2192} finestra aperta".to_string()
                 };
                 let _ = shell.send(ServerMsg::Chunk {
                     id: id.clone(),
@@ -161,22 +252,33 @@ pub async fn route_shell_turn(
                     continue;
                 }
                 terminal_sent = true;
-                flush(format!("**Errore:** {message}\n\n{buffer}"), &mut flushed);
+                flush(
+                    &ui,
+                    &mut ui_lost,
+                    &turn,
+                    &mut flushed,
+                    format!("**Errore:** {message}\n\n{buffer}"),
+                );
                 let _ = shell.send(ServerMsg::Error { id, code, message });
             }
             other => match other.surface() {
-                Surface::Ui => to_ui(other),
+                Surface::Ui => to_ui(&ui, &mut ui_lost, &turn, other),
                 Surface::Origin => {
                     let _ = shell.send(other);
                 }
             },
         }
     }
-    to_ui(ServerMsg::ActivityIndicator {
-        session_id: turn.session_id.clone(),
-        kind: "ai_busy".into(),
-        on: false,
-    });
+    to_ui(
+        &ui,
+        &mut ui_lost,
+        &turn,
+        ServerMsg::ActivityIndicator {
+            session_id: turn.session_id.clone(),
+            kind: "ai_busy".into(),
+            on: false,
+        },
+    );
 }
 
 #[cfg(test)]
@@ -400,9 +502,41 @@ mod tests {
         assert!(matches!(&shell[1], ServerMsg::Done { .. }));
     }
 
+    /// Fix I2 (review finale): il sink `ui` esiste all'inizio del turno, ma
+    /// il RICEVITORE viene droppato PRIMA che il turno finisca (`ui.exe` si
+    /// disconnette a metà) — ogni `send()` successivo fallisce. L'ack non deve
+    /// mentire "finestra aperta": diventa `NO_UI_ACK`, esattamente come se
+    /// `ui` non fosse mai stato connesso.
+    #[tokio::test]
+    async fn ui_sink_dropped_mid_turn_yields_no_ui_ack() {
+        let (tx, rx) = unbounded_channel();
+        let (shell_tx, mut shell_rx) = unbounded_channel();
+        let (ui_tx, ui_rx) = unbounded_channel();
+        // Il sink ESISTE (Some(ui_tx)) ma il ricevitore viene droppato subito:
+        // ogni `ui_tx.send(...)` dentro `route_shell_turn` fallirà da qui in poi.
+        drop(ui_rx);
+        let router = tokio::spawn(route_shell_turn(rx, shell_tx, Some(ui_tx), turn()));
+        tx.send(ServerMsg::Done {
+            id: "c1".into(),
+            exit_code: Some(0),
+        })
+        .unwrap();
+        drop(tx);
+        router.await.unwrap();
+        let shell = drain(&mut shell_rx);
+        assert!(
+            matches!(&shell[0], ServerMsg::Chunk { content, .. } if content == NO_UI_ACK),
+            "{shell:?}"
+        );
+        assert!(matches!(&shell[1], ServerMsg::Done { .. }), "{shell:?}");
+    }
+
     /// `/help`: l'esito è l'`OpenWindow` di `handle_slash` (surface `Ui`) — la
     /// finestra di output NON si apre (né segnaposto né contenuto) e la
-    /// conferma nel terminale è generica.
+    /// conferma nel terminale è generica. Fix M1 (review finale): del testo
+    /// bufferizzato (`Chunk "nota"`, es. trasparenza tool o testo AI) durante
+    /// un turno così NON deve sparire — va alla shell come Chunk normale,
+    /// PRIMA della riga di conferma.
     #[tokio::test]
     async fn window_slash_turn_skips_the_output_window() {
         let (tx, rx) = unbounded_channel();
@@ -417,6 +551,11 @@ mod tests {
             title: "Lare \u{2014} Comandi".into(),
             kind: WindowKind::Help,
             content: "# h".into(),
+        })
+        .unwrap();
+        tx.send(ServerMsg::Chunk {
+            id: "c1".into(),
+            content: "nota".into(),
         })
         .unwrap();
         tx.send(ServerMsg::Done {
@@ -437,9 +576,15 @@ mod tests {
         assert!(ui.iter().any(|m| matches!(m, ServerMsg::OpenWindow { .. })));
         let shell = drain(&mut shell_rx);
         assert!(
-            matches!(&shell[0], ServerMsg::Chunk { content, .. } if content == "\u{2192} finestra aperta"),
+            matches!(&shell[0], ServerMsg::Chunk { content, .. } if content == "nota"),
             "{shell:?}"
         );
+        assert!(
+            matches!(&shell[1], ServerMsg::Chunk { content, .. } if content == "\u{2192} finestra aperta"),
+            "{shell:?}"
+        );
+        assert!(matches!(&shell[2], ServerMsg::Done { .. }), "{shell:?}");
+        assert_eq!(shell.len(), 3, "{shell:?}");
     }
 
     /// Regola del controller: dopo il primo terminale (`Error`) un `Done`

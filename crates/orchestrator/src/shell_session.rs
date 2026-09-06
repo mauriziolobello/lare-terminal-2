@@ -122,9 +122,30 @@ impl ShellSessionState {
         }
     }
 
-    /// Risolve l'esecuzione `exec_id`. `false` = id ignoto o già risolto.
-    pub async fn resolve_exec(&self, exec_id: &str, reply: ExecReply) -> bool {
-        match self.pending.lock().await.remove(exec_id) {
+    /// Risolve l'esecuzione `exec_id`. `false` = id ignoto, già risolto, O
+    /// (M8, review finale) `turn_id` non corrispondente a quello memorizzato
+    /// per questo `exec_id`: in quel caso l'entry NON viene rimossa — una
+    /// risposta con `turn_id` sbagliato (host che manda `ExecResult` di un
+    /// turno diverso, o un doppione tardivo) non deve poter consumare
+    /// l'attesa di un altro turno con dati che non gli appartengono. La
+    /// risposta corretta, se arriva più tardi, risolve regolarmente.
+    pub async fn resolve_exec(&self, exec_id: &str, turn_id: &str, reply: ExecReply) -> bool {
+        let mut pending = self.pending.lock().await;
+        // Prestito immutabile che finisce subito dopo il controllo — non
+        // confligge col `remove` (mutabile) subito sotto, perché qui sotto
+        // costruiamo solo un `bool`, nessun riferimento sopravvive.
+        match pending.get(exec_id) {
+            Some((stored_turn, _)) if stored_turn == turn_id => {}
+            Some(stored_turn) => {
+                tracing::warn!(
+                    "ExecResult per exec_id={exec_id}: turn_id={turn_id} non corrisponde a quello atteso ({}) — scartato, esecuzione pendente non rimossa",
+                    stored_turn.0
+                );
+                return false;
+            }
+            None => return false,
+        }
+        match pending.remove(exec_id) {
             Some((_turn, tx)) => tx.send(reply).is_ok(),
             None => false,
         }
@@ -342,6 +363,7 @@ mod tests {
         assert!(
             s.resolve_exec(
                 &exec_id,
+                "t1",
                 ExecReply {
                     exit_code: 0,
                     output: "a.txt\n".into(),
@@ -382,6 +404,7 @@ mod tests {
         };
         s.resolve_exec(
             &exec_id,
+            "t1",
             ExecReply {
                 exit_code: 0,
                 output: String::new(),
@@ -406,10 +429,12 @@ mod tests {
         let r = run.await.unwrap();
         assert_eq!(r.exit_code, -1);
         assert_eq!(r.stdout, EXEC_ABORTED);
-        // Un ExecResult tardivo per l'exec abortito è scartato.
+        // Un ExecResult tardivo per l'exec abortito è scartato (id ignoto:
+        // l'entry è già stata rimossa da `abort_turn`, `turn_id` qui non conta).
         assert!(
             !s.resolve_exec(
                 "qualunque",
+                "t1",
                 ExecReply {
                     exit_code: 0,
                     output: String::new(),
@@ -418,6 +443,50 @@ mod tests {
             )
             .await
         );
+    }
+
+    /// M8 (review finale): un `ExecResult` con `turn_id` diverso da quello
+    /// memorizzato per `exec_id` viene RIFIUTATO (non un panic) e — punto
+    /// chiave — NON consuma l'esecuzione pendente: la risposta corretta,
+    /// arrivata dopo, deve poter ancora risolvere lo stesso `exec_id`.
+    #[tokio::test]
+    async fn resolve_exec_with_wrong_turn_id_is_rejected() {
+        let (s, mut rx) = state();
+        let tools = ShellSessionToolClient::for_turn(&s, "t1".into());
+        let run = tokio::spawn(async move { tools.run_in_session("dir", None).await });
+        let exec_id = match rx.recv().await.unwrap() {
+            ServerMsg::ExecInShell { exec_id, .. } => exec_id,
+            other => panic!("ricevuto {other:?}"),
+        };
+        // Risposta con turn_id sbagliato: scartata, l'entry resta pendente.
+        assert!(
+            !s.resolve_exec(
+                &exec_id,
+                "t-altro-turno",
+                ExecReply {
+                    exit_code: 0,
+                    output: "risposta sbagliata".into(),
+                    cwd: String::new(),
+                }
+            )
+            .await
+        );
+        // La risposta corretta arriva DOPO: risolve regolarmente, prova che
+        // il tentativo scartato sopra non ha rimosso l'entry.
+        assert!(
+            s.resolve_exec(
+                &exec_id,
+                "t1",
+                ExecReply {
+                    exit_code: 0,
+                    output: "a.txt\n".into(),
+                    cwd: "C:\\dopo".into(),
+                }
+            )
+            .await
+        );
+        let r = run.await.unwrap();
+        assert_eq!((r.exit_code, r.stdout.as_str()), (0, "a.txt\n"));
     }
 
     /// Una cwd vuota nell'`ExecResult` (host che non la riporta) non cancella
@@ -433,6 +502,7 @@ mod tests {
         };
         s.resolve_exec(
             &exec_id,
+            "t1",
             ExecReply {
                 exit_code: 1,
                 output: String::new(),

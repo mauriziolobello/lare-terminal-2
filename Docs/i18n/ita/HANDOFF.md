@@ -149,6 +149,16 @@ presenti nel piano 2b/3:
   `--ignored` (richiedono una chiave API) — invariato rispetto alla v1.
 - Markdown della finestra di output: i chunk di trasparenza e il testo AI sono concatenati senza
   separatore — cosmetico, vedi `KNOWN-ISSUES.md`.
+- **Contratti per la host (piano 2b)**, consolidati dalla review finale del piano 2a (dettaglio
+  completo in `crates/protocol/IMPLEMENTATION.md` §"Contratti per la host"): (a) un solo turno AI
+  alla volta per connessione — la history è sotto lock per tutto il turno, gate incluso: un
+  secondo `/ai` apre la finestra e resta bloccato senza errore, in coda; (b) `Command.id` deve
+  essere unico per connessione — un duplicato sovrascrive il cancel token e riusa la finestra di
+  output del primo turno con quell'id; (c) il turno finisce al primo `Done`/`Error` — la host
+  deve scartare i messaggi dei turni già chiusi, l'orchestratore non ne manda comunque un secondo
+  per la via normale; (d) `ExecResult.turn_id` deve corrispondere al `turn_id` ricevuto
+  nell'`ExecInShell` a cui si risponde, altrimenti viene scartato con un warn (fix M8) senza
+  consumare l'esecuzione pendente.
 
 ### Debiti noti del piano 1
 

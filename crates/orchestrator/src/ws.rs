@@ -272,7 +272,9 @@ async fn handle_connection(
     }
     // Sessione shell: il suo `ToolClient` è la shell dell'utente (Task 4);
     // `tools` (McpToolClient condiviso) resta per `open_target`/routine.
-    let shell: Option<Arc<crate::shell_session::ShellSessionState>> = if hello.role == protocol::Role::Shell {
+    // `mut`: il teardown (I1, review finale) deve poter fare `shell.take()`
+    // PRIMA di droppare `out_tx` — vedi il commento lì per il perché.
+    let mut shell: Option<Arc<crate::shell_session::ShellSessionState>> = if hello.role == protocol::Role::Shell {
         let session_id = hello.session_id.clone().unwrap_or_else(|| format!("{:08x}", rand::random::<u32>()));
         registry.lock().await.register_shell(&session_id, out_tx.clone());
         info!("sessione shell {session_id} connessa (versione {:?})", hello.version);
@@ -287,7 +289,9 @@ async fn handle_connection(
         None
     };
 
-    let writer = tokio::spawn(async move {
+    // `mut`: il teardown (I1) attende questo task con un timeout — serve un
+    // riferimento mutabile per pollarlo ripetutamente senza consumarlo.
+    let mut writer = tokio::spawn(async move {
         while let Some(msg) = out_rx.recv().await {
             if send_msg(&mut sink, &msg).await.is_err() {
                 break; // client disconnesso → fine scrittore
@@ -770,9 +774,14 @@ async fn handle_connection(
             }
 
             // Esito di un ExecInShell (solo sessioni shell; da una ui è un no-op).
-            ClientMsg::ExecResult { turn_id: _, exec_id, exit_code, output, cwd } => {
+            // `turn_id` (M8, review finale) è ora VALIDATO da `resolve_exec`
+            // contro il turno che aveva chiesto quell'`exec_id`: una risposta
+            // con `turn_id` sbagliato (bug in host, o un doppione tardivo di
+            // un turno diverso) viene scartata invece di risolvere alla cieca
+            // l'attesa di un altro turno con dati non suoi.
+            ClientMsg::ExecResult { turn_id, exec_id, exit_code, output, cwd } => {
                 if let Some(s) = &shell {
-                    s.resolve_exec(&exec_id, crate::shell_session::ExecReply { exit_code, output, cwd }).await;
+                    s.resolve_exec(&exec_id, &turn_id, crate::shell_session::ExecReply { exit_code, output, cwd }).await;
                 }
             }
 
@@ -791,12 +800,10 @@ async fn handle_connection(
         cmd_token.cancel();
     }
 
-    // Registro (2.0): la sessione shell sparisce; il sink ui viene azzerato
-    // SOLO se è ancora il nostro (una ui nuova può averlo già sostituito).
-    if let Some(s) = &shell {
-        s.abort_all().await;
-        registry.lock().await.unregister_shell(s.session_id());
-    }
+    // Registro (2.0): il sink ui viene azzerato SOLO se è ancora il nostro
+    // (una ui nuova può averlo già sostituito). Lo stato della sessione shell
+    // (se questa è una connessione shell) viene chiuso più sotto, con
+    // `shell.take()` — vedi il commento lì per il perché l'ordine conta.
     registry.lock().await.clear_ui_sink_if(&out_tx);
 
     // Chiude il ToolClient di questa connessione (default no-op per
@@ -822,9 +829,61 @@ async fn handle_connection(
         }
     }
 
+    // ── I1 (review finale): chiudi lo stato shell PRIMA di droppare `out_tx` ──
+    // `ShellSessionState` tiene al suo interno una clone di `out_tx` (per poter
+    // mandare `ExecInShell` in qualunque momento, non solo durante un turno).
+    // Finché il binding `shell` qui sotto resta vivo, quella clone resta viva
+    // con lui — e finché ANCHE UNA clone di `out_tx` esiste da qualche parte,
+    // `out_rx.recv()` nel task scrittore (sopra) non torna mai `None`: il
+    // task NON esce mai dal suo loop, e siccome è lui a possedere il `sink`
+    // WS (quindi il socket TCP), la connessione non si chiude mai per
+    // davvero. Bug reale, invisibile a qualunque test automatico (il
+    // processo del test termina comunque) — trovato per ispezione durante
+    // la revisione finale: ogni sessione shell chiusa lasciava per sempre un
+    // task, un socket e uno `ShellSessionState` orfani.
+    //
+    // `.take()` sposta l'`Arc` fuori dal binding `shell` (che diventa `None`)
+    // così il binding stesso smette di tenerlo in vita; `drop(s)` esplicito
+    // sotto lo rende innegabile a chi legge il codice, anche se sarebbe
+    // comunque il comportamento di fine-scope.
+    if let Some(s) = shell.take() {
+        s.abort_all().await;
+        registry.lock().await.unregister_shell(s.session_id());
+        drop(s);
+    }
+
     drop(out_tx);
-    let _ = writer.await;
+    // A questo punto NESSUNA clone di `out_tx` dovrebbe più esistere, quindi
+    // il task scrittore deve uscire dal suo loop a stretto giro. Timeout +
+    // abort come cintura di sicurezza (belt-and-braces): un turno rimasto
+    // sospeso in `confirm().await` (gate `[Y/n]` sulla shell, fino a 180 s,
+    // vedi `shell_turn::CONFIRM_TIMEOUT`) può tenere in vita un'altra `Arc`
+    // che referenzia indirettamente `out_tx` più a lungo del previsto — 5 s
+    // sono ampiamente sufficienti per il caso normale (nessun turno pendente)
+    // e non bloccano la chiusura per sempre nel caso patologico.
+    if tokio::time::timeout(std::time::Duration::from_secs(5), &mut writer)
+        .await
+        .is_err()
+    {
+        writer.abort();
+        tracing::warn!(
+            "connessione (ruolo {:?}, sessione {:?}): writer non terminato entro 5 s: abortito",
+            hello.role,
+            hello.session_id
+        );
+    }
     let _ = reader.await;
+
+    // Osservabile della chiusura pulita: nessun test automatico può vedere il
+    // task scrittore uscire (vive nel processo del server, non in quello del
+    // test) — questa riga di log è il modo in cui il controller verifica dal
+    // vivo che I1 sia davvero risolto (connessione chiusa, non solo "il loop
+    // dei messaggi è finito").
+    tracing::info!(
+        "connessione chiusa (ruolo {:?}, sessione {:?})",
+        hello.role,
+        hello.session_id
+    );
 
     Ok(())
 }

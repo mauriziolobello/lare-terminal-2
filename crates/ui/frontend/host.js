@@ -810,7 +810,18 @@ function setupLibraryEvents() {
 // cursore), focus/editor/idle-duck/diagnosi (tutto cursore).
 // ---------------------------------------------------------------------------
 async function bootstrap() {
-  uiVersion = (await invokeCmd("get_ui_version")) ?? "";
+  // Fix I3 (review finale): un fallimento di get_ui_version (edge case, non
+  // dovrebbe mai succedere: è un comando Tauri sincrono che legge
+  // env!("CARGO_PKG_VERSION")) NON deve impedire l'avvio del client WS —
+  // serve solo per rispondere a un futuro ui_ping (built-in /ping); senza
+  // questo try/catch un errore qui bloccava tutto bootstrap() (incluso
+  // initClient() sotto), lasciando la UI senza connessione.
+  try {
+    uiVersion = (await invokeCmd("get_ui_version")) ?? "";
+  } catch (e) {
+    console.error("[host] get_ui_version error:", e);
+    uiVersion = "";
+  }
 
   await initClient();
 
