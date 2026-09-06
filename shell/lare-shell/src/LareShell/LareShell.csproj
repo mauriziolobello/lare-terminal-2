@@ -12,17 +12,28 @@
     <!-- Il NuGet Microsoft.PowerShell.SDK porta le risorse localizzate di decine di lingue:
          teniamo solo l'inglese nell'output (≈ -30 MB nel publish). -->
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
-    <!-- CA1416 (Task 3, LareRawUI.cs): l'analizzatore segnala i membri di System.Console
-         supportati solo su Windows (Console.Title, CursorSize, SetWindowSize/Position,
-         SetBufferSize) perché il TargetFramework è "net10.0" generico, non "net10.0-windows".
-         lare-shell.exe gira solo su Windows (ConPTY, PSReadLine su console Win32): questi
-         accessi sono già protetti da try/catch in LareRawUI (TryGet/TrySet) per il caso in
-         cui stdout/stdin siano rediretti, non serve anche l'annotazione di piattaforma. -->
-    <NoWarn>$(NoWarn);CA1416</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.PowerShell.SDK" Version="7.6.5" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- lare-shell.exe è Windows-only nell'MVP (ConPTY, PSReadLine su console Win32; ADR-015
+         prevede Linux/macOS pwsh-flavored più avanti, non ora). Dichiariamo la piattaforma
+         supportata a livello di assembly invece di zittire l'analizzatore CA1416 (membri di
+         System.Console come Console.Title, CursorSize, SetWindowSize/Position, SetBufferSize,
+         usati in LareRawUI.cs, sono "Windows-only" secondo l'analizzatore quando il
+         TargetFramework è "net10.0" generico, non "net10.0-windows"): così il compilatore SA che
+         gireremo solo su Windows, invece di doverlo ririchiedere per ogni file futuro che tocchi
+         API Win32-specifiche. Niente TFM "net10.0-windows" (cambierebbe RID/pubblicazione oltre
+         lo scopo di questo fix) e niente attributo scritto a mano in un file .cs: questo
+         ItemGroup genera [assembly: SupportedOSPlatformAttribute("windows")] via
+         WriteCodeFragment, la via ufficiale per farlo da solo project file (vedi "Suppress
+         warnings" in learn.microsoft.com/dotnet/standard/analyzers/platform-compat-analyzer). -->
+    <AssemblyAttribute Include="System.Runtime.Versioning.SupportedOSPlatformAttribute">
+      <_Parameter1>windows</_Parameter1>
+    </AssemblyAttribute>
   </ItemGroup>
 
   <ItemGroup>

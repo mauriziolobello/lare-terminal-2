@@ -1,3 +1,4 @@
+using System.Management.Automation;
 using LareShell.Host;
 using Xunit;
 
@@ -11,6 +12,13 @@ internal sealed class FakeConsoleModes : IConsoleModes
     public bool Available = true;
     public int SetCalls;
 
+    // Fa fallire SOLO le letture (TryGetMode), non le scritture (TrySetMode): simula il caso
+    // "sapevamo la mode iniziale al costruttore, ma quando è partita l'app nativa GetConsoleMode
+    // è fallita" — TrySetMode continua a funzionare a prescindere da questo flag, esattamente
+    // come farebbe SetConsoleMode su un handle valido anche se una GetConsoleMode precedente
+    // fosse fallita per un motivo transitorio.
+    public bool GetFailsNow;
+
     private static readonly IntPtr OutHandle = new(11);
     private static readonly IntPtr InHandle = new(10);
 
@@ -18,8 +26,12 @@ internal sealed class FakeConsoleModes : IConsoleModes
 
     public bool TryGetMode(IntPtr handle, out uint mode)
     {
+        // La mode "vera" viene comunque riportata in out anche quando la lettura "fallisce"
+        // (GetFailsNow): rispecchia Win32 GetConsoleMode, che quando fallisce lascia lpMode
+        // indefinito, ma qui usiamo il valore corrente per rendere il test deterministico e
+        // verificare che LareHost ignori il valore quando il bool di ritorno è false.
         mode = handle == OutHandle ? OutMode : InMode;
-        return Available;
+        return Available && !GetFailsNow;
     }
 
     public bool TrySetMode(IntPtr handle, uint mode)
@@ -101,6 +113,36 @@ public class LareHostTests
     }
 
     [Fact]
+    public void NotifyEnd_con_mode_non_leggibili_all_inizio_dell_app_ripristina_le_mode_iniziali_con_VT()
+    {
+        // Copre il ramo "_savedModesValid == false" di NotifyEndApplication: se in
+        // NotifyBeginApplication la lettura delle mode "correnti" fallisce (qui simulato con
+        // GetFailsNow), non abbiamo nulla di affidabile da ripristinare in NotifyEndApplication,
+        // quindi cadiamo sul fallback "meglio le mode iniziali che quelle lasciate dall'app".
+        var modes = new FakeConsoleModes { OutMode = 0x0003, InMode = 0x01F7 };   // stato all'avvio, leggibile
+        var host = new LareHost(modes);                                          // le cattura qui (lettura OK)
+
+        modes.OutMode = 0x0007;   // PSReadLine/VT hanno cambiato le mode nel frattempo
+        modes.InMode = 0x01E0;
+        modes.GetFailsNow = true;   // ora GetConsoleMode "fallisce" (handle diventato non valido, ecc.)
+
+        host.NotifyBeginApplication();
+        // _savedModesValid è false (TryGetMode ha restituito false per entrambi gli handle):
+        // NotifyBeginApplication ha comunque impostato le mode iniziali (TrySetMode non dipende
+        // da GetFailsNow), quindi l'app nativa le vede già correttamente.
+        Assert.Equal(0x0003u, modes.OutMode);
+        Assert.Equal(0x01F7u, modes.InMode);
+
+        modes.GetFailsNow = false;   // le letture tornano disponibili (TrySetMode funzionava comunque)
+        host.NotifyEndApplication();
+
+        // Ramo fallback: NotifyEndApplication non aveva mode "salvate" valide, quindi ripristina
+        // le mode iniziali (non quelle lasciate dall'app nativa) e sull'output riaccende VT.
+        Assert.Equal(0x01F7u, modes.InMode);
+        Assert.Equal(0x0003u | ConsoleModes.EnableVirtualTerminalProcessing | ConsoleModes.EnableProcessedOutput, modes.OutMode);
+    }
+
+    [Fact]
     public void I_Write_della_UI_finiscono_nel_registratore_quando_attivo()
     {
         var host = new LareHost(new FakeConsoleModes());
@@ -119,5 +161,18 @@ public class LareHostTests
         Assert.Contains("err", got);
         Assert.Contains("WARNING: w", got);
         Assert.Contains("c", got);
+    }
+
+    [Fact]
+    public void WriteProgress_non_viene_registrato()
+    {
+        // WriteProgress passa da WriteColored (non da Write): le barre di Write-Progress
+        // sarebbero solo rumore nell'output catturato per l'AI (spec §4.5), quindi il
+        // registratore deve restare vuoto anche se attivo.
+        var host = new LareHost(new FakeConsoleModes());
+        LareHostUI ui = host.HostUI;
+        ui.Recorder.Begin();
+        ui.WriteProgress(1, new ProgressRecord(1, "attività", "stato") { PercentComplete = 50 });
+        Assert.Equal(string.Empty, ui.Recorder.End());
     }
 }

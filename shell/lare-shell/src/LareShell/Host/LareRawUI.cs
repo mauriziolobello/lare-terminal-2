@@ -73,7 +73,7 @@ internal sealed class LareRawUI : PSHostRawUserInterface
 
     public override string WindowTitle
     {
-        get => TryGet(() => Console.Title, "LareShellSpike");
+        get => TryGet(() => Console.Title, HostInfo.Name);
         set => TrySet(() => Console.Title = value);
     }
 
@@ -119,13 +119,13 @@ internal sealed class LareRawUI : PSHostRawUserInterface
     // Questi tre membri servirebbero per leggere/scrivere/scrollare rettangoli di
     // celle del buffer console (usati ad es. da Clear-Host per "spazzare" lo schermo,
     // o da alcuni moduli per disegnare popup). Implementarli con le API Win32 reali
-    // (ReadConsoleOutput/WriteConsoleOutput) è possibile ma esula dallo scopo dello
-    // spike: qui vogliamo solo dimostrare prompt/lettura/esecuzione + status bar via
-    // sequenze VT. Per non far esplodere l'host quando lo script chiama `cls`
+    // (ReadConsoleOutput/WriteConsoleOutput) è possibile ma fuori MVP: nessuna barra VT
+    // nella 2.0 (D13: le barre sono HTML nella finestra, non righe disegnate nel buffer
+    // console). Per non far esplodere l'host quando lo script chiama `cls`
     // (che internamente chiama proprio SetBufferContents), trattiamo il caso speciale
     // "rettangolo = tutto il buffer" richiamando semplicemente Console.Clear().
     public override BufferCell[,] GetBufferContents(Rectangle rectangle) =>
-        throw new NotImplementedException("GetBufferContents non è implementato in questo spike.");
+        throw new NotImplementedException("GetBufferContents non è implementato in questa host (fuori MVP).");
 
     public override void SetBufferContents(Rectangle rectangle, BufferCell fill)
     {
@@ -146,14 +146,14 @@ internal sealed class LareRawUI : PSHostRawUserInterface
         }
 
         throw new NotImplementedException(
-            "SetBufferContents su un rettangolo arbitrario non è implementato in questo spike (solo il caso Clear-Host).");
+            "SetBufferContents su un rettangolo arbitrario non è implementato in questa host (fuori MVP, solo il caso Clear-Host).");
     }
 
     public override void SetBufferContents(Coordinates origin, BufferCell[,] contents) =>
-        throw new NotImplementedException("SetBufferContents(origin, contents) non è implementato in questo spike.");
+        throw new NotImplementedException("SetBufferContents(origin, contents) non è implementato in questa host (fuori MVP).");
 
     public override void ScrollBufferContents(Rectangle source, Coordinates destination, Rectangle clip, BufferCell fill) =>
-        throw new NotImplementedException("ScrollBufferContents non è implementato in questo spike.");
+        throw new NotImplementedException("ScrollBufferContents non è implementato in questa host (fuori MVP).");
 
     // --- Helper privati per l'accesso "difensivo" a System.Console ----------
 
@@ -170,7 +170,7 @@ internal sealed class LareRawUI : PSHostRawUserInterface
         {
             // Console non disponibile o non supporta l'operazione (es. stdout
             // rediretto): ignoriamo silenziosamente, coerentemente con lo scopo
-            // didattico/di spike di questo host.
+            // didattico di questa classe.
         }
     }
 }

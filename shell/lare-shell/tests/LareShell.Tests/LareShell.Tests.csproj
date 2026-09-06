@@ -19,4 +19,17 @@
     <ProjectReference Include="..\..\src\LareShell\LareShell.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Stessa dichiarazione di LareShell.csproj (vedi il commento lì): questo progetto chiama
+         tipi Windows-only del progetto referenziato (LareHost, OrchestratorClient, ecc., ora
+         marcati [SupportedOSPlatform("windows")] a livello di assembly). Senza la stessa
+         dichiarazione qui, l'analizzatore CA1416 segnalerebbe ogni singola chiamata a quei tipi
+         come "raggiungibile da tutte le piattaforme" — verificato: senza questo ItemGroup la
+         build di questo progetto produce 234 avvisi CA1416, non solo sui membri Console-specifici
+         di LareRawUI ma su qualunque tipo pubblico/internal dell'assembly referenziato. -->
+    <AssemblyAttribute Include="System.Runtime.Versioning.SupportedOSPlatformAttribute">
+      <_Parameter1>windows</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
 </Project>
