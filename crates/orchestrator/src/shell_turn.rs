@@ -160,7 +160,30 @@ async fn start_turn(deps: &ShellTurnDeps, id: &str, input: &str) -> UnboundedSen
         title: output_window_title(input),
         output_window: !is_window_slash(input),
     };
-    let ui = deps.registry.lock().await.ui_sink();
+    // Autostart di ui.exe (spec §6.4/§9) se nessuna connessione ui esiste
+    // ancora: senza, questo turno aprirebbe una finestra che nessuno può
+    // vedere finché ui.exe non parte da solo (self-heal lato ui.exe, Task 3
+    // — ma quello parte SOLO se un utente avvia ui.exe direttamente).
+    let ui_exe = deps.rt.ui_exe();
+    let config_dir = deps.rt.config_dir.clone();
+    let ui = ensure_ui_sink(
+        &deps.registry,
+        deps.rt.startup.autostart.ui,
+        || ui_exe.exists(),
+        || {
+            let args = vec![
+                "--config-dir".to_string(),
+                config_dir.to_string_lossy().into_owned(),
+                "--no-terminal".to_string(),
+            ];
+            if let Err(e) = startup_config::spawn_detached(&ui_exe, &args) {
+                tracing::warn!("autostart ui.exe fallito: {e}");
+            }
+        },
+        UI_AUTOSTART_WINDOW,
+        UI_AUTOSTART_RETRY,
+    )
+    .await;
     tokio::spawn(route_shell_turn(turn_rx, deps.out_tx.clone(), ui, turn));
     turn_tx
 }
@@ -274,6 +297,41 @@ async fn run_ping_turn(deps: ShellTurnDeps, id: String, turn_tx: UnboundedSender
         id,
         exit_code: Some(0),
     });
+}
+
+/// Finestra di attesa per l'autostart di `ui.exe` (spec §9: "attesa 10 s").
+const UI_AUTOSTART_WINDOW: Duration = Duration::from_secs(10);
+const UI_AUTOSTART_RETRY: Duration = Duration::from_millis(250);
+
+/// Se non c'è un sink `ui` registrato e `autostart` è attivo, avvia `ui.exe`
+/// (staccato) e attende fino a `window` che una connessione `ui` compaia nel
+/// registro, ripetendo il controllo ogni `retry`. `exists`/`spawn` sono
+/// l'unico punto che tocca filesystem/processi: nei test sono fake che non
+/// avviano nulla di reale — stesso schema di `launcher::ensure_orchestrator`
+/// lato `ui.exe` (composizione, non un mock del registro).
+async fn ensure_ui_sink(
+    registry: &SharedRegistry,
+    autostart: bool,
+    exists: impl Fn() -> bool,
+    spawn: impl FnOnce(),
+    window: Duration,
+    retry: Duration,
+) -> Option<UnboundedSender<ServerMsg>> {
+    if let Some(sink) = registry.lock().await.ui_sink() {
+        return Some(sink);
+    }
+    if !autostart || !exists() {
+        return None;
+    }
+    spawn();
+    let deadline = Instant::now() + window;
+    while Instant::now() < deadline {
+        tokio::time::sleep(retry).await;
+        if let Some(sink) = registry.lock().await.ui_sink() {
+            return Some(sink);
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -576,5 +634,83 @@ mod tests {
         .await
         .expect("Done");
         assert_eq!(done, Some(0));
+    }
+
+    #[tokio::test]
+    async fn ensure_ui_sink_ritorna_subito_se_gia_registrato() {
+        let registry = crate::connections::Registry::shared();
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<protocol::ServerMsg>();
+        registry.lock().await.set_ui_sink(tx);
+        let mut spawned = false;
+        let sink = ensure_ui_sink(
+            &registry,
+            true,
+            || true,
+            || spawned = true,
+            std::time::Duration::from_millis(50),
+            std::time::Duration::from_millis(10),
+        )
+        .await;
+        assert!(sink.is_some());
+        assert!(!spawned);
+    }
+
+    #[tokio::test]
+    async fn ensure_ui_sink_non_avvia_nulla_se_autostart_disattivo() {
+        let registry = crate::connections::Registry::shared();
+        let mut spawned = false;
+        let sink = ensure_ui_sink(
+            &registry,
+            false,
+            || true,
+            || spawned = true,
+            std::time::Duration::from_millis(50),
+            std::time::Duration::from_millis(10),
+        )
+        .await;
+        assert!(sink.is_none());
+        assert!(!spawned);
+    }
+
+    #[tokio::test]
+    async fn ensure_ui_sink_non_avvia_nulla_se_leseguibile_non_esiste() {
+        let registry = crate::connections::Registry::shared();
+        let mut spawned = false;
+        let sink = ensure_ui_sink(
+            &registry,
+            true,
+            || false,
+            || spawned = true,
+            std::time::Duration::from_millis(50),
+            std::time::Duration::from_millis(10),
+        )
+        .await;
+        assert!(sink.is_none());
+        assert!(!spawned);
+    }
+
+    #[tokio::test]
+    async fn ensure_ui_sink_avvia_e_trova_il_sink_comparso_durante_lattesa() {
+        let registry = crate::connections::Registry::shared();
+        let mut spawned = false;
+        let registry_clone = registry.clone();
+        // Simula `ui.exe` che si connette 30ms dopo l'avvio (la finestra di
+        // attesa del test è 200ms, retry 10ms — 30ms sta comodamente dentro).
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+            let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<protocol::ServerMsg>();
+            registry_clone.lock().await.set_ui_sink(tx);
+        });
+        let sink = ensure_ui_sink(
+            &registry,
+            true,
+            || true,
+            || spawned = true,
+            std::time::Duration::from_millis(200),
+            std::time::Duration::from_millis(10),
+        )
+        .await;
+        assert!(sink.is_some());
+        assert!(spawned);
     }
 }

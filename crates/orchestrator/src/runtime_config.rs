@@ -65,6 +65,12 @@ impl RuntimeConfig {
     pub fn mcp_nmap_exe(&self) -> PathBuf {
         self.path(&self.startup.paths.mcp_nmap)
     }
+    /// Percorso di `ui.exe` (piano 3, autostart §6.4): non è in `paths.*`
+    /// (a differenza di `mcp_server`/`mcp_nmap`) — vive sempre alla radice
+    /// del deploy, come `orchestrator.exe`, mai spostabile via `startup.json`.
+    pub fn ui_exe(&self) -> PathBuf {
+        startup_config::deploy_root(&self.config_dir).join("ui.exe")
+    }
     pub fn log_dir(&self) -> PathBuf {
         self.path(&self.startup.log.dir)
     }
