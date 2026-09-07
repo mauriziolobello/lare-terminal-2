@@ -144,16 +144,17 @@ e2e — nessun dato recuperabile da questa sede, va solo segnalato.
 
 ## Parte 7 — Modalità A (piano 3)
 
-> **Esecuzione dal vivo ANCORA DA FARE.** Questa parte copre la checklist di spec §10 per la
-> **modalità A** (`ui.exe` con finestra terminale, xterm.js + ConPTY). A differenza delle Parti
-> 1-6, il Task 7 di questo piano (documentazione) NON l'ha eseguita dal vivo — chi ha scritto
-> questa sezione non ha accesso a una GUI/interattiva per aprire davvero `ui.exe` e osservare la
-> finestra. Ogni riga sotto è **"Da eseguire"**, non un esito presunto o inventato: la esegue il
-> controller (sessione con accesso alla macchina Windows reale) prima di chiudere questo branch,
-> con lo stesso metodo "da tastiera" già usato per la Parte 6 (`scripts/dev/e2e-driver/` — SendKeys
-> + screenshot + UI Automation, README con le lezioni). Stesso principio delle Parti precedenti:
-> registrare gli esiti REALI una volta osservati, non presumerli — questa tabella va aggiornata
-> (colonna Esito) col risultato vero appena la passata è fatta, non lasciata così.
+> **Esecuzione dal vivo: parzialmente fatta.** Questa parte copre la checklist di spec §10 per la
+> **modalità A** (`ui.exe` con finestra terminale, xterm.js + ConPTY). Il Task 7 di questo piano
+> (documentazione) non l'aveva eseguita dal vivo — chi aveva scritto questa sezione non aveva
+> accesso a una GUI/interattiva per aprire davvero `ui.exe` e osservare la finestra. Il controller
+> l'ha eseguita dal vivo DOPO il completamento del piano (con lo stesso metodo "da tastiera" già
+> usato per la Parte 6 — `scripts/dev/e2e-driver/`, SendKeys + screenshot + UI Automation, README
+> con le lezioni), incluso il fix di chiusura finestra emerso proprio da questa passata (commit
+> `07c584c` — vedi `HANDOFF.md`). **Passi 1/2/5/6/7/9/10 e le verifiche di modalità B/autostart
+> Task 6 eseguiti dal vivo dal controller dopo il completamento del piano (incluso il fix di
+> chiusura finestra, commit `07c584c`); il resto resta da eseguire.** Stesso principio delle Parti
+> precedenti: registrare gli esiti REALI una volta osservati, non presumerli.
 
 Prerequisiti: build fatta (`cargo build`, `cargo build -p ui`, `cargo build -p plugin-calc`) e
 `.\deploy_test_run.ps1 -IncludePlugins` eseguito (pubblica anche `lare-shell` in
@@ -162,14 +163,34 @@ rispondere) — vedi `RUN-LOCAL.md` §"Modalità A".
 
 | # | Passo | Atteso | Esito |
 |---|---|---|---|
-| 1 | Da `Test Run\`: `.\ui.exe` (SENZA `--no-terminal`) | Si apre la finestra terminale (xterm.js dentro ConPTY) con `lare-shell.exe` già dentro — prompt pwsh visibile, banner PSReadLine | Da eseguire |
-| 2 | Digita `/ping` nella shell dentro la finestra | Finestra "Lare — /ping" con la tabella per strato; riga di conferma nel terminale | Da eseguire |
+| 1 | Da `Test Run\`: `.\ui.exe` (SENZA `--no-terminal`) | Si apre la finestra terminale (xterm.js dentro ConPTY) con `lare-shell.exe` già dentro — prompt pwsh visibile, banner PSReadLine | **OK.** Lanciato `ui.exe` nudo (nessun orchestratore già attivo): self-heal ha avviato da solo `orchestrator.exe` E `lare-shell.exe` (pty child via ConPTY); banner "Lare Terminal 2.0.0 — sessione \<id\>" (id 8 esadecimali confermato, es. `1fe87d14`), "orchestratore: connesso", prompt PowerShell reale |
+| 2 | Digita `/ping` nella shell dentro la finestra | Finestra "Lare — /ping" con la tabella per strato; riga di conferma nel terminale | **OK** (digitato, non tramite pulsante) — confermato dalla riga di ack nel terminale ("→ finestra "Lare - /ping" aperta"); contenuto della finestra non ispezionato visivamente |
 | 3 | Digita `/calc` (richiede `-IncludePlugins` nel deploy, vedi sopra) | Il plugin `calc` risponde come da `Test Run\plugins\calc\` | Da eseguire |
-| 4 | `/config`, `/library`, `/help` — una volta digitati nella shell, una volta dai 4 pulsanti `.slash-btn` sopra il terminale (`terminal.html`: `/help`, `/library`, `/aichat`, `/config` — NON `/calc`/`/ping`, che non hanno un pulsante dedicato) | Si aprono le finestre corrispondenti in entrambi i casi (digitato e pulsante), stesso esito | Da eseguire |
-| 5 | `/ai "elenca i 3 file più grandi in questa cartella"` | Gate `[Y/n]` nel terminale → `y` → comando eseguito nel terminale → finestra Markdown col risultato | Da eseguire |
-| 6 | Dopo il comando del passo 5, osserva il segnalino OSC 9001 nella finestra terminale | Il segnalino si accende (evento `intercept` ricevuto da `registerOscHandler(9001, …)`) | Da eseguire |
-| 7 | Durante un turno `/ai "…"` lungo (risposta non istantanea) | Il segnalino ActivityIndicator si accende per la durata del turno e si spegne a `Done`/`Error` | Da eseguire |
+| 4 | `/config`, `/library`, `/help` — una volta digitati nella shell, una volta dai 4 pulsanti `.slash-btn` sopra il terminale (`terminal.html`: `/help`, `/library`, `/aichat`, `/config` — NON `/calc`/`/ping`, che non hanno un pulsante dedicato) | Si aprono le finestre corrispondenti in entrambi i casi (digitato e pulsante), stesso esito | Da eseguire — `/help` digitato (non tramite pulsante) verificato a parte: OK, apre la finestra Markdown "Lare — Comandi" col contenuto reale; `/config`/`/library` e tutti i pulsanti `.slash-btn` non sono mai stati testati |
+| 5 | `/ai "elenca i 3 file più grandi in questa cartella"` | Gate `[Y/n]` nel terminale → `y` → comando eseguito nel terminale → finestra Markdown col risultato | **OK**, con una AI reale (`llms.json` presente, provider Anthropic) — testato con `/ai "conta quanti file .ps1 ci sono in questa cartella"`: due gate `[Y/n]` in sequenza (ricerca routine, poi comando PowerShell), entrambi accettati, risultato "0", finestra Markdown col titolo della richiesta aperta con l'ack nel terminale |
+| 6 | Dopo il comando del passo 5, osserva il segnalino OSC 9001 nella finestra terminale | Il segnalino si accende (evento `intercept` ricevuto da `registerOscHandler(9001, …)`) | **OK.** Verificato che il segnalino "ultimo: /comando" si aggiorna correttamente per `/help`, `/ping` e per `/ai "…"` con l'intero testo tra virgolette |
+| 7 | Durante un turno `/ai "…"` lungo (risposta non istantanea) | Il segnalino ActivityIndicator si accende per la durata del turno e si spegne a `Done`/`Error` | **OK.** Confermato visivamente (screenshot) che il pallino si accende durante il turno `/ai` (dal gate in poi) e si spegne dopo `Done` — la catena end-to-end orchestratore→host.js→evento Tauri→terminal.js funziona |
 | 8 | Digita `/aichat` due volte di seguito | Si apre una sola finestra AI Chat (singleton), non due | Da eseguire |
-| 9 | Chiudi la finestra terminale | Il processo `lare-shell.exe` figlio termina con lei — nessun processo residuo (Task Manager) | Da eseguire |
-| 10 | Uccidi `orchestrator.exe` PRIMA di avviare `ui.exe`, poi avvia `ui.exe` (modalità A) | Self-heal (Task 3): `ui.exe` avvia da solo `orchestrator.exe`, la finestra terminale funziona normalmente (nessun errore visibile all'utente) | Da eseguire |
+| 9 | Chiudi la finestra terminale | Il processo `lare-shell.exe` figlio termina con lei — nessun processo residuo (Task Manager) | **OK, ma SOLO DOPO il fix di chiusura finestra (commit `07c584c`)** — prima di quel fix, `lare-shell.exe` e `ui.exe` restavano entrambi vivi dopo la chiusura (bug reale, trovato proprio da questo passo di e2e). Dopo il fix: verificato con `Get-Process` che `lare-shell.exe` e `ui.exe` terminano correttamente; `orchestrator.exe` resta vivo (corretto, è un daemon indipendente) |
+| 10 | Uccidi `orchestrator.exe` PRIMA di avviare `ui.exe`, poi avvia `ui.exe` (modalità A) | Self-heal (Task 3): `ui.exe` avvia da solo `orchestrator.exe`, la finestra terminale funziona normalmente (nessun errore visibile all'utente) | **OK.** Stesso passo del punto 1 (avvio di `ui.exe` nudo) dimostra anche questo |
 | 11 | Avvia `ui.exe` senza orchestrator E con `autostart.orchestrator` disattivato in `startup.json` | Messaggio "non raggiungibile" nel terminale; la shell resta comunque utilizzabile per comandi locali (`dir`, `cd`, …) — solo i `/…` falliscono | Da eseguire |
+
+**Verifiche aggiuntive fatte dal vivo, senza una riga dedicata in questa tabella** (spec §10 non
+prevedeva righe separate per queste — annotate qui invece di forzarle in righe sopra):
+
+- **Modalità B (`ui.exe --no-terminal`)**: OK. `ui.exe --config-dir … --no-terminal` avvia il
+  self-heal dell'orchestratore ma NESSUNA finestra terminale (0 finestre "Lare Terminal" via UIA)
+  e NESSUN `lare-shell.exe`.
+- **Autostart di `ui.exe` dall'orchestratore (Task 6)**: OK. Avviato SOLO `orchestrator.exe`
+  (nessun `ui.exe`), poi inviato un comando `/help` via `node scripts/dev/shell-client.mjs`
+  (simula una sessione shell senza `ui.exe`): l'orchestratore ha autostartato da solo
+  `ui.exe --no-terminal` (confermato: processo `ui` compare, nessuna finestra terminale, nessun
+  `lare-shell.exe`), la finestra "Lare — Comandi" si è aperta davvero, ack "→ finestra aperta"
+  (non il fallback `NO_UI_ACK`).
+
+**Righe/passi esplicitamente NON testati dal vivo** (lasciati "Da eseguire", nessun esito
+inventato): riga 3 (`/calc`); riga 4 (`/config`/`/library`, né digitati né coi pulsanti; i
+pulsanti della barra inferiore in generale — mai cliccati, solo digitazione diretta); riga 8
+(`/aichat` due volte → una sola finestra); riga 11 (avvio di `ui.exe` senza orchestratore E con
+autostart disattivato); il bottone "riavvia" dopo un crash esterno di `lare-shell.exe`; il resize
+della finestra (nessuna verifica di re-fit).

@@ -20,7 +20,7 @@
 - plugin-calc 2.0.0 (da v1 0.2.0)
 - plugin-lc 2.0.0 (da v1 0.4.5)
 - plugin-crypto 2.0.0 (da v1 1.0.1)
-- ui 2.2.0 (da v1 0.47.1)
+- ui 2.2.1 (da v1 0.47.1)
 - lare-shell 2.0.1 (piano 2b 2.0.0 → 2.0.1 nel piano 3, Task 3: `Launcher.EnsureUi()` passa
   `--no-terminal` — non un crate Cargo: `shell/lare-shell/`, .NET/C#)
 
@@ -189,6 +189,20 @@ un'asserzione esistente in `LauncherTests.cs`, non aggiunge test propri):
   di `ui` lasciato aperto dal Task 3, e lo `[Unreleased]` di `startup-config` lasciato dal Task 3),
   questo aggiornamento di `HANDOFF.md`. Questo commit di release.
 
+- **Fix chiusura finestra (dopo il Task 7, non uno degli 8 task pianificati)** — difetto reale
+  trovato dal controller nell'e2e dal vivo condotto DOPO il completamento del piano: chiudere la
+  finestra terminale (bottone X) non terminava né `lare-shell.exe` (pty child) né `ui.exe` stesso,
+  che restavano entrambi in esecuzione. Corretto: `pty.rs` cattura un `ChildKiller` allo spawn e
+  lo usa su `WindowEvent::CloseRequested` (`main.rs`), poi l'intero processo esce
+  (`AppHandle::exit(0)`). Nel farlo, scoperto un bug upstream in `portable-pty` 0.9.0 su Windows:
+  `WinChildKiller::kill` legge la condizione di successo di `TerminateProcess` al contrario (quella
+  API Win32 ritorna non-zero in caso di successo, al contrario della convenzione POSIX che il resto
+  del crate segue) — un kill riuscito viene riportato come errore. Aggirato in `pty::kill`
+  riconoscendo quel caso specifico come successo (commentato nel codice) — **una futura release di
+  `portable-pty` andrebbe verificata per capire se il bug è stato corretto a monte, nel qual caso
+  l'aggiramento locale può essere rimosso**. Commit `07c584c`, `ui` 2.2.0 → 2.2.1 (CHANGELOG/
+  IMPLEMENTATION di `ui`).
+
 **Da fare prima di considerare il piano 3 chiuso al 100%**: la Parte 7 di `TESTING-e2e.md` (e2e
 manuale dal vivo, modalità A) — vedi la nota in testa a quella sezione.
 
@@ -205,6 +219,18 @@ manuale dal vivo, modalità A) — vedi la nota in testa a quella sezione.
   particolare. Da studiare quando/se emerge come esigenza reale.
 - **Chore separata**: `cargo fmt` globale sul codice copiato dalla v1 (non fmt-clean), fuori dai
   piani per non sporcare i diff di review.
+- **`ensure_ui_sink` (orchestrator, Task 6) non ha una guardia `IsRunning` come il suo specchio C#
+  `Launcher.EnsureUi`** (`shell/lare-shell/src/LareShell/Shell/Launcher.cs`): decide se autostartare
+  `ui.exe` solo da "esiste un sink `ui` registrato ORA nel `Registry`", non da "esiste già un
+  processo `ui.exe` vivo" — `Launcher.EnsureUi` controlla invece `_starter.IsRunning(UiExe)` prima
+  di avviarlo. Innesco concreto: se l'orchestratore stesso riparte, il client WS di `ui.exe`
+  (`crates/ui/frontend/ws-client.js`) si riconnette con un backoff esponenziale che arriva fino a
+  8s (`RETRY_MAX_MS`); un qualunque turno shell che nel frattempo ha bisogno di una finestra vede
+  "nessun sink registrato" e fa partire un SECONDO `ui.exe --no-terminal`. Quella seconda istanza
+  non ha via d'uscita oggi: senza finestra terminale non c'è handler di chiusura, e il thread
+  debug-only che legge "q" da stdin non esiste in una build release — resta viva finché non viene
+  uccisa a mano. Decisione deliberata di questa review: non correggerlo ora, solo documentarlo con
+  precisione perché non resti solo nella memoria dei partecipanti.
 
 - **E2E con AI reale fatto il 2026-09-07** (`llms.json` copiato dal deploy v1 in `Test Run\Configuration\`, gitignored): punti 5-9 di `TESTING-e2e.md` Parte 6 tutti OK (tre gate in sequenza, exec nel runspace, `cd` persistente, rifiuto, Ctrl+C in attesa e durante l'exec, `python` interattivo). Trovato e protetto un caso di gate accettato da tasti pendenti (svuotamento del buffer prima del prompt + log): vedi `KNOWN-ISSUES.md`.
 
