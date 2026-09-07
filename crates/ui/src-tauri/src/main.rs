@@ -185,11 +185,20 @@ struct PtyState(ui_lib::pty::SharedPtyState);
 /// piano 3): non apre la finestra terminale — resta solo la host page
 /// nascosta + le finestre aperte on-demand (config, library, ...).
 ///
-/// `#[allow(dead_code)]`: il campo .0 non è ancora letto da nessun comando
-/// in questo task — lo sarà dalla finestra terminale (Task 4), che decide
-/// se aprirsi consultando questo stato gestito.
-#[allow(dead_code)]
+/// Il campo `.0` è letto in `.setup()` (Task 4) per decidere se costruire
+/// la finestra terminale.
 struct NoTerminal(bool);
+
+/// Id di sessione (8 esadecimali, stesso formato di `ws.rs::hello.session_id`
+/// lato orchestratore) della finestra terminale di questo processo — un solo
+/// campo perché l'MVP ha una sola finestra terminale per processo ("una
+/// finestra, una sessione", spec §5).
+struct TerminalSession(String);
+
+#[tauri::command]
+fn get_terminal_session(state: tauri::State<'_, TerminalSession>) -> String {
+    state.0.clone()
+}
 
 /// Avvia `lare-shell.exe --config-dir <dir> --session <id>` nella pty della
 /// finestra terminale. `session_id` arriva dal frontend, che lo ha ottenuto
@@ -1404,6 +1413,7 @@ fn main() {
             pty_spawn,
             pty_write,
             pty_resize,
+            get_terminal_session,
             get_config,
             set_config,
             search_settings::get_search_settings,
@@ -1586,6 +1596,29 @@ fn main() {
                         }
                     }
                 });
+            }
+
+            // ── Finestra terminale (piano 3, modalità A) ────────────────────
+            // Costruita qui (non dichiarata staticamente in tauri.conf.json
+            // come "main") perché è condizionale: chi avvia `ui.exe` in
+            // ruolo "solo host" (`--no-terminal`, Task 3) non la vuole.
+            let no_terminal = app.state::<NoTerminal>().0;
+            if !no_terminal {
+                let session_id = format!("{:08x}", rand::random::<u32>());
+                app.manage(TerminalSession(session_id.clone()));
+                tauri::WebviewWindowBuilder::new(
+                    app,
+                    "terminal",
+                    tauri::WebviewUrl::App("terminal.html".into()),
+                )
+                .title("Lare Terminal")
+                .inner_size(1000.0, 650.0)
+                .decorations(true)
+                .transparent(false)
+                .resizable(true)
+                .build()
+                .map_err(|e| format!("finestra terminale: {e}"))?;
+                println!("[ui] finestra terminale aperta (sessione {session_id})");
             }
 
             // Niente più "Press <tasto> to toggle": l'overlay F2 è sparito, la

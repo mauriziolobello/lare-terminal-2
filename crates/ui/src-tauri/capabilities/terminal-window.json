@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "terminal-window",
+  "description": "Capability per la finestra terminale di Lare Terminal (piano 3, label: 'terminal'). core:default per l'IPC Tauri (pty_spawn/pty_write/pty_resize/get_terminal_session/close_self) e l'event API (ascolto pty-out/pty-exit/terminal:activity). Nessuna titlebar chromeless qui (decorations:true, finestra reale con la sua chrome OS, non un popup) quindi core:window:allow-start-dragging NON è incluso. Global-shortcut e clipboard NON inclusi.",
+  "platforms": ["linux", "macOS", "windows"],
+  "windows": ["terminal"],
+  "permissions": [
+    "core:default"
+  ]
+}

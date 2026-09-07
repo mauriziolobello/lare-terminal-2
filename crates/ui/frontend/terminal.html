@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8" />
+  <title>Lare Terminal</title>
+  <link rel="stylesheet" href="vendor/xterm.css" />
+  <link rel="stylesheet" href="terminal.css" />
+</head>
+<body>
+  <div id="bar-top">
+    <span id="session-label"></span>
+    <span id="last-command">ultimo: —</span>
+    <span id="activity-dot" class="dot"></span>
+    <span id="clock"></span>
+  </div>
+  <div id="terminal">
+    <div id="restart-banner" hidden>
+      <span id="restart-message"></span>
+      <button id="restart-btn">riavvia</button>
+    </div>
+  </div>
+  <div id="bar-bottom">
+    <button class="slash-btn" data-cmd="/help">/help</button>
+    <button class="slash-btn" data-cmd="/library">/library</button>
+    <button class="slash-btn" data-cmd="/aichat">/aichat</button>
+    <button class="slash-btn" data-cmd="/config">/config</button>
+  </div>
+
+  <script src="vendor/xterm.js"></script>
+  <script src="vendor/addon-fit.js"></script>
+  <script type="module" src="terminal.js"></script>
+</body>
+</html>
