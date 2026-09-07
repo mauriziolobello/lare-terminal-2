@@ -27,7 +27,9 @@ internal interface IExecutor
 /// </summary>
 internal sealed class Executor : IExecutor
 {
-    /// <summary>Exit code convenzionale per "interrotto da Ctrl+C" (128 + SIGINT), usato solo nei log.</summary>
+    /// <summary>Exit code convenzionale per "interrotto da Ctrl+C" (128 + SIGINT): valore
+    /// convenzionale restituito in ExecOutcome quando la pipeline è stata fermata (il chiamante
+    /// manda CancelCommand, mai un ExecResult).</summary>
     private const int StoppedExitCode = 130;
 
     private readonly RunspaceSession _session;
@@ -52,11 +54,39 @@ internal sealed class Executor : IExecutor
         state.SetVariable("LASTEXITCODE", null);
         state.PSVariable.Remove(OkVariable);
 
-        // $? va letto NELLO stesso script del comando, come ultima istruzione: vale il risultato
-        // dell'istruzione precedente, cioè del comando dell'utente (anche per un nativo con exit ≠ 0).
-        // Letto da fuori, in una pipeline separata, rifletterebbe la pipeline ESTERNA
-        // (… | ForEach-Object | Out-Default), che riesce sempre. L'assegnazione non emette output.
-        (bool stopped, bool caughtError) = Invoke(command + "\n$global:" + OkVariable + " = $?", capture);
+        // Il comando dell'utente gira dentro "try { ... } finally { $global:__lare_ok = $? }",
+        // non appeso direttamente allo script. Tre fatti, verificati empiricamente (Task 4, fix
+        // round 1 — un semplice "sembra giusto" non basta con l'engine PowerShell):
+        //  1. Perché non un append diretto ("<command>\n$global:__lare_ok = $?", il design
+        //     originale): un "return" a livello superiore del comando (fuori da una funzione, es.
+        //     "if (...) { return }") termina TUTTO lo script prima di raggiungere quella riga — un
+        //     comando RIUSCITO che finisce con return tornava comunque exit_code 1 (difetto trovato
+        //     in review).
+        //  2. Perché non ". { ... }" o "& { ... }" (un blocco dot-sourced o invocato attorno al
+        //     comando, che risolverebbe il return): invocare O dot-sourcere un blocco "{ ... }" è
+        //     un CONFINE DI CHIAMATA per il motore — al suo ritorno $? diventa SEMPRE true,
+        //     qualunque cosa sia successa dentro (un nativo con exit ≠ 0, un errore non
+        //     terminante…), a meno che il blocco stesso lanci un'eccezione. Verificato con una
+        //     diagnostica dedicata: ". { cmd /c exit 4 }" e "& { cmd /c exit 4 }" davano entrambi
+        //     $?=True subito dopo, mentre lo stesso comando senza blocco dava $?=False. Con quel
+        //     meccanismo un nativo o un cmdlet falliti dentro il blocco sarebbero tornati come
+        //     SUCCESSO — avrebbe rotto esattamente i due test che il brief segnalava come a rischio
+        //     (nativo con capture:true, capture:false).
+        //  3. Perché "try { ... } finally { ... }" risolve tutto senza introdurre il problema del
+        //     punto 2: try/finally è normale flusso di controllo dentro allo STESSO script, NON una
+        //     chiamata a un blocco separato — non è un confine di chiamata, quindi non apre un
+        //     nuovo scope (variabili/funzioni definite dal comando restano nella sessione dopo,
+        //     esattamente come digitandolo al prompt) e $? dentro "finally" resta quello della vera
+        //     ultima istruzione eseguita nel "try" (nativo fallito o errore non terminante inclusi).
+        //     "return" dentro "try" esegue comunque "finally" prima di uscire (garanzia del
+        //     linguaggio): la cattura di $? avviene sempre, anche quando il comando finisce con
+        //     return.
+        // Limite noto, documentato (non aggirato qui): un "exit" dentro il comando dell'AI non è
+        // fermato dal try/finally — esce dal PROCESSO come farebbe un "exit" digitato al prompt
+        // dell'utente, arrivando a LareHost.SetShouldExit. Il gate di conferma ha già mostrato il
+        // comando prima dell'esecuzione: è un limite dichiarato, non un buco di sicurezza.
+        (bool stopped, bool caughtError) = Invoke(
+            "try {\n" + command + "\n} finally {\n$global:" + OkVariable + " = $?\n}", capture);
 
         string output = capture ? _session.Host.HostUI.Recorder.End() : string.Empty;
         int exitCode = stopped ? StoppedExitCode : caughtError ? 1 : ReadExitCode(state);
@@ -121,8 +151,11 @@ internal sealed class Executor : IExecutor
     }
 
     /// <summary>Regola (ruling 3): 0 se il $? catturato dallo script è vero; altrimenti
-    /// $LASTEXITCODE se ≠ 0, altrimenti 1. Variabile assente = il comando non è arrivato in fondo
-    /// (errore terminante dentro lo script) → non ok. Pulisce il segnaposto.</summary>
+    /// $LASTEXITCODE se ≠ 0, altrimenti 1. Con "try/finally" il segnaposto è quasi sempre presente
+    /// (il "finally" lo imposta anche se il "try" fallisce) — il caso "variabile assente" resta
+    /// solo per un errore che impedisce l'esecuzione del "finally" stesso (es. ParseException:
+    /// quella strada torna 1 PRIMA di chiamare questo metodo, tramite <c>caughtError</c> in
+    /// <see cref="Run"/>, non passando di qui). Pulisce il segnaposto.</summary>
     private static int ReadExitCode(SessionStateProxy state)
     {
         bool ok = state.GetVariable(OkVariable) is bool b && b;

@@ -117,4 +117,43 @@ public class ExecutorTests : IDisposable
         Assert.False(_executor.RunInteractive("if ("));                       // sintassi
         Assert.False(_executor.RunInteractive("Get-Item 'C:\\__lare_no__'")); // non terminante
     }
+
+    [Fact]
+    public void Comando_con_return_riporta_exit_0_e_l_output_prima_del_return()
+    {
+        // Difetto trovato in review: un "return" a livello superiore del comando (fuori da una
+        // funzione) terminava lo script PRIMA della riga "$global:__lare_ok = $?" che avremmo
+        // accodato — un comando RIUSCITO che finisce con return tornava comunque exit_code 1.
+        // Fix: il comando gira dentro "try { ... } finally { $global:__lare_ok = $? }": "return"
+        // esce dal "try" ma il linguaggio garantisce che "finally" giri comunque prima, quindi la
+        // cattura del $? avviene sempre. (Un blocco dot-sourced ". { ... }" risolverebbe anche lui
+        // il return, ma per un motivo diverso rompe il rilevamento degli errori — vedi il test
+        // successivo e il commento in Executor.Run.)
+        ExecOutcome o = _executor.Run("'prima'; if (1) { return }; 'mai'", capture: true);
+        Assert.Equal(0, o.ExitCode);
+        Assert.Contains("prima", o.Output);
+        Assert.DoesNotContain("mai", o.Output);
+    }
+
+    [Fact]
+    public void Le_variabili_definite_dal_comando_restano_nella_sessione()
+    {
+        // "try/finally" (flusso di controllo, nessuno scope nuovo) e ". { }" (dot-source, stesso
+        // scope) preservano entrambi le variabili; solo "& { }" (invocazione di un blocco) le
+        // perderebbe, aprendo un nuovo scope. Questo test pin non distingue try/finally da ".",
+        // ma tiene fuori quella regressione: le variabili definite dal comando devono restare
+        // nella sessione esattamente come digitandole al prompt — "$x = 1" in un ExecInShell e
+        // "$x" nel successivo devono vedere lo stesso $x.
+        _executor.Run("$lare_persist = 7", capture: true);
+        ExecOutcome o = _executor.Run("$lare_persist", capture: true);
+        Assert.Contains("7", o.Output);
+    }
+
+    [Fact]
+    public void Comando_vuoto_o_solo_commento_riporta_exit_0()
+    {
+        ExecOutcome o = _executor.Run("# niente", capture: true);
+        Assert.Equal(0, o.ExitCode);
+        Assert.Equal(string.Empty, o.Output);
+    }
 }
