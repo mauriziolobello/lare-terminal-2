@@ -21,8 +21,8 @@ ui.exe (Tauri) = finestra terminale + host di finestre (Markdown, /config, /libr
 
 Crate in `crates/`: `protocol`, `startup-config`, `mcp-server`, `mcp-nmap`, `orchestrator`,
 `plugin-protocol`, `plugin-*`, `ui` (in `crates/ui/src-tauri`). Host C# in `shell/lare-shell/`
-(dal piano 2b — il canale che parlerà è già pronto lato orchestratore/`ui`, piano 2a). Tool
-Python in `scripts/pytools/<dominio>/` (un venv per dominio, creato a mano).
+(src + test xUnit; ADR-015/019 — verificabile in modalità B, profilo Windows Terminal "Lare
+Terminal"). Tool Python in `scripts/pytools/<dominio>/` (un venv per dominio, creato a mano).
 
 ## Configurazione (regola unica, D6)
 
@@ -42,18 +42,24 @@ cargo test -p orchestrator <substring>        # un test
 cargo test -p orchestrator -- --ignored       # integrazione reale (API, binari, venv)
 node --test crates/ui/frontend/*.test.mjs     # test JS puri del frontend
 cargo clippy --all-targets ; cargo fmt --check
+dotnet test shell/lare-shell/LareShell.sln    # test della host C# (115)
 
 # Avvio in sviluppo (due terminali), stessa config del deploy:
 cargo run -p orchestrator -- --config-dir "Test Run\Configuration" --console-log
 cargo run -p ui -- --config-dir "Test Run\Configuration"
-node scripts/dev/shell-client.mjs -- '/ping'   # canale shell senza la host (piano 2a)
-# Flag di sviluppo (solo finché non c'è lare-shell, piano 2b/3): ui.exe --open config|library
+node scripts/dev/shell-client.mjs -- '/ping'   # canale shell senza console interattiva (dev/CI)
+# Flag di sviluppo (finché non c'è la modalità A, piano 3): ui.exe --open config|library
+
+.\deploy_test_run.ps1                         # popola Test Run\ (pubblica anche lare-shell; -SkipShell per saltarla)
 ```
 
 Gotcha Windows: build che fallisce con `Accesso negato (os error 5)` = processo in esecuzione →
-`taskkill //F //IM orchestrator.exe //IM ui.exe`. **Riavvia sempre l'orchestratore dopo una build
-del backend.** Tauri: `generate_context!` incorpora `frontendDist` a compile time — dopo modifiche
-al solo frontend, `cargo clean -p ui` se la build non ricompila.
+`taskkill //F //IM orchestrator.exe //IM ui.exe //IM lare-shell.exe`. **Riavvia sempre
+l'orchestratore dopo una build del backend.** Tauri: `generate_context!` incorpora `frontendDist`
+a compile time — dopo modifiche al solo frontend, `cargo clean -p ui` se la build non ricompila.
+Host C#: i `.csproj` dichiarano `<RuntimeIdentifier>win-x64</RuntimeIdentifier>` (necessario perché
+`$PSHOME` risolva nella cartella dell'exe, ADR-019) — l'output di build sta quindi sotto
+`bin\Debug\net10.0\win-x64\`, non `bin\Debug\net10.0\`.
 
 ## Convenzioni di progetto (non derogabili)
 

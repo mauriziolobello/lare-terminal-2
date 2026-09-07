@@ -1,18 +1,25 @@
 # DEPLOY — Lare Terminal 2.0
 
-> Stato a fine piano 1: questo documento descrive il deploy dei componenti che esistono oggi
-> (`orchestrator`, `mcp-server`, `mcp-nmap`, `ui`, plugin, `pytools`). **`shell\lare-shell.exe`
-> non esiste ancora** (arriva col piano 2): senza di lui non c'è ancora un canale che apra le
-> finestre da solo — vedi il flag di sviluppo `--open` in `RUN-LOCAL.md`.
+> Stato a fine piano 2b: `lare-shell.exe` (host C# del motore PowerShell, ADR-015) esiste ed è
+> pubblicata da `deploy_test_run.ps1` in `Test Run\shell\`, verificabile in **modalità B** (profilo
+> Windows Terminal "Lare Terminal" — `install-wt-profile.ps1`). La modalità A (`ui.exe` che lancia
+> `lare-shell.exe` dentro una ConPTY) resta piano 3; fino ad allora il flag di sviluppo `--open`
+> resta utile per aprire una finestra senza passare dalla shell — vedi `RUN-LOCAL.md`.
 
 ## Prerequisiti sulla macchina di destinazione
 
 - **Windows 10/11 x64**.
 - **WebView2 Runtime** (di norma già presente su Windows 10/11 aggiornati; Tauri lo richiede per
   ospitare le finestre).
-- **pwsh 7.6+ e .NET 10 runtime: dal piano 2 (host C#)** — non servono per il layout attuale
-  (nessun binario 2.0 di oggi li richiede); saranno prerequisiti quando `lare-shell.exe` (host
-  del motore PowerShell, ADR-015) sarà pubblicata framework-dependent.
+- **pwsh 7.6+ installato** (`C:\Program Files\PowerShell\7` o in PATH): `lare-shell` carica
+  PSReadLine dai moduli di pwsh, che il NuGet `Microsoft.PowerShell.SDK` non include
+  (`PwshLocator`, ADR-019 punto 2) — senza pwsh l'editing di riga ricade su un fallback povero
+  (`Console.ReadLine`), la shell resta comunque usabile.
+- **.NET 10 runtime x64**: `lare-shell` è pubblicata *framework-dependent* (publish
+  `-r win-x64 --self-contained false`, ~100 MB invece di ~200 self-contained). Misurata dal vivo
+  nel Task 8: `Test Run\shell\` (lare-shell.exe + le DLL del motore PowerShell, `System.Management.
+  Automation.dll` compresa) pesa **41,4 MB**. Senza il runtime il processo non parte (errore di
+  framework mancante, non un crash Lare).
 - Un venv Python per dominio in `pytools\<dominio>\venv\` **creato a mano** sulla macchina di
   destinazione (mai deployato: vedi sotto) — necessario solo se si useranno i tool che dipendono
   da quel dominio (es. `/markets` → `financial-markets`).
@@ -28,6 +35,10 @@ contiene `Configuration\`), non alla posizione originale, quindi funziona senza 
 ```
 <deploy>\
 ├── orchestrator.exe  mcp-server.exe  mcp-nmap.exe  ui.exe
+├── shell\                                            ← lare-shell.exe + DLL del motore PowerShell
+│                                                        + powershell.config.json (execution policy,
+│                                                        ADR-019); publish framework-dependent win-x64
+├── install-wt-profile.ps1  uninstall-wt-profile.ps1  ← modalità B: profilo Windows Terminal "Lare Terminal"
 ├── init_orchestrator.ps1  init_tauri.ps1            ← avvio manuale, nessuna variabile d'ambiente
 ├── Configuration\
 │   ├── startup.json                                 ← template, nessun segreto
@@ -72,14 +83,27 @@ due è disponibile).
    in sviluppo).
 2. `.\deploy_test_run.ps1 -BuildConfig release -IncludePlugins` popola `Test Run\` da
    `target\release\` (deve esistere: senza il passo 1 in release, lo script fallisce con "Manca
-   ...\target\release").
-3. Copia `Test Run\` nella cartella di destinazione (qualunque percorso: i path relativi
+   ...\target\release") **e pubblica `lare-shell` in `Test Run\shell\`** (`dotnet publish -c
+   Release -r win-x64 --self-contained false`, sempre — la host non ha una build "debug" utile nel
+   deploy). `-SkipShell` salta questo passo (utile quando si ricompila solo il Rust: il publish
+   .NET costa circa 1 minuto).
+3. `.\install-wt-profile.ps1` (da `Test Run\`, o passando `-ShellExe` a un percorso diverso)
+   installa il profilo "Lare Terminal" in Windows Terminal (modalità B, spec §2.3): scrive un
+   fragment JSON in `%LOCALAPPDATA%\Microsoft\Windows Terminal\Fragments\Lare\` — **riavvia
+   Windows Terminal** (chiudi tutte le finestre) perché il fragment venga letto, aprire una nuova
+   scheda in una finestra già avviata non basta.
+4. `.\shell\lare-shell.exe --selftest` verifica il deploy senza tastiera né orchestratore: una
+   riga `[OK]`/`[FAIL]` per controllo (cartella di configurazione, `startup.json`, pwsh trovato,
+   …), exit code 0/1 — utile anche dopo aver copiato `Test Run\` altrove (passo 5 sotto, percorsi
+   relativi).
+5. Copia `Test Run\` nella cartella di destinazione (qualunque percorso: i path relativi
    ripartono dalla nuova radice).
-4. Se serve un provider AI diverso dal default, crea `Configuration\llms.json` a mano (mai
+6. Se serve un provider AI diverso dal default, crea `Configuration\llms.json` a mano (mai
    copiarlo da un altro deploy: contiene chiavi).
-5. Se serve un dominio `pytools` (es. `/markets`), crea il venv a mano dentro
+7. Se serve un dominio `pytools` (es. `/markets`), crea il venv a mano dentro
    `pytools\<dominio>\` sulla macchina di destinazione (vedi `RUN-LOCAL.md` §Python) — i venv non
    sono mai copiati dal deploy script.
-6. Avvia con `.\init_orchestrator.ps1` poi `.\init_tauri.ps1` (o viceversa; nessuno dei due
-   dipende dall'ordine in questo piano — l'auto-avvio reciproco tra `orchestrator` e `ui.exe`,
-   spec §6.4, non è ancora implementato).
+8. Modalità B (consigliata): apri la scheda "Lare Terminal" in Windows Terminal (passo 3) —
+   `lare-shell.exe` avvia da sola `orchestrator.exe` e `ui.exe` se mancano (self-heal, §6.4).
+   Modalità manuale (senza `lare-shell`, come nei piani precedenti): `.\init_orchestrator.ps1` poi
+   `.\init_tauri.ps1` (o viceversa, l'ordine non conta).

@@ -246,13 +246,17 @@ arriva senza risposta affermativa. Con `capture: false` (§4.5) il prompt dichia
   semantica della v1 (Ctrl+C = stop di tutto), non un `ExecResult` parziale.
 - **Programmi esterni.** `NotifyBeginApplication`/`NotifyEndApplication` salvano/ripristinano le
   modalità console (output e input) come `ConsoleHost.cs:1227-1270` (lezione spike 1).
-- **Profilo.** La host carica `$PROFILE.CurrentUserAllHosts` (`profile.ps1`) e il proprio
-  `LareShell_profile.ps1`; carica **anche** `Microsoft.PowerShell_profile.ps1` (quello di pwsh) —
-  raccomandazione, così alias, oh-my-posh e moduli dell'utente appaiono in Lare come in pwsh. Da
-  confermare.
+- **Profilo.** **Confermato (piano 2b)**: la host carica, in quest'ordine, `profile.ps1`
+  (`$PROFILE.CurrentUserAllHosts`), poi `Microsoft.PowerShell_profile.ps1` (quello di **pwsh**: così
+  alias, oh-my-posh e moduli dell'utente appaiono in Lare come in pwsh), poi il proprio
+  `LareShell_profile.ps1`. I profili AllUsers non sono caricati (debito, `KNOWN-ISSUES.md`).
+  Implementato da `ProfileLoader` (`shell/lare-shell/IMPLEMENTATION.md`).
 - **Execution policy.** Lo spike la forzava a `RemoteSigned` in-process (senza, PSReadLine `.psm1`
-  non si carica). Il prodotto la risolve come `ConsoleHost` (scope di registro/utente): voce di
-  verifica del piano, §13.
+  non si carica). **Risolta (piano 2b, ADR-019)**: un `powershell.config.json` (execution policy
+  LocalMachine) spedito accanto all'exe — `$PSHOME` di una host è la sua cartella, ma SOLO con un
+  `<RuntimeIdentifier>` esplicito nel `.csproj` (senza, `$PSHOME` risolve dentro
+  `runtimes\win\lib\net10.0\` e il file accanto all'exe non verrebbe letto — scoperta del Task 4).
+  `Set-ExecutionPolicy` la cambia poi come in un vero pwsh, mai forzata in-process.
 - **stdin rediretto**: PSReadLine saltato (fallback `Console.ReadLine`), come `ConsoleHost`.
 
 ### 4.5 `ExecInShell.capture` — quando l'output torna all'AI
@@ -387,6 +391,11 @@ orchestratore avviato in autostart non deve sporcare il terminale; `init_*.ps1` 
   "finestra") → se `autostart.ui`, avvia `ui.exe`.
 - **Processi staccati**: `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP` su Windows (nessuna console
   ereditata, un Ctrl+C nella shell non abbatte il daemon), stdio chiusi; `setsid` su unix.
+  **Nella host C#** (piano 2b): `UseShellExecute=true` + finestra nascosta per ENTRAMBI i figli
+  (`orchestrator.exe` e `ui.exe`) — equivalente pratico di `DETACHED_PROCESS` in .NET (ruling 4 del
+  piano 2b, rivisto durante l'e2e: la formulazione iniziale lasciava `ui.exe` con finestra visibile,
+  ma in build debug `ui.exe` è un'app console che rubava il fuoco alla shell — vedi `TESTING-e2e.md`
+  Parte 6).
 - Servizio Windows, autorun al login, tray: fuori MVP (§12).
 
 ## 7. `Test Run\` — layout di deploy dentro il repo
@@ -433,7 +442,7 @@ self-contained; da confermare).
 | Situazione | Comportamento |
 |---|---|
 | WS non raggiungibile, autostart off o fallito entro 5 s | `ui.exe`/host: errore nel terminale, la shell **resta usabile** (i `/comandi` rispondono "orchestratore non raggiungibile") |
-| WS cade durante un turno | Host: riga d'errore, torna al prompt; turno cancellato lato orchestratore (disconnessione = cancel, v1); riconnessione automatica con backoff |
+| WS cade durante un turno | Host: riga d'errore, torna al prompt; turno cancellato lato orchestratore (disconnessione = cancel, v1); **riconnessione al prossimo `/…` (piano 2b: "on demand", con autostart — non un task di riconnessione in background, ruling 2)** |
 | Token errato | Rifiuto, come v1; riga d'errore nel terminale |
 | Nessuna connessione `ui` per un messaggio "finestra" | Autostart `ui.exe`, attesa 10 s, poi `Error` al mittente ("finestra non disponibile") |
 | Slash ignoto da shell | `Done` muta; log `info` |
@@ -506,14 +515,29 @@ Tre linguaggi: Rust (orchestratore, protocollo, ui, plugin), C# (host), JS (webv
 
 ## 13. Verifiche per il piano (da spike, prima del codice relativo)
 
-- **Execution policy** nella host: risolverla come `ConsoleHost` (scope), non forzarla.
+- **Execution policy** nella host: risolverla come `ConsoleHost` (scope), non forzarla. **✓
+  Verificato (piano 2b)**: risolta con `powershell.config.json` accanto all'exe, mai forzata
+  in-process — richiede il RID esplicito nel `.csproj` (ADR-019, §4.4).
 - **Profili**: ordine e set di file caricati (§4.4); verificare che oh-my-posh/PSReadLine
-  configurati dall'utente in `Microsoft.PowerShell_profile.ps1` funzionino nella host.
+  configurati dall'utente in `Microsoft.PowerShell_profile.ps1` funzionino nella host. **✓
+  Verificato (piano 2b, e2e Parte 6)**: ordine confermato, PSReadLine attivo (dai moduli di pwsh
+  anteposti al `PSModulePath`), profilo caricato, prompt utente funzionante dal vivo — oh-my-posh
+  specifico non riverificato su questa macchina (nessuno installato); il meccanismo di caricamento
+  è comunque lo stesso di pwsh.
 - **`generate_context!`** di Tauri incorpora `frontendDist` a compile time: `rerun-if-changed`
   in `build.rs` o `cargo clean -p ui` documentato (spike 2).
 - **Flicker al resize**: debounce del fit e/o renderer WebGL di xterm.js.
 - **Codepage** dell'output nativo catturato con `capture: true` (KNOWN-ISSUE v1): misurare;
-  eventualmente `[Console]::OutputEncoding` UTF-8 nel runspace.
+  eventualmente `[Console]::OutputEncoding` UTF-8 nel runspace. **✓ Verificato (piano 2b)**:
+  `lare-shell` imposta `Console.OutputEncoding = UTF8` all'avvio (`Program.cs`) — è anche
+  l'encoding con cui PowerShell decodifica lo stdout dei programmi nativi (non un parametro
+  separato), quindi la stessa riga copre sia il testo generato dalla host sia quello dei nativi
+  in modalità B; resta da riverificare in modalità A/ConPTY (piano 3, vedi `KNOWN-ISSUES.md`).
 - **Publish** della host: framework-dependent vs self-contained; dimensione e prerequisiti (§7).
+  **✓ Verificato (piano 2b, Task 8)**: framework-dependent scelta (win-x64, richiede il runtime
+  .NET 10 sulla macchina di destinazione), `Test Run\shell\` misurata **41,4 MB**.
 - **Protocollo host↔orchestratore**: **mai spikato** (i due spike stampavano in locale). Primo task
-  di implementazione con test contro server finto, non ultimo.
+  di implementazione con test contro server finto, non ultimo. **✓ Verificato (piano 2b)**: `Wire`
+  (Task 1) e `OrchestratorClient` (Task 2) sono stati il primo lavoro del piano dopo lo
+  scaffolding di configurazione (Task 0), con test contro `FakeOrchestrator` (server WS finto
+  in-process) fin dall'inizio — non un ripensamento tardivo.

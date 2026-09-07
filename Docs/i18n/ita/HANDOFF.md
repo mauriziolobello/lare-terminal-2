@@ -5,7 +5,8 @@
 
 ## Versioni correnti
 
-(a fine piano 2a "protocollo shell" — lette da ogni `Cargo.toml`)
+(a fine piano 2b "host C# `lare-shell`" — lette da ogni `Cargo.toml`/`.csproj`; `protocol`/
+`orchestrator`/`ui` restano 2.1.0, non toccati da questo piano)
 
 - protocol 2.1.0 (da v1 0.15.4)
 - startup-config 2.0.2 (da v1 0.1.0)
@@ -19,6 +20,7 @@
 - plugin-lc 2.0.0 (da v1 0.4.5)
 - plugin-crypto 2.0.0 (da v1 1.0.1)
 - ui 2.1.0 (da v1 0.47.1)
+- **lare-shell 2.0.0 (nuovo componente, piano 2b — non un crate Cargo: `shell/lare-shell/`, .NET/C#)**
 
 ## FATTO
 
@@ -94,22 +96,67 @@ completato il 2026-09-06 — `protocol`/`orchestrator`/`ui` 2.1.0. Test: 1472 ne
   release (`release: piano 2a completato — canale shell nel protocollo e nell'orchestratore
   (protocol/orchestrator/ui 2.1.0)`).
 
+**Piano 2b — "host C# `lare-shell`"** (`Docs/i18n/ita/superpowers/plans/2026-09-06-piano-2b-host-lare-shell.md`),
+completato il 2026-09-07 — nuovo componente **`lare-shell` 2.0.0** (`protocol`/`orchestrator`/`ui`
+restano 2.1.0, non toccati). Test: 115/115 (`dotnet test shell/lare-shell/LareShell.sln`); `cargo
+test` invariato (1475 verdi, riverificato). Verificabile in **modalità B** (profilo Windows
+Terminal "Lare Terminal", `lare-shell.exe` nudo):
+
+- **Task 0** — soluzione .NET, configurazione (`--config-dir`, `startup.json`, `token`), log su
+  file. Commit `dcc5a63`; fix `6b29d7a` (`UnauthorizedAccessException` catturata in
+  `StartupConfig`/`TokenFile`, test del log no-op).
+- **Task 1** — `Wire`: i messaggi del canale shell (parse/serializzazione snake_case). Commit
+  `2ce340b`; fix `89aff4b` (`ts` di `pong` obbligatorio, campi numerici malformati →
+  `WireException` invece di un'eccezione grezza).
+- **Task 2** — `OrchestratorClient`: handshake `hello`/`server_info`, loop di ricezione su thread
+  proprio → `Channel`, server WS finto in-process (`FakeOrchestrator` su `TcpListener`, mai
+  `HttpListener`). Commit `78fa217`; fix `3990362` (socket rilasciato su timeout di connessione,
+  `Connect` no-op se già connesso).
+- **Task 3** — classi host (`LareHost`/`LareHostUI`/`LareRawUI`), copiate dallo spike con
+  adeguamenti (seam `IConsoleModes`, `OutputRecorder` con cap 200 KB testa+coda). Commit `a59d454`;
+  fix `1ef1703` (`SupportedOSPlatform=windows` al posto di `NoWarn`, test `WriteProgress` e
+  fallback delle mode).
+- **Task 4** — runspace ospitata (PSReadLine da pwsh, execution policy da file), profili con
+  `$PROFILE`, `Executor` (capture, exit code, cwd, Stop) — include il fix RID `win-x64` scoperto
+  durante l'implementazione (vedi "Debiti" sotto). Commit `36c4c0a`; fix `174a59f` (comando in
+  `try/finally`, non un append diretto: `return`/`. { }` rompevano la cattura di `$?`, verificato
+  empiricamente in due iterazioni).
+- **Task 5** — gate `[Y/n]` (`ConsoleGate`, polling dei tasti) e `SlashTurn` (ciclo del turno sul
+  thread del REPL, contratti (a)-(d) del piano 2a). Commit `6614985`; fix `1a2f267` (guardia
+  `Done.Id` rafforzata nei test, gate chiuso su EOF, eccezione dell'executor → cancel invece di un
+  turno appeso).
+- **Task 6** — `Launcher`: autostart di `orchestrator.exe` (retry 5 s) e di `ui.exe`, processi
+  senza console ereditata. Commit `1970b4e` (review Approved, nessun fix necessario).
+- **Task 7** — `Repl` completo (PSReadLine, profili, slash → `SlashTurn`, Ctrl+C, riconnessione on
+  demand), OSC 9001 `intercept`, `--selftest`; smoke test dal vivo (autostart di
+  orchestrator+ui verificato). Commit `ba890f5`; fix `dda8c0a` (handler Ctrl+C mai lancia — niente
+  `using` sul CTS del turno, `--selftest` fallisce se `startup.json` manca, banner PSReadLine
+  preciso).
+- **Task 8** — `deploy_test_run.ps1` pubblica la host (`dotnet publish` framework-dependent
+  win-x64) in `Test Run\shell\` (41,4 MB misurati), `install-wt-profile.ps1` installa il profilo
+  Windows Terminal "Lare Terminal". Commit `8f3dc9f`.
+- **E2E dal vivo** (controller, due passate in modalità B): trovato e corretto un difetto (`ui.exe`
+  in build debug rubava il fuoco a Windows Terminal) — fix `a8d148f` (2 file + test, 115/115), poi
+  riverificato (autostart senza scheda WT spuria, riconnessione dopo aver ucciso l'orchestratore).
+  Dettaglio in `TESTING-e2e.md` Parte 6.
+- **Task 9** — Documentazione (`CHANGELOG.md`/`IMPLEMENTATION.md` di `shell/lare-shell/`, ADR-019,
+  emendamenti allo spec §4.4/§6.4/§9/§13, `DEPLOY.md`/`RUN-LOCAL.md`/`TESTING-e2e.md`/
+  `KNOWN-ISSUES.md`, questo aggiornamento di `HANDOFF.md`). Questo commit di release (`release:
+  piano 2b completato — host C# lare-shell 2.0.0 (modalità B in Windows Terminal), ADR-019, e2e
+  Parte 6`).
+
 ## DA FARE
 
-- **Piano 2b** — host C# `lare-shell` (ADR-015), verificabile in **modalità B** (profilo Windows
-  Terminal, `lare-shell.exe` nudo — spec §2.3). Consuma il protocollo 2.1 di questo piano: il
-  canale shell (`Hello{role:"shell",…}`, gate `[Y/n]`, `ExecInShell`/`ExecResult`, output in
-  finestra) è già pronto lato orchestratore/`ui` — resta da scrivere la host che lo parla per
-  davvero. Da scrivere con la skill `writing-plans`, partendo da spec §4.3-§4.5 (gate, vincoli di
-  esecuzione, `capture`), §6.4 (avvio e self-heal reciproco orchestratore↔host), §7 (`Test Run\`)
-  e dal client di sviluppo `scripts/dev/shell-client.mjs` come riferimento del giro di messaggi
-  (imita esattamente ciò che la host C# dovrà fare).
 - **Piano 3** — finestra terminale Tauri (xterm.js + ConPTY, ADR-016), **modalità A** (`ui.exe`
-  lancia `lare-shell.exe` dentro una ConPTY e diventa l'app che l'utente avvia — spec §2.3/§5).
-  Include: autostart reciproco completo (`ui.exe` avvia l'orchestratore se assente, e viceversa,
-  §6.4), rimozione del flag di sviluppo `--open` (sostituito dal canale shell reale), consumo di
-  `ActivityIndicator` (emesso dal piano 2a, mai ancora letto da un consumatore), streaming
-  token-per-token nella finestra di output (§12, fuori MVP finora).
+  lancia `lare-shell.exe --config-dir … --session <id>` dentro una ConPTY e diventa l'app che
+  l'utente avvia — spec §2.3/§5). Include: autostart reciproco completo (`ui.exe` avvia
+  l'orchestratore se assente, e viceversa, §6.4 — oggi solo `lare-shell` avvia entrambi gli altri
+  due, non il contrario), rimozione del flag di sviluppo `--open` (sostituito dal canale shell
+  reale), **consumo dell'OSC 9001 `intercept`** (emesso dalla host dal piano 2b, mai ancora letto
+  da un emulatore — xterm.js dovrà registrarlo con `registerOscHandler(9001, …)`), consumo di
+  **`ActivityIndicator`** (emesso dal piano 2a, mai ancora letto da un consumatore — i segnalini
+  della finestra terminale), streaming token-per-token nella finestra di output (§12, fuori MVP
+  finora).
 - **Chore separata**: `cargo fmt` globale sul codice copiato dalla v1 (non fmt-clean), fuori dai
   piani per non sporcare i diff di review.
 
@@ -159,6 +206,86 @@ presenti nel piano 2b/3:
   per la via normale; (d) `ExecResult.turn_id` deve corrispondere al `turn_id` ricevuto
   nell'`ExecInShell` a cui si risponde, altrimenti viene scartato con un warn (fix M8) senza
   consumare l'esecuzione pendente.
+
+### Debiti / decisioni del piano 2b
+
+Deliberati durante l'implementazione (revisione advisor + review del controller + e2e dal vivo);
+dettaglio completo nel piano (`Docs/i18n/ita/superpowers/plans/2026-09-06-piano-2b-host-lare-shell.md`
+§"Ruling presi in questo piano") e in `shell/lare-shell/IMPLEMENTATION.md`.
+
+**Ruling 1-9 del piano** (una riga ciascuno; 4 rivisto durante l'e2e, vedi sotto):
+
+1. Server finto dei test (`FakeOrchestrator`) su `TcpListener` + upgrade WS a mano, mai
+   `HttpListener` (registrazioni http.sys che sopravvivono a un test caduto a metà).
+2. Riconnessione **on demand**: nessun task in background — ogni `/…` verifica e ristabilisce la
+   connessione (con autostart, finestra 5 s) se serve.
+3. `exit_code` = 0 se `$?` (catturato in coda allo stesso script) è vero, altrimenti
+   `$LASTEXITCODE` se ≠ 0, altrimenti 1; i comandi digitati dall'utente non toccano `$?`/
+   `$LASTEXITCODE` (il prompt deve vederli intatti).
+4. Processi figli con `UseShellExecute=true`; **entrambi** (`orchestrator.exe` e `ui.exe`) con
+   finestra nascosta — **rivisto durante l'e2e**: la formulazione iniziale lasciava `ui.exe`
+   `WindowStyle.Normal`, ma in build debug `ui.exe` è un'app console e, con Windows Terminal come
+   terminale predefinito, apriva una scheda WT rubando il fuoco alla shell (fix `a8d148f`).
+5. `ToolConfirmRequest` senza `turn_id`: attribuita al turno corrente durante l'attesa; i messaggi
+   di turni già chiusi scartati a inizio turno.
+6. Cap dell'output in **caratteri** (200·1024), non byte.
+7. Log della host `<config-dir>\logs\lare-shell.log` senza rotazione (debito: la spec chiederebbe
+   rotazione giornaliera).
+8. `ui.exe` avviata dopo la prima connessione riuscita e **ricontrollata prima di ogni turno
+   slash** (self-heal: se l'utente l'ha chiusa, il prossimo `/…` la riapre).
+9. `deploy_test_run.ps1` pubblica la host di default (framework-dependent win-x64); `-SkipShell`
+   per saltarla.
+
+**Difetti del piano trovati ed emendati durante l'esecuzione** (dettaglio nei `task-N-report.md`):
+
+- Catch troppo stretti in `StartupConfig.Load`/`TokenFile.Read`: `UnauthorizedAccessException`
+  sfuggiva invece di degradare a default/`null` (T0).
+- `pong.ts` doveva essere obbligatorio; i campi numerici malformati di `done`/`pong` sfuggivano
+  come eccezioni .NET grezze invece di un `WireException` uniforme (T1).
+- Socket non rilasciato su `OperationCanceledException` dentro `ConnectAsync`; `Connect` su una
+  connessione già viva accodava un `Disconnected` spurio invece di essere un no-op (T2).
+- `<NoWarn>CA1416</NoWarn>` (fuori lista del piano) sostituito con `SupportedOSPlatform=windows`
+  via un item `AssemblyAttribute` nel `.csproj` — una property `<SupportedOSPlatform>` piatta non
+  genera l'attributo che serve (T3).
+- **Senza `<RuntimeIdentifier>` gli asset RID-specifici del SDK (`System.Management.Automation.dll`
+  compreso) finiscono sotto `runtimes\win\lib\net10.0\` → `$PSHOME` risolve lì invece che nella
+  cartella dell'exe → `powershell.config.json` accanto all'exe non viene letto** (7 test rossi su
+  11 finché non scoperto): aggiunto `<RuntimeIdentifier>win-x64</RuntimeIdentifier>` +
+  `<SelfContained>false</SelfContained>` in ENTRAMBI i `.csproj` — coerente col publish del deploy,
+  output di build sotto `bin\Debug\net10.0\win-x64\` (T4).
+- `PowerShell.Stop()` su Microsoft.PowerShell.SDK 7.6.5 NON lancia `PipelineStoppedException`:
+  `Invoke()` torna normalmente con `InvocationStateInfo.State == Stopped` (T4; il catch
+  dell'eccezione resta comunque, per altri SDK/percorsi).
+- Exit code catturato con `try { <cmd> } finally { $global:__lare_ok = $? }`, non un append
+  diretto (un `return` di primo livello lo salterebbe) né un blocco `. { }`/`& { }` (azzera sempre
+  `$?` al proprio confine, qualunque cosa sia successa dentro) — verificato empiricamente in due
+  iterazioni di fix (T4).
+- Test della guardia `Done.Id` rafforzato (un `Done` di un altro turno non deve chiudere quello
+  corrente); `ConsoleGate` con stdin rediretto ora fallisce **chiuso** su EOF (rifiuta, non
+  accetta); eccezione dell'executor durante un turno → `CancelCommand` invece di un turno appeso
+  da entrambe le parti (T5).
+- Handler di Ctrl+C mai lancia: niente `using` sul `CancellationTokenSource` del turno — evita la
+  race con la fine naturale del turno (`ObjectDisposedException` nel thread dell'handler avrebbe
+  altrimenti terminato il processo, violando "Ctrl+C non esce mai dalla shell") (T7).
+- `ui.exe` avviata con console nascosta anche lei, non solo `orchestrator.exe` — scoperto
+  dal vivo durante l'e2e (T8/e2e, vedi ruling 4 sopra).
+
+**Limiti noti** (dettaglio in `KNOWN-ISSUES.md` §"Debiti nativi della host `lare-shell`" e
+`shell/lare-shell/IMPLEMENTATION.md` §Debiti): profili AllUsers non caricati; log della host senza
+rotazione; `$?` nel prompt resta quello dell'ultimo comando digitato dall'utente, mai un riflesso
+di un turno slash appena concluso; `exit` dentro un comando dell'AI termina il processo come un
+`exit` digitato (il gate ha già mostrato il comando); `StopCurrent()` ha una finestra TOCTOU (un
+Ctrl+C fra l'assegnazione di `_current` e `Invoke()` è un no-op silenzioso, nessun crash);
+`TerminalPending` guarda solo la testa della coda dei messaggi in arrivo; `ToolConfirmRequest`
+senza `turn_id`; il gate con stdin rediretto blocca dentro `Console.ReadLine`; **`ConsoleGate` e
+`Repl` non hanno test automatici** (richiedono una console interattiva vera — coperti solo
+dall'e2e manuale, `TESTING-e2e.md` Parte 6); la riga `"[LARE] comando interrotto (Ctrl+C)."` non è
+comparsa una volta durante l'e2e dopo un Ctrl+C su un comando digitato (`Start-Sleep`) — causa non
+investigata, il meccanismo resta coperto dai test automatici di `Executor`; `#pragma warning
+disable xUnit1031` nei test sincroni di `SlashTurn` (bloccano di proposito, come il thread REPL
+vero); il fragment del profilo Windows Terminal (`install-wt-profile.ps1`) è letto solo all'avvio
+di WT — installarlo/aggiornarlo richiede di riavviarlo, non basta una nuova scheda; `ui.exe` in
+build debug è un'app console (spiega perché va nascosta anche lei, non un bug di Lare).
 
 ### Debiti noti del piano 1
 

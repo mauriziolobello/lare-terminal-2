@@ -77,3 +77,37 @@ resta tutto presente e leggibile.
 **Rilevanza per il piano 2b/3.** Nessun impatto funzionale: non blocca né la lettura né il salvataggio
 del contenuto in Library. Da affrontare quando si rivedrà la resa della finestra di output (insieme
 allo streaming token-per-token, fuori MVP — spec §12).
+
+---
+
+## [APERTO] Debiti nativi della host `lare-shell` (piano 2b)
+
+**Introdotti nel piano 2b** (nativi del 2.0): decisioni deliberate della host C# (ruling del piano,
+ADR-019), non bug scoperti per caso. Dettaglio implementativo completo in
+`shell/lare-shell/IMPLEMENTATION.md` §Debiti; qui solo il sintomo osservabile dall'utente.
+
+- **Profili AllUsers non caricati.** `ProfileLoader` carica solo i profili CurrentUser
+  (`profile.ps1`, `Microsoft.PowerShell_profile.ps1`, `LareShell_profile.ps1`); i profili
+  AllUsers (quelli nel `$PSHOME` di pwsh, condivisi fra tutti gli utenti della macchina) non
+  vengono caricati. Se qualcosa di importante per la sessione vive lì (raro: la maggior parte
+  delle personalizzazioni — alias, oh-my-posh, moduli — sta nel profilo CurrentUser), non sarà
+  presente in Lare.
+- **Log della host senza rotazione.** `<config-dir>\logs\lare-shell.log` cresce senza limite né
+  rotazione giornaliera (a differenza del log dell'orchestratore) — ruling 7 del piano, debito
+  dichiarato: la spec (§6.2) chiederebbe una rotazione a 7 file giornalieri.
+- **`$?` nel prompt dopo un turno slash.** I comandi digitati dall'utente non sono mai toccati da
+  un turno `/…` (ruling 3: solo il comando eseguito PER CONTO dell'AI, dentro `ExecInShell`, viene
+  avvolto in `try { … } finally { $global:__lare_ok = $? }`) — quindi `$?` a livello di prompt
+  resta sempre quello dell'ultimo comando digitato dall'utente, non del turno appena concluso: un
+  prompt/oh-my-posh che leggesse `$?` subito dopo un `/ai` vedrebbe lo stato del comando digitato
+  PRIMA di quel `/ai`, non un riflesso del turno.
+- **`ui.exe` avviata da `lare-shell` con `UseShellExecute=true`, finestra nascosta.** Se dopo un
+  self-heal (`Launcher.EnsureUi()`) le finestre di `ui.exe` (Markdown, `/config`, `/library`) non
+  compaiono subito in primo piano, è il comportamento standard del focus di Windows per un processo
+  avviato da un altro (nessuna `SetForegroundWindow` forzata) — **non un bug**: la finestra esiste
+  ed è visibile, va solo selezionata (Alt+Tab o click in barra applicazioni).
+- **`ToolConfirmRequest` non porta il `turn_id`.** Il messaggio `ToolConfirmRequest` (v1) ha un
+  `id` opaco, non il `turn_id` del canale shell: durante un turno, `SlashTurn` attribuisce OGNI
+  richiesta di conferma ricevuta al turno corrente (contratto (a): un solo turno alla volta per
+  connessione, quindi non c'è ambiguità pratica), e scarta a inizio turno ciò che fosse rimasto in
+  coda da un turno già chiuso.

@@ -3,8 +3,9 @@
 Verifica dal vivo (non automatizzabile: processi reali, finestre reali) che il deploy funzioni
 davvero — non solo che i test unitari passino. Parti 1-4 riproducono quanto verificato dal vivo a
 chiusura del **piano 1** ("fondamenta": deploy in `Test Run\`, avvio di orchestrator e `ui.exe`);
-Parte 5 aggiunge il canale shell del **piano 2a**. Compila la colonna **Esito** eseguendo i passi
-in ordine, da una macchina pulita se possibile (nessun
+Parte 5 aggiunge il canale shell del **piano 2a** (client di sviluppo, senza la host reale); Parte
+6 aggiunge la host C# vera del **piano 2b** in modalità B (Windows Terminal). Compila la colonna
+**Esito** eseguendo i passi in ordine, da una macchina pulita se possibile (nessun
 `Test Run\Configuration\token`/`logs\` residui da run precedenti, per vedere anche il caso
 "primo avvio").
 
@@ -74,3 +75,65 @@ messaggi (non la qualità delle risposte).
 | 25 | `node scripts/dev/shell-client.mjs -- '/help'` | `→ finestra aperta` (eccezione spec §3.2: `/help` non apre ANCHE la finestra di output, riga di conferma generica) | Si apre (o va in primo piano) la finestra singleton **"Lare — Comandi"** |
 | 26 | `node scripts/dev/shell-client.mjs -- '/open .'` | `→ finestra "Lare — /open" aperta` | Si apre la finestra **"Lare — /open"** con l'esito del comando |
 | 27 | `node scripts/dev/shell-client.mjs -- '/ai "ciao, chi sei?"'` | `[Y/n]` solo se lo `StubAdapter` propone un tool (altrimenti diretto a) `→ finestra "ciao, chi sei?" aperta` + `[done]` (`exit_code` **null**, percorso AI) | Si apre la finestra **"ciao, chi sei?"** (titolo dal testo fra virgolette) col contenuto della risposta |
+
+## Parte 6 — Modalità B in Windows Terminal (host `lare-shell`)
+
+Verifica dal vivo del **piano 2b** (ADR-015/ADR-019): la host C# vera, aperta come profilo
+Windows Terminal "Lare Terminal" (`install-wt-profile.ps1`), con `orchestrator.exe`/`ui.exe`
+**non** già in esecuzione prima di aprire la scheda (`Get-Process orchestrator, ui
+-ErrorAction SilentlyContinue | Stop-Process`). Eseguita dal controller il 2026-09-07 (nessun
+terminale interattivo lato implementer; driver SendKeys + screenshot) — esito integrale nel
+ledger (`.superpowers/sdd/2026-09-06-piano-2b-host-lare-shell/progress.md`, sezione "E2E dal vivo
+(controller)"). Trascritto qui fedelmente; dove il ledger non annota un passo in modo esplicito,
+la colonna Esito dice "non verificato" piuttosto che presumerlo.
+
+**Limite della macchina**: nessuna `ANTHROPIC_API_KEY` né `Configuration\llms.json` →
+l'orchestratore usa `StubAdapter` (nessuna tool call reale, quindi nessun gate ADR-007 reale). I
+punti 5-9 (gate di conferma su un comando proposto dall'AI, `ExecInShell`, Ctrl+C durante
+un'esecuzione avviata dall'AI, REPL interattivo via AI) **non sono verificabili dal vivo su questa
+macchina** — coperti dai test automatici: `SlashTurnTests` (10 casi), `ExecutorTests` (13 casi),
+`ws_integration.rs` del piano 2a.
+
+**Due passate**: la prima ha trovato un difetto (§"Difetti trovati" sotto), corretto con il fix
+`a8d148f` (2 file + test nuovi, 115/115); la seconda, dopo la ripubblicazione di `Test Run\`, ha
+riverificato i punti toccati dal fix (autostart, riconnessione).
+
+| # | Verifica | Esito |
+|---|---|---|
+| 1 | Banner all'apertura della scheda; "orchestratore: NON connesso … avvio … orchestrator.exe" → "orchestratore avviato e connesso"; `ui.exe` compare (autostart §6.4) | OK — autostart orchestratore (~1 s) e `ui.exe`. Prima passata: difetto, `ui.exe` (app console in build debug) apriva una SCHEDA Windows Terminal e rubava il fuoco (vedi difetto 1 sotto). Seconda passata, dopo il fix: OK, autostart senza scheda WT spuria |
+| 2 | Prompt/profilo come in pwsh (PSReadLine, alias, oh-my-posh se presente); `Get-Date`, `dir`, `cd ..` funzionano | OK banner/PSReadLine/`Get-Date`; OK `cd ..` persiste nel prompt (D17). `dir` non risulta annotato esplicitamente nel ledger come passo a sé — non verificato in modo distinto |
+| 3 | `/ping` → finestra "Lare — /ping" con le righe per strato + riga di conferma nel terminale | OK (finestra + riga di conferma); riverificato nella seconda passata come parte della verifica di riconnessione (punto 10) |
+| 4 | `/help`, `/config`, `/library` → finestre giuste; `/nonesiste` → muto; `/ai x` senza virgolette → errore di sintassi | OK `/help` → "Lare — Comandi"; OK `/config`; OK `/library` → "Lare — Archivio" (seconda passata); OK `/nonesiste` muto (log discard); OK `/ai x` → riga di errore di sintassi |
+| 5 | `/ai "elenca i 3 file più grandi in questa cartella"` → `[Y/n]` → Invio → comando eseguito NEL terminale → finestra Markdown col risultato | **Non verificabile dal vivo** (nessuna chiave AI → `StubAdapter`, nessuna tool call quindi nessun gate reale) — coperto da `SlashTurnTests`/`ExecutorTests`/`ws_integration.rs`. Verificato invece, con lo `StubAdapter`: `/ai "ciao, chi sei?"` completa un turno e apre una finestra |
+| 6 | `/ai "vai nella cartella Documents"` → il prompt dopo mostra `Documents` (cwd persiste, D17) | **Non verificabile dal vivo** (richiede una tool call AI reale) — coperto dai test automatici (cwd per sessione, `ws_integration.rs`). La persistenza della cwd per un comando DIGITATO (`cd ..`) è invece verificata dal vivo (punto 2) |
+| 7 | `/ai "cancella tutti i file temporanei"` → `n` al gate → nessun comando eseguito, il turno finisce | **Non verificabile dal vivo** (nessun gate reale senza tool call AI) — coperto da `SlashTurnTests` (percorso Reject) |
+| 8 | Ctrl+C in attesa del turno AI, e Ctrl+C durante un `ExecInShell` lungo avviato dall'AI → "annullato (Ctrl+C)"/"comando interrotto (Ctrl+C): turno annullato" | **Non verificabile nella forma esatta del punto** (richiede un turno AI reale). Verificato invece Ctrl+C su un comando DIGITATO (`Start-Sleep`): torna al prompt correttamente, **ma la riga "[LARE] comando interrotto (Ctrl+C)." non è comparsa** (KNOWN-ISSUE, causa non investigata); il meccanismo (`PowerShell.Stop()` → `InvocationStateInfo.State == Stopped`) resta comunque coperto da `ExecutorTests` |
+| 9 | `/ai "apri python in modo interattivo"` → REPL python utilizzabile, `exit()` torna al prompt | **Non verificabile dal vivo** (richiede una tool call AI con `interactive: true`) — coperto dai test automatici di `Executor`/`ws_integration.rs` (percorso `capture:false`) |
+| 10 | Chiudi `ui.exe` → `/help` la riavvia (self-heal, ruling 8); uccidi l'orchestratore (`Stop-Process -Name orchestrator`) → `/ping` → "orchestratore non raggiungibile … avvio …" → riconnesso e finestra aperta | Parzialmente verificato. OK: "orchestratore ucciso → `/ping` riavvia e riconnette (stessa sessione)", finestra `/ping` aperta (seconda passata). La chiusura manuale di `ui.exe` seguita da `/help` per il self-heal non risulta annotata come passo distinto — non verificato esplicitamente (l'autostart di `ui.exe` all'apertura della scheda è invece verificato, punto 1) |
+| 11 | `exit` → la scheda si chiude; `Get-Process lare-shell` → nulla; `Get-Process orchestrator, ui` → ANCORA vivi (processi staccati) | OK, verificato **due volte**: prima passata, "orchestrator e ui sopravvivono (anche quando la host girava in una scheda WT chiusa)"; seconda passata, "orchestrator e ui vivi" dopo `exit`. Il comando `Get-Process lare-shell` non risulta trascritto nel ledger come eseguito alla lettera — la sopravvivenza dei due processi staccati è comunque confermata in entrambe le passate |
+| 12 | Copia `Test Run\` in `%TEMP%\LareCopia\`, esegui `LareCopia\shell\lare-shell.exe --selftest` → `[OK]` con la Configuration di `LareCopia` (percorsi relativi, §6.3) | **Non verificato**: questo scenario (copia in un'altra cartella, percorsi relativi) non risulta nel ledger dell'e2e dal vivo di oggi. `Test Run\shell\lare-shell.exe --selftest` sul deploy originale (non copiato) è stato eseguito con esito `[OK]` su ogni controllo (Task 8, riverificato dal controller) |
+
+### Difetti trovati durante l'e2e (prima passata) e correzioni
+
+1. **`ui.exe` rubava il fuoco alla shell.** In build debug `ui.exe` è un'app console (Tauri tiene
+   la console per i log); avviata con `WindowStyle.Normal` e Windows Terminal come terminale
+   predefinito, quella console si apriva come una NUOVA SCHEDA di WT. Fix: `Launcher.EnsureUi()`
+   avvia anche `ui.exe` con `hideWindow: true` (verificato: le finestre vere create da `ui.exe` —
+   Markdown, `/config`, `/library` — restano visibili; solo la console di debug resta nascosta).
+   Vedi ADR-019 punto 6 (rivisto) e `HANDOFF.md`.
+2. **Fragment del profilo WT**: `commandline` senza virgolette (come nello spike) — le virgolette
+   non erano la causa del sintomo osservato (era il driver SendKeys), ma la forma senza virgolette
+   resta quella collaudata e non è stata cambiata.
+3. **Il fragment richiede il riavvio di Windows Terminal.** La finestra WT dell'utente era già
+   aperta quando il fragment è stato installato → il profilo "Lare Terminal" non era ancora
+   caricato in quella finestra → la **prima passata** dell'e2e è stata condotta in una finestra
+   **conhost** (non WT), con `ui.exe` avviata a mano (`-WindowStyle Hidden`) invece che dal
+   profilo. La **seconda passata**, dopo il fix e la ripubblicazione di `Test Run\`, ha riverificato
+   autostart e riconnessione.
+
+Fix wave e2e: commit `a8d148f` (2 file + test nuovi, 115/115).
+
+**Nota per Maurizio (incidente durante l'e2e).** Durante la prima passata, guidata via SendKeys,
+il controller ha chiuso per errore una scheda "PowerShell" nella finestra Windows Terminal
+dell'utente (verosimilmente una scheda dell'utente stesso, non aperta da questo e2e) — nessun dato
+recuperabile da questa sede, va solo segnalato.

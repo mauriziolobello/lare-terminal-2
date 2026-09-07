@@ -260,3 +260,40 @@ la cwd è per sessione. (4) Slash ignoto dalla shell → `Done` muto + log; `/ai
 `ui.exe` connesso un turno shell completa comunque (riga di avviso al posto della conferma);
 l'autostart è del piano 3. Lo streaming nella finestra resta fuori MVP (§12). `/find` e `/nowin`
 dalla shell sono scartati in questa versione (debito, HANDOFF).
+
+## ADR-019 — Host `lare-shell`: policy da file, profili di pwsh, cattura via host UI, un thread per runspace e console (2026-09-06)
+
+**Contesto.** Lo spike forzava l'execution policy in-process, non caricava il profilo di pwsh, non
+parlava col WS e non catturava l'output. Il prodotto deve comportarsi "come pwsh" (§4.4) e parlare
+il canale shell del piano 2a rispettando i contratti (a)–(d).
+
+**Decisione.** (1) L'execution policy LocalMachine viene da un `powershell.config.json` spedito
+accanto all'exe (`$PSHOME` di una host = la sua cartella) — **ma questo vale solo con un RID
+esplicito**: senza `<RuntimeIdentifier>` gli asset RID-specifici del SDK (incluso
+`System.Management.Automation.dll`) finiscono sotto `runtimes\win\lib\net10.0\`, e `$PSHOME`
+diventa QUELLA cartella invece della cartella dell'exe — il file accanto all'exe non verrebbe mai
+letto (scoperto nel Task 4: 7 test su 11 rossi finché non aggiunto). Entrambi i `.csproj`
+dichiarano quindi `<RuntimeIdentifier>win-x64</RuntimeIdentifier>` + `<SelfContained>false</SelfContained>`,
+coerente col publish del deploy (`-r win-x64`, framework-dependent): `Set-ExecutionPolicy` cambia
+la policy come in pwsh. (2) PSReadLine viene dai moduli di pwsh, anteposti al `PSModulePath` del
+processo (pwsh 7.6+ è prerequisito). (3) Profili CurrentUser in ordine `profile.ps1`,
+`Microsoft.PowerShell_profile.ps1`, `LareShell_profile.ps1`; `$PROFILE` come pwsh; AllUsers non
+caricati. (4) Cattura dell'output (`capture:true`) registrando i `Write*` della
+`PSHostUserInterface`, con `ForEach-Object { $_ }` fra script e `Out-Default` perché anche i
+nativi passino dalla pipe; `capture:false` = pipeline pura. (5) Un solo thread (REPL) possiede
+runspace e console; il socket accoda in un `Channel`; nessun `async` nel REPL. (6) Riconnessione
+on demand con autostart (5 s); processi figli con `UseShellExecute=true` (nessuna console
+ereditata) e **finestra nascosta per ENTRAMBI** i figli, `orchestrator.exe` e `ui.exe` — non solo
+il primo come previsto all'inizio: scoperto durante l'e2e che `ui.exe` in build debug è un'app
+console che, con Windows Terminal come terminale predefinito, apriva una scheda WT e rubava il
+fuoco alla shell (fix `a8d148f`). (7) `exit_code` = `$?` catturato non con un append diretto ma con
+il comando dell'AI avvolto in `try { <cmd> } finally { $global:__lare_ok = $? }`: un append diretto
+perde la cattura se il comando finisce con un `return` di primo livello (`return` termina lo script
+prima di raggiungere la riga aggiunta); un blocco `. { }`/`& { }` intorno al comando la perderebbe
+diversamente (`$?` torna sempre vero al confine di un blocco invocato/dot-sourced, qualunque cosa
+sia successa dentro); solo `try/finally` cattura il `$?` vero senza aprire un nuovo scope di
+chiamata (variabili e funzioni definite dal comando restano nella sessione, come digitandolo al
+prompt) — verificato empiricamente nel Task 4. `$LASTEXITCODE` è azzerato prima del comando.
+
+**Conseguenze.** La host è un pwsh "vero" per l'utente (PSReadLine, profilo, prompt) più i `/…`;
+i test girano contro un server WS finto su `TcpListener` (mai `HttpListener`); debiti in HANDOFF.
