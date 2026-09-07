@@ -81,7 +81,8 @@ inutile. Nessun comportamento nuovo in questo task — solo terreno pulito.
 - Create: `crates/ui/frontend/vendor/xterm.css` (copia da `spikes/lare-terminal-window/frontend/vendor/xterm.css`)
 - Create: `crates/ui/frontend/vendor/addon-fit.js` (copia da `spikes/lare-terminal-window/frontend/vendor/addon-fit.js`)
 - Modify: `crates/ui/src-tauri/Cargo.toml` (aggiunge `portable-pty`, `base64`, `rand`)
-- Create: `crates/ui/src-tauri/build.rs`
+- Modify: `crates/ui/src-tauri/build.rs` (esiste già — 3 righe, `tauri_build::build()`; aggiunge
+  solo la `rerun-if-changed`)
 - Modify: `crates/ui/src-tauri/src/main.rs` (rimuove `DevOpenRequest`, `dev_open_request`, il
   parsing di `--open`, la voce in `generate_handler!`)
 - Modify: `crates/ui/frontend/host.js` (rimuove il blocco `dev_open_request`)
@@ -119,7 +120,17 @@ rand = "0.8"
 - [ ] **Step 3: `build.rs` per il gotcha `generate_context!`**
 
 Lo spike 2 ha scoperto che `generate_context!` incorpora `frontendDist` a compile time: una
-modifica al solo frontend non fa ricompilare il crate. Crea `crates/ui/src-tauri/build.rs`:
+modifica al solo frontend non fa ricompilare il crate. `crates/ui/src-tauri/build.rs` esiste già
+(3 righe — `tauri-build` è già una `[build-dependencies]` in `Cargo.toml`, usato per generare gli
+schema delle `capabilities/`) con questo contenuto:
+
+```rust
+fn main() {
+    tauri_build::build()
+}
+```
+
+Aggiungi la riga `rerun-if-changed`:
 
 ```rust
 // build.rs — dice a Cargo di ricompilare `ui` quando cambia SOLO il frontend
@@ -133,19 +144,13 @@ fn main() {
 }
 ```
 
-Aggiungi `tauri-build = "2"` sotto `[build-dependencies]` in `crates/ui/src-tauri/Cargo.toml` (crea
-la sezione se non esiste — è lo stesso helper che genera gli schema delle `capabilities/`, già
-presente in `crates/ui/src-tauri/gen/schemas/`, quindi il crate `tauri-build` è già installato nel
-lockfile: verifica con `cargo tree -p ui -i tauri-build` dopo lo Step 4 sotto).
-
 - [ ] **Step 4: verifica che il workspace compili con le nuove dipendenze**
 
 ```powershell
 cargo check -p ui
 ```
 
-Expected: nessun errore. Se `tauri-build` non risolve, verifica la versione esatta con
-`cargo tree -p ui` e allinea `[build-dependencies]` a quella già nel lockfile.
+Expected: nessun errore.
 
 - [ ] **Step 5: rimuovi `DevOpenRequest` e il parsing `--open` da `main.rs`**
 
