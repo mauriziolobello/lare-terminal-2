@@ -157,6 +157,11 @@ Terminal "Lare Terminal", `lare-shell.exe` nudo):
   **`ActivityIndicator`** (emesso dal piano 2a, mai ancora letto da un consumatore — i segnalini
   della finestra terminale), streaming token-per-token nella finestra di output (§12, fuori MVP
   finora).
+- **Prerequisito per il piano 3**: `connections.rs::unregister_shell` rimuove per `session_id`
+  senza confrontare il `tx` (a differenza di `clear_ui_sink_if`): con la host che si riconnette
+  con lo stesso `session_id`, il teardown della vecchia connessione può cancellare la
+  registrazione della nuova — nessun consumatore oggi, da correggere (`unregister_shell_if`)
+  prima che il piano 3 legga il registro (trovato dalla revisione finale del piano 2b, F4).
 - **Chore separata**: `cargo fmt` globale sul codice copiato dalla v1 (non fmt-clean), fuori dai
   piani per non sporcare i diff di review.
 
@@ -276,7 +281,10 @@ rotazione; `$?` nel prompt resta quello dell'ultimo comando digitato dall'utente
 di un turno slash appena concluso; `exit` dentro un comando dell'AI termina il processo come un
 `exit` digitato (il gate ha già mostrato il comando); `StopCurrent()` ha una finestra TOCTOU (un
 Ctrl+C fra l'assegnazione di `_current` e `Invoke()` è un no-op silenzioso, nessun crash);
-`TerminalPending` guarda solo la testa della coda dei messaggi in arrivo; `ToolConfirmRequest`
+`TerminalPending` guarda solo la testa della coda dei messaggi in arrivo (`TryPeek`) — per un
+turno gateizzato questo basta: l'ack `Chunk` che precede il `Done` conta come terminale anch'esso
+(fix F3, revisione finale), perché `route_shell_turn` non manda mai altro testo alla shell nel
+mezzo; `ToolConfirmRequest`
 senza `turn_id`; il gate con stdin rediretto blocca dentro `Console.ReadLine`; **`ConsoleGate` e
 `Repl` non hanno test automatici** (richiedono una console interattiva vera — coperti solo
 dall'e2e manuale, `TESTING-e2e.md` Parte 6); la riga `"[LARE] comando interrotto (Ctrl+C)."` non è

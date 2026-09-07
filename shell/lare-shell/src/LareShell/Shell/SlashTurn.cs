@@ -154,13 +154,23 @@ internal sealed class SlashTurn
         return TurnResult.Cancelled;
     }
 
-    /// <summary>true se in TESTA alla coda c'è già la fine del turno (Done/Error con questo id) o
-    /// la caduta della connessione: il gate smette di aspettare l'utente. Limite noto: TryPeek vede
-    /// solo il primo messaggio — se prima del Done c'è un Chunk (l'ack di conferma), il prompt resta
-    /// finché l'utente non preme un tasto; poi il turno si chiude normalmente.</summary>
+    /// <summary>true se in TESTA alla coda c'è già la fine del turno (Done/Error con questo id),
+    /// la caduta della connessione, o l'ack di conferma di questo turno (un Chunk con questo id):
+    /// il gate smette di aspettare l'utente. Guarda solo la TESTA (TryPeek) — sufficiente perché
+    /// per un turno gateizzato l'orchestratore (surface.rs, route_shell_turn) manda alla shell
+    /// esattamente UN Chunk di ack e poi il Done, mai altro testo nel mezzo (tutto il testo
+    /// dell'AI viene bufferizzato nella finestra ui, non spedito alla shell) — quindi un ack in
+    /// testa vuol dire che il turno sta per chiudersi comunque, e non c'è ragione di aspettare
+    /// che l'utente prema un tasto prima che arrivi il Done stesso. Senza questo caso il prompt
+    /// "[Y/n]" resterebbe appeso in attesa di un tasto ANCHE DOPO che l'orchestratore ha già
+    /// chiuso il turno per conto proprio (timeout di 180 s: ack + Done arrivano comunque, ma
+    /// TerminalPending non li vedrebbe come motivo per abbandonare).</summary>
     private bool TerminalPending(string id) =>
         _client.Incoming.TryPeek(out ServerMessage? next) &&
-        (next is Done d && d.Id == id || next is TurnError e && e.Id == id || next is Disconnected);
+        (next is Done d && d.Id == id ||
+         next is TurnError e && e.Id == id ||
+         next is Disconnected ||
+         next is Chunk c && c.Id == id);
 
     /// <summary>Scarta ciò che è rimasto in coda da turni già chiusi (contratto c, ruling 5).
     /// Un Disconnected non va "perso": IsConnected lo rende comunque visibile al chiamante.</summary>

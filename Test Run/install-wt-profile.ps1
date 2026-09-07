@@ -21,13 +21,17 @@ $fragment = [ordered]@{
     profiles = @(
         [ordered]@{
             name              = "Lare Terminal"
-            # Senza virgolette anche se il percorso contiene spazi ("Test Run"): Windows Terminal
-            # risolve da solo un eseguibile con spazi nel percorso (verificato dallo spike e all'e2e).
-            commandline       = $ShellExe
+            # Virgolettato: Windows Terminal passa la commandline a CreateProcess senza
+            # lpApplicationName, che per un percorso senza virgolette e con spazi ("Test Run")
+            # prova a risolvere ogni prefisso troncato allo spazio (…\Progetti\Lare.exe,
+            # …\Lare Terminal.exe, …) — un eseguibile piazzato lì da un attaccante partirebbe
+            # con il token dell'utente. Le virgolette tolgono l'ambiguità (il fallimento e2e
+            # osservato in precedenza era dovuto al driver di test, non alle virgolette).
+            commandline       = '"' + $ShellExe + '"'
             startingDirectory = "%USERPROFILE%"
         }
     )
 }
-$fragment | ConvertTo-Json -Depth 5 | Set-Content -Encoding UTF8 $fragmentPath
+$fragment | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8NoBOM $fragmentPath
 Write-Host "Profilo 'Lare Terminal' installato in $fragmentPath"
 Write-Host "Riavvia Windows Terminal e aprilo dal menu a tendina delle schede."

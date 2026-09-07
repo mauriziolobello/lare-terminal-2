@@ -30,6 +30,11 @@ if (-not $SkipShell) {
     # Sempre Release: la host non ha una build "debug" utile nel deploy.
     $proj = Join-Path $Repo "shell\lare-shell\src\LareShell\LareShell.csproj"
     $shellOut = Join-Path $Dest "shell"
+    # dotnet publish NON pulisce la cartella di destinazione: dopo un bump di versione di un
+    # pacchetto NuGet (es. Microsoft.PowerShell.SDK) le DLL della versione vecchia restano lì,
+    # orfane, insieme a quelle nuove — nel migliore dei casi peso morto, nel peggiore un assembly
+    # sbagliato caricato per primo. Si riparte da una cartella vuota ogni volta.
+    Remove-Item $shellOut -Recurse -Force -ErrorAction SilentlyContinue
     & dotnet publish $proj -c Release -r win-x64 --self-contained false -o $shellOut --nologo -v quiet
     if ($LASTEXITCODE -ne 0) { throw "dotnet publish della host fallita (exit $LASTEXITCODE)" }
     Write-Host "pubblicata lare-shell in shell\"

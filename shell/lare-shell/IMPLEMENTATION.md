@@ -218,9 +218,15 @@ dotnet test shell/lare-shell/LareShell.sln --filter "FullyQualifiedName~Executor
   solo dall'e2e (`TESTING-e2e.md` Parte 6).
 - `StopCurrent()` ha una finestra TOCTOU: fra l'assegnazione di `_current` e `Invoke()`, un Ctrl+C
   arrivato in quella finestra non trova nulla da fermare (no-op silenzioso, nessun crash).
-- `TerminalPending` (in `SlashTurn`) guarda solo la **testa** della coda: se prima del `Done` c'è
-  un `Chunk`, il prompt `[Y/n]` non si auto-abbandona finché l'utente non preme un tasto (si chiude
-  comunque al turno successivo).
+- `TerminalPending` (in `SlashTurn`) guarda solo la **testa** della coda (`TryPeek`), non l'intera
+  coda — ma è chiamata SOLO come `shouldAbandon` dentro l'attesa del gate (`ToolConfirmRequest`),
+  quindi non esiste un "prompt appeso" fuori da quel caso. Guardare solo la testa basta, dato il
+  contratto reale: un solo turno alla volta (contratto a) esclude che in testa ci sia un messaggio
+  di un ALTRO turno mentre si aspetta il gate di QUESTO; e per un turno gateizzato,
+  `route_shell_turn` manda alla shell esattamente un `Chunk` di ack seguito subito dal `Done` (mai
+  altro testo nel mezzo — fix F3, revisione finale piano 2b), quindi trovare quell'ack in testa
+  basta per abbandonare il gate senza aspettare che arrivi anche il `Done` — vedi il doc-comment di
+  `TerminalPending`. Nessun residuo pratico noto.
 - Gate con stdin rediretto blocca dentro `Console.ReadLine` (nessun polling possibile su una pipe).
 - `exit` dentro un comando dell'AI **non** è fermato dal `try/finally`: termina il processo come se
   l'utente l'avesse digitato al prompt (il gate ha già mostrato il comando prima dell'esecuzione:
@@ -241,6 +247,5 @@ dotnet test shell/lare-shell/LareShell.sln --filter "FullyQualifiedName~Executor
 - `ui.exe` in build **debug** è un'app console (Tauri tiene la console per i log): senza
   `hideWindow`, con Windows Terminal come terminale predefinito, quella console si apre come una
   scheda WT e ruba il fuoco — per questo `Launcher.EnsureUi()` nasconde anche `ui.exe` (ruling 4
-  riveduto). Il commento su `ProcessStarter` (che descrive ancora `ui.exe` con `WindowStyle.Normal`
-  come "ruling 4 del piano") è la formulazione originale del piano, non aggiornata nel codice: il
-  comportamento reale (entrambi nascosti) è quello in `Launcher.EnsureUi`, verificato dal vivo.
+  riveduto). Il commento su `ProcessStarter` è stato allineato (revisione finale piano 2b): descrive
+  ora entrambi i figli avviati con console nascosta, coerente con `Launcher.EnsureUi`.

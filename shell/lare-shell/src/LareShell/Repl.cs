@@ -52,6 +52,10 @@ internal sealed class Repl
             e.Cancel = true;
             try
             {
+                // Prima riga: prova nel log che l'handler è davvero scattato, a prescindere
+                // da cosa succede dopo — utile per diagnosticare un Ctrl+C che sembra "no-op"
+                // (revisione finale piano 2b).
+                _log.Info("Ctrl+C ricevuto (turno in corso: " + (_turnCts is not null) + ")");
                 _executor.StopCurrent();     // ferma la pipeline (utente o ExecInShell)
                 _turnCts?.Cancel();           // sveglia SlashTurn in attesa → CancelCommand
             }
@@ -72,6 +76,24 @@ internal sealed class Repl
             {
                 Console.Write(_session.EvaluatePrompt());
                 string? line = _session.ReadLine(usePsReadLine);
+
+                // PSReadLine mette la console in TreatControlCAsInput durante l'editing della
+                // riga (Ctrl+C diventa un carattere, non un segnale) e dovrebbe ripristinarlo
+                // da sola all'uscita — ma non ci affidiamo a quel "dovrebbe": se ReadLine esce
+                // per qualunque via (anche un percorso interno non previsto) senza ripristinare
+                // il flag, un Ctrl+C durante l'esecuzione del comando successivo non
+                // raggiungerebbe più CancelKeyPress e la §4.4 (Ctrl+C ferma la pipeline) si
+                // romperebbe silenziosamente. Lo forziamo qui, ad ogni giro del loop.
+                try
+                {
+                    Console.TreatControlCAsInput = false;
+                }
+                catch
+                {
+                    // Nessuna console reale (stdin/stdout rediretti in test): nessun flag da
+                    // ripristinare, nulla da fare.
+                }
+
                 if (line is null)
                 {
                     Console.WriteLine();
@@ -154,9 +176,16 @@ internal sealed class Repl
 
     private void RunSlash(string input)
     {
-        // Segnale all'emulatore (§4.7), prima di qualunque altra cosa: costa nulla e non dipende dal WS.
-        Console.Out.Write(Osc.Intercept(input));
-        Console.Out.Flush();
+        // Segnale all'emulatore (§4.7), prima di qualunque altra cosa: costa nulla e non dipende
+        // dal WS. Solo se lo stdout è la console vera (F5c, revisione finale piano 2b): con
+        // stdout rediretto su file o su una pipe, la sequenza OSC finirebbe scritta come byte
+        // grezzi nel file/nel processo a valle invece che interpretata da un emulatore — rumore,
+        // non un segnale.
+        if (!Console.IsOutputRedirected)
+        {
+            Console.Out.Write(Osc.Intercept(input));
+            Console.Out.Flush();
+        }
 
         if (!EnsureConnected())
         {

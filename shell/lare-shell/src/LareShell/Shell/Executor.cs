@@ -85,11 +85,32 @@ internal sealed class Executor : IExecutor
         // fermato dal try/finally — esce dal PROCESSO come farebbe un "exit" digitato al prompt
         // dell'utente, arrivando a LareHost.SetShouldExit. Il gate di conferma ha già mostrato il
         // comando prima dell'esecuzione: è un limite dichiarato, non un buco di sicurezza.
-        (bool stopped, bool caughtError) = Invoke(
-            "try {\n" + command + "\n} finally {\n$global:" + OkVariable + " = $?\n}", capture);
+        bool stopped;
+        bool caughtError;
+        string output;
+        try
+        {
+            (stopped, caughtError) = Invoke(
+                "try {\n" + command + "\n} finally {\n$global:" + OkVariable + " = $?\n}", capture);
+        }
+        finally
+        {
+            // "finally", non in coda al try: se Invoke lanciasse un'eccezione inattesa (non
+            // RuntimeException/PipelineStoppedException — quelle sono già catturate DENTRO
+            // Invoke), senza questo finally il Recorder resterebbe acceso per sempre
+            // (IsRecording true) e il prossimo ExecInShell con capture:true mescolerebbe il suo
+            // output con quello del turno fallito. Il comportamento per il caso normale non
+            // cambia: End() gira comunque una volta sola, subito dopo Invoke.
+            output = capture ? _session.Host.HostUI.Recorder.End() : string.Empty;
+        }
 
-        string output = capture ? _session.Host.HostUI.Recorder.End() : string.Empty;
         int exitCode = stopped ? StoppedExitCode : caughtError ? 1 : ReadExitCode(state);
+        // Pulizia del segnaposto su TUTTI i rami, non solo quello che passa da ReadExitCode:
+        // se il comando viene fermato da Ctrl+C o fallisce prima di raggiungere il "finally"
+        // dello script (parse error), $global:__lare_ok può restare impostato da un'esecuzione
+        // precedente fino al prossimo ExecInShell — nel frattempo un RunInteractive dell'utente
+        // (che non passa da qui) lo vedrebbe come una variabile globale estranea nella sessione.
+        state.PSVariable.Remove(OkVariable);
         return new ExecOutcome(exitCode, output, _session.CurrentDirectory, stopped);
     }
 
@@ -155,12 +176,13 @@ internal sealed class Executor : IExecutor
     /// (il "finally" lo imposta anche se il "try" fallisce) — il caso "variabile assente" resta
     /// solo per un errore che impedisce l'esecuzione del "finally" stesso (es. ParseException:
     /// quella strada torna 1 PRIMA di chiamare questo metodo, tramite <c>caughtError</c> in
-    /// <see cref="Run"/>, non passando di qui). Pulisce il segnaposto.</summary>
+    /// <see cref="Run"/>, non passando di qui). La pulizia del segnaposto è responsabilità del
+    /// chiamante (<see cref="Run"/>): la fa una volta sola, dopo aver letto l'exit code, sullo
+    /// stesso rigo per tutti i rami (anche quelli che non passano da qui).</summary>
     private static int ReadExitCode(SessionStateProxy state)
     {
         bool ok = state.GetVariable(OkVariable) is bool b && b;
         int code = state.GetVariable("LASTEXITCODE") is int c ? c : 0;
-        state.PSVariable.Remove(OkVariable);
         return ok ? 0 : code != 0 ? code : 1;
     }
 }

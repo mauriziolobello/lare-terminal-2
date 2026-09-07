@@ -88,16 +88,69 @@ public class ExecutorTests : IDisposable
     [Fact]
     public void StopCurrent_ferma_la_pipeline_e_segna_Stopped()
     {
-        // Ctrl+C durante un ExecInShell (spec §4.4): la pipeline viene fermata, niente ExecResult parziale.
-        var stopper = new Thread(() =>
+        // Ctrl+C durante un ExecInShell (spec §4.4): la pipeline viene fermata, niente ExecResult
+        // parziale. Sincronizzazione con un file marcatore invece di un semplice Thread.Sleep
+        // fisso: uno Sleep(400) presume che PowerShell abbia già avviato "Start-Sleep" entro
+        // 400 ms — vero quasi sempre in locale ma non garantito (macchina CI più lenta, primo
+        // JIT a freddo…), con il rischio di uno StopCurrent() chiamato PRIMA che la pipeline
+        // sia partita (test flaky). Il marcatore lo scrive lo script stesso, appena parte
+        // davvero: lo stopper aspetta quello, non un tempo fisso.
+        string marker = Path.Combine(Path.GetTempPath(), "lare-stop-test-" + Guid.NewGuid().ToString("N"));
+        try
         {
-            Thread.Sleep(400);
-            _executor.StopCurrent();
-        });
-        stopper.Start();
-        ExecOutcome o = _executor.Run("Start-Sleep -Seconds 20", capture: true);
-        stopper.Join();
-        Assert.True(o.Stopped);
+            var stopper = new Thread(() =>
+            {
+                WaitForMarker(marker);
+                _executor.StopCurrent();
+            });
+            stopper.Start();
+            ExecOutcome o = _executor.Run(
+                "New-Item -ItemType File '" + marker + "' | Out-Null; Start-Sleep -Seconds 20",
+                capture: true);
+            stopper.Join();
+            Assert.True(o.Stopped);
+        }
+        finally
+        {
+            File.Delete(marker);
+        }
+    }
+
+    [Fact]
+    public void RunInteractive_fermato_da_StopCurrent_ritorna_true()
+    {
+        // Stesso scenario del test precedente ma per il ramo RunInteractive (comando digitato
+        // dall'utente al prompt, non un ExecInShell dell'AI): anche lì Ctrl+C deve fermare la
+        // pipeline e il metodo deve tornare true (F2c, revisione finale piano 2b).
+        string marker = Path.Combine(Path.GetTempPath(), "lare-stop-test-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var stopper = new Thread(() =>
+            {
+                WaitForMarker(marker);
+                _executor.StopCurrent();
+            });
+            stopper.Start();
+            bool stopped = _executor.RunInteractive(
+                "New-Item -ItemType File '" + marker + "' | Out-Null; Start-Sleep -Seconds 20");
+            stopper.Join();
+            Assert.True(stopped);
+        }
+        finally
+        {
+            File.Delete(marker);
+        }
+    }
+
+    /// <summary>Attende (polling ogni 10 ms, fino a 5 s) che lo script sotto test abbia scritto
+    /// il proprio file marcatore, cioè sia davvero partito nel runspace.</summary>
+    private static void WaitForMarker(string marker)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (!File.Exists(marker) && DateTime.UtcNow < deadline)
+        {
+            Thread.Sleep(10);
+        }
     }
 
     [Fact]

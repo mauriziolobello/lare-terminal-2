@@ -17,9 +17,13 @@ internal interface IProcessStarter
 /// <summary>
 /// Avvio "staccato" (spec §6.4): <c>UseShellExecute = true</c> → il figlio NON eredita gli handle
 /// della nostra console (stdio compresi) e vive in una console propria: un Ctrl+C nella shell non
-/// lo abbatte, e i suoi log non sporcano il terminale. <c>WindowStyle = Hidden</c> per le app
-/// console (orchestrator.exe) ne nasconde la finestra; ui.exe è un'app GUI e va lasciata Normal
-/// (ruling 4 del piano — è l'equivalente pratico in .NET di DETACHED_PROCESS).
+/// lo abbatte, e i suoi log non sporcano il terminale. <c>WindowStyle = Hidden</c> nasconde quella
+/// console per ENTRAMBI i figli (scoperto all'e2e del piano 2b, non la formulazione originale del
+/// piano — vedi <c>Launcher.EnsureUi</c>): <c>orchestrator.exe</c> è un'app console e la finestra
+/// nascosta è la sua UNICA finestra; <c>ui.exe</c> in build debug è ANCH'esso un'app console (Tauri
+/// tiene la console per i log), quindi ha anche lui una console da nascondere — ma le sue finestre
+/// vere (Tauri/xterm) sono create e mostrate esplicitamente dall'app stessa e restano visibili a
+/// prescindere da questo flag. È l'equivalente pratico in .NET di DETACHED_PROCESS.
 /// </summary>
 internal sealed class ProcessStarter : IProcessStarter
 {

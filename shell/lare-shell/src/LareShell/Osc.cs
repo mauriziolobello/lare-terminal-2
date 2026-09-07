@@ -11,9 +11,17 @@ internal static class Osc
 {
     internal static readonly char Esc = (char)0x1B;
 
+    /// <summary>Tetto al payload (F5c, revisione finale piano 2b): una riga patologica (incollata,
+    /// non digitata — l'utente non scrive 100 KB a mano) non deve produrre una sequenza OSC
+    /// chilometrica. Non è un limite di sicurezza (il payload è già ripulito dai caratteri di
+    /// controllo che romperebbero la sequenza), solo di igiene verso l'emulatore che la riceve.</summary>
+    private const int MaxPayloadLength = 4096;
+
     public static string Intercept(string line) =>
-        Esc + "]9001;lare;intercept;" + Sanitize(line) + Esc + "\\";
+        Esc + "]9001;lare;intercept;" + Truncate(Sanitize(line)) + Esc + "\\";
 
     /// <summary>Un ESC, un BEL o un a-capo nel payload chiuderebbero/spezzerebbero la sequenza.</summary>
     private static string Sanitize(string s) => new(s.Where(c => !char.IsControl(c)).ToArray());
+
+    private static string Truncate(string s) => s.Length <= MaxPayloadLength ? s : s[..MaxPayloadLength];
 }

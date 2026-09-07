@@ -46,6 +46,18 @@ public class OscTests
         string s = Osc.Intercept("/ai \"a\u001bb\nc\"");
         Assert.Equal("\u001b]9001;lare;intercept;/ai \"abc\"\u001b\\", s);
     }
+
+    [Fact]
+    public void Intercept_tronca_payload_oltre_4096_caratteri()
+    {
+        // F5c (revisione finale piano 2b): una riga patologica (incollata, non digitata) non deve
+        // produrre una OSC chilometrica. Il payload va troncato a 4096 caratteri, qualunque sia la
+        // lunghezza della riga originale, il resto della sequenza (ESC iniziale/finale) resta intatto.
+        string riga = new string('x', 5000);
+        string s = Osc.Intercept(riga);
+        string atteso = Osc.Esc + "]9001;lare;intercept;" + new string('x', 4096) + Osc.Esc + "\\";
+        Assert.Equal(atteso, s);
+    }
 }
 
 public class SourceScanTests

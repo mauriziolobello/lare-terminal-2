@@ -111,3 +111,11 @@ ADR-019), non bug scoperti per caso. Dettaglio implementativo completo in
   richiesta di conferma ricevuta al turno corrente (contratto (a): un solo turno alla volta per
   connessione, quindi non c'è ambiguità pratica), e scarta a inizio turno ciò che fosse rimasto in
   coda da un turno già chiuso.
+- **All'avvio, `EnsureConnected` può bloccare fino a ~8 s (3 s di connect + retry) con Ctrl+C
+  no-op.** Capita solo se qualcosa ascolta sulla porta 7331 senza rispondere (non il caso comune
+  di "nessuno in ascolto", che fallisce subito, né quello di un vero orchestratore, che risponde
+  entro la finestra). L'handler di `Console.CancelKeyPress` È già agganciato in quella finestra
+  (lo si registra prima di `ConnectAtStartup`) e SCATTA regolarmente su Ctrl+C — ma non ha nulla
+  da fermare: `_turnCts` è `null` (nessun turno slash in corso) e `Executor.StopCurrent()` non ha
+  una pipeline attiva, quindi l'unico effetto è la riga nel log ("Ctrl+C ricevuto (turno in corso:
+  False)", F2a) mentre il loop di connect/retry prosegue fino alla propria scadenza.

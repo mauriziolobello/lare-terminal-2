@@ -331,7 +331,7 @@ public class SlashTurnTests
     }
 
     [Fact]
-    public void Il_gate_viene_abbandonato_se_in_coda_c_e_gia_il_Done_del_turno()
+    public void Il_gate_viene_abbandonato_se_in_coda_c_e_gia_l_Error_del_turno()
     {
         // Timeout 180 s lato orchestratore (spec §4.3): la richiesta scade e arriva Done/Error mentre
         // l'utente non ha ancora risposto → il prompt si chiude da solo, senza restare appeso.
@@ -351,6 +351,38 @@ public class SlashTurnTests
             Assert.Equal(TurnResult.Failed, turn.Run("/ai \"x\"", @"C:\w", CancellationToken.None));
             serverSide.GetAwaiter().GetResult();
             Assert.Equal(new[] { GateAnswer.Abandoned }, gate.Given);
+            server.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        }
+    }
+
+    [Fact]
+    public void Il_gate_viene_abbandonato_se_in_coda_ci_sono_ack_e_Done_del_turno()
+    {
+        // F3 (revisione finale piano 2b): per un turno gateizzato l'orchestratore (surface.rs,
+        // route_shell_turn) manda alla shell UN SOLO Chunk di ack ("→ finestra aperta") seguito
+        // subito dal Done — mai un altro Chunk di testo nel mezzo (il testo dell'AI finisce nella
+        // finestra ui, non nella shell). Quindi trovare quell'ack in TESTA alla coda (TryPeek)
+        // basta per sapere che il turno sta per chiudersi: il gate deve abbandonare SUBITO,
+        // invece di aspettare un tasto dell'utente fino al Done stesso.
+        (FakeOrchestrator server, OrchestratorClient client) = Connected();
+        using (client)
+        {
+            var gate = new FakeGate();   // nessuna risposta in coda: aspetta shouldAbandon
+            var output = new StringWriter();
+            var turn = new SlashTurn(client, gate, new FakeExecutor(), output, HostLog.Null) { NewId = () => "t" };
+            CancellationToken ct = Ct();
+            Task serverSide = Task.Run(async () =>
+            {
+                await server.ReceiveAsync(ct);
+                await server.SendAsync(J(new { type = "tool_confirm_request", id = "g1", commands = "x" }), ct);
+                await server.SendAsync(J(new { type = "chunk", id = "t", content = "→ finestra aperta" }), ct);
+                await server.SendAsync(J(new { type = "done", id = "t", exit_code = (int?)null }), ct);
+            });
+
+            Assert.Equal(TurnResult.Completed, turn.Run("/ai \"x\"", @"C:\w", CancellationToken.None));
+            serverSide.GetAwaiter().GetResult();
+            Assert.Equal(new[] { GateAnswer.Abandoned }, gate.Given);
+            Assert.Contains("→ finestra aperta", output.ToString());
             server.DisposeAsync().AsTask().GetAwaiter().GetResult();
         }
     }
