@@ -5,9 +5,10 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), versioning: [S
 
 ---
 
-## [Unreleased]
+## [2.0.1] — 2026-09-07
 
-Fix wave della revisione finale del piano 2b (nessun bump di versione: `fix:`, non `release:`).
+Fix wave della revisione finale del piano 2b, più il fix `--no-terminal` del piano 3 Task 3 (quest'
+ultimo motiva il bump di versione — i fix del piano 2b, di per sé, non lo avrebbero richiesto).
 
 ### Fixed
 
@@ -34,6 +35,8 @@ Fix wave della revisione finale del piano 2b (nessun bump di versione: `fix:`, n
 - Doc-comment di `Launcher.ProcessStarter` allineato al comportamento reale: sia
   `orchestrator.exe` sia `ui.exe` partono con console nascosta (non solo il primo, come diceva
   ancora il commento).
+- `Launcher.EnsureUi()` passa `--no-terminal` a `ui.exe` (piano 3): senza, ogni self-heal in
+  modalità B avrebbe aperto una seconda finestra terminale non voluta.
 
 ### Added
 

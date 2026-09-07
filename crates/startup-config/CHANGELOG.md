@@ -5,6 +5,15 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), versioning: [S
 
 ---
 
+## [Unreleased] — `spawn_detached` (piano 3, Task 3)
+
+Aggiunta `spawn_detached(exe, args)`: avvia un processo staccato dal corrente
+(`DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP` su Windows) — un solo posto che
+sa COME staccare un processo, riusato sia da `ui.exe` (self-heal
+dell'orchestratore, `launcher::ensure_orchestrator`) sia, più avanti, dall'
+orchestratore stesso (autostart di `ui.exe`, Task 6). Nessun cambiamento
+all'API esistente.
+
 ## 2.0.2 — 2026-09-05 — assolutizzazione condivisa di `--config-dir`, `TOKEN_FILE_NAME`
 
 Fix wave della review finale (piano 1). L'assolutizzazione di un `--config-dir`

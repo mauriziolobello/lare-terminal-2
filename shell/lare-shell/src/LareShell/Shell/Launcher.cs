@@ -162,7 +162,11 @@ internal sealed class Launcher
         // terminale predefinito, una console nuova si apre come SCHEDA di WT e ruba il fuoco alla
         // shell. WindowStyle.Hidden nasconde solo quella console: le finestre di ui.exe sono
         // create e mostrate esplicitamente dall'app, e restano visibili (verificato dal vivo).
-        _starter.Start(UiExe, new[] { "--config-dir", _configDir }, hideWindow: true);
+        // "--no-terminal" (piano 3): la host C# possiede già la propria
+        // shell (questo processo); `ui.exe` in modalità B serve SOLO per le
+        // finestre (config/library/output), mai per una seconda finestra
+        // terminale — altrimenti ogni /comando ne aprirebbe una non voluta.
+        _starter.Start(UiExe, new[] { "--config-dir", _configDir, "--no-terminal" }, hideWindow: true);
         return true;
     }
 }

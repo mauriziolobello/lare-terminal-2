@@ -122,6 +122,34 @@ pub fn deploy_root(config_dir: &Path) -> PathBuf {
         .unwrap_or_else(|| config_dir.to_path_buf())
 }
 
+/// Avvia `exe` con `args`, staccato dal processo corrente (spec §6.4):
+/// nessuna console ereditata, un Ctrl+C nel padre non lo abbatte. Un solo
+/// posto che sa COME staccare un processo su Windows — riusato sia da
+/// `ui.exe` (self-heal dell'orchestratore, `launcher::ensure_orchestrator`)
+/// sia dall'orchestratore stesso (autostart di `ui.exe`, piano 3 Task 6),
+/// invece di duplicare la logica nei due crate.
+#[cfg(windows)]
+pub fn spawn_detached(exe: &Path, args: &[String]) -> std::io::Result<std::process::Child> {
+    use std::os::windows::process::CommandExt;
+    // DETACHED_PROCESS (0x8) | CREATE_NEW_PROCESS_GROUP (0x200): equivalente
+    // Windows di `setsid` — nessuna console ereditata, gruppo di processi
+    // proprio (un Ctrl+C nella console del padre non raggiunge il figlio).
+    const DETACHED_PROCESS: u32 = 0x0000_0008;
+    const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+    std::process::Command::new(exe)
+        .args(args)
+        .creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP)
+        .spawn()
+}
+
+/// Non verificato fuori Windows (il prodotto oggi lo è, ADR-019): spawn
+/// semplice, senza distacco — meglio di un errore di compilazione su altre
+/// piattaforme di sviluppo.
+#[cfg(not(windows))]
+pub fn spawn_detached(exe: &Path, args: &[String]) -> std::io::Result<std::process::Child> {
+    std::process::Command::new(exe).args(args).spawn()
+}
+
 /// Schema di `startup.json` (spec §6.3). Ogni campo ha un default: file
 /// assente = tutti i default; campo assente = default di quel campo.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -410,5 +438,14 @@ mod tests {
             "--console-log"
         ));
         assert!(!has_flag(&args(&["orchestrator.exe"]), "--console-log"));
+    }
+
+    // ── spawn_detached ───────────────────────────────────────────────────
+    #[test]
+    fn spawn_detached_avvia_un_processo_reale() {
+        let mut child =
+            spawn_detached(Path::new("cmd"), &["/c".into(), "exit".into(), "0".into()]).unwrap();
+        let status = child.wait().unwrap();
+        assert!(status.success());
     }
 }

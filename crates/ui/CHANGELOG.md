@@ -22,6 +22,12 @@ costruiscono. Nessun comportamento nuovo in questo task.
 - **Rimosso il flag di sviluppo `--open config|library`** (piano 1, Task 7): eliminati
   `DevOpenRequest`/`dev_open_request` e il parsing degli argv in `main.rs`, e il blocco
   corrispondente in `host.js`. Resa obsoleta dalla finestra terminale che il piano 3 introduce.
+- **Self-heal dell'orchestratore lato Rust** (Task 3, nuovo modulo `launcher.rs`,
+  `ensure_orchestrator`): se il WS non risponde e `autostart.orchestrator` è attivo, `ui.exe` lo
+  avvia (`startup_config::spawn_detached`) e ritenta per 5s prima di costruire la finestra
+  terminale — mirror Rust di `Launcher.cs` (host C#, modalità B). Nuovo flag `--no-terminal`
+  (stato gestito `NoTerminal`, letto dalla finestra terminale nel Task 4) per chi avvia `ui.exe`
+  in ruolo "solo host" (la host C# in modalità B, e l'autostart dell'orchestratore nel Task 6).
 
 ## 2.1.0 — 2026-09-06 — finestra di output del canale shell, `open_ui_local`, `/help` singleton, `ui_pong` (piano 2a, Task 9)
 

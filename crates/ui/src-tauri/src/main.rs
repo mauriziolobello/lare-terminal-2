@@ -44,6 +44,7 @@ use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 use ui_lib::archive;
 use ui_lib::config::{self, Config};
+use ui_lib::launcher;
 use ui_lib::library_watch;
 
 // ---------------------------------------------------------------------------
@@ -179,6 +180,16 @@ impl ui_lib::pty::PtyOutputSink for AppHandleSink {
 }
 
 struct PtyState(ui_lib::pty::SharedPtyState);
+
+/// true se `ui.exe` è stato avviato in ruolo "solo host" (`--no-terminal`,
+/// piano 3): non apre la finestra terminale — resta solo la host page
+/// nascosta + le finestre aperte on-demand (config, library, ...).
+///
+/// `#[allow(dead_code)]`: il campo .0 non è ancora letto da nessun comando
+/// in questo task — lo sarà dalla finestra terminale (Task 4), che decide
+/// se aprirsi consultando questo stato gestito.
+#[allow(dead_code)]
+struct NoTerminal(bool);
 
 /// Avvia `lare-shell.exe --config-dir <dir> --session <id>` nella pty della
 /// finestra terminale. `session_id` arriva dal frontend, che lo ha ottenuto
@@ -1340,6 +1351,41 @@ fn main() {
     }
     println!("[ui] config dir: {}", cfg_state.config_dir.display());
 
+    // ── Flag `--no-terminal` (piano 3): usato da chi avvia `ui.exe` in
+    //    ruolo "solo host" — la host C# in modalità B (`Launcher.EnsureUi`,
+    //    lare-shell 2.0.1) e l'autostart dell'orchestratore (spec §6.4)
+    //    lo passano SEMPRE, altrimenti ogni `/comando` aprirebbe una
+    //    seconda finestra terminale non voluta. Assente = modalità A: la
+    //    finestra terminale nasce all'avvio (comportamento di default).
+    let args: Vec<String> = std::env::args().collect();
+    let no_terminal = args.iter().any(|a| a == "--no-terminal");
+
+    // ── Self-heal (spec §6.4): se l'orchestratore non risponde e
+    //    l'autostart è attivo, avvialo PRIMA di costruire la finestra
+    //    terminale (Task 4) — così `lare-shell.exe`, quando la pty lo
+    //    lancia, trova già il WS su.
+    let orchestrator_exe =
+        startup_config::deploy_root(&cfg_state.config_dir).join("orchestrator.exe");
+    let ws_port = cfg_state.startup.ws_port;
+    let connect = || -> Option<String> {
+        let addr = format!("127.0.0.1:{ws_port}");
+        match std::net::TcpStream::connect_timeout(
+            &addr.parse().expect("host:port letterale sempre valido"),
+            std::time::Duration::from_millis(400),
+        ) {
+            Ok(_) => None,
+            Err(e) => Some(e.to_string()),
+        }
+    };
+    launcher::ensure_orchestrator(
+        &connect,
+        cfg_state.startup.autostart.orchestrator,
+        &orchestrator_exe,
+        &cfg_state.config_dir,
+        launcher::CONNECT_WINDOW,
+        launcher::RETRY_INTERVAL,
+    );
+
     tauri::Builder::default()
         // Stato gestito: cartella di configurazione + startup.json, risolti
         // una volta sopra — nessun comando/modulo li ri-deriva da solo.
@@ -1347,6 +1393,9 @@ fn main() {
         // Stato gestito: sessione pty condivisa (Task 2, piano 3) — una sola
         // sessione "una finestra, una sessione" dell'MVP, vedi pty::shared_state().
         .manage(PtyState(ui_lib::pty::shared_state()))
+        // Stato gestito: ruolo "solo host" (`--no-terminal`, piano 3) — letto
+        // dalla finestra terminale (Task 4) per decidere se aprirsi.
+        .manage(NoTerminal(no_terminal))
         // Register Tauri commands callable from JS.
         .invoke_handler(tauri::generate_handler![
             get_lare_token,
