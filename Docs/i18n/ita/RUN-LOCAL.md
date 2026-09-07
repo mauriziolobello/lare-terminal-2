@@ -61,21 +61,6 @@ l'autostart, dove nessuno guarda un terminale). Se lanci invece i binari già in
 `.\Test Run\init_orchestrator.ps1` / `.\Test Run\init_tauri.ps1`), **non serve** `--config-dir`:
 gli exe vivono già accanto a `Configuration\`, che è il default.
 
-### Flag di sviluppo `--open` (temporaneo, sparisce nel piano 3)
-
-Utile per un ciclo di sviluppo rapido su `orchestrator`/`ui` **senza** passare dalla host C# (che
-richiede un publish e Windows Terminal per un giro completo, §"Host C#" sotto): `ui.exe --open
-config` o `ui.exe --open library` apre subito la finestra corrispondente, per poter verificare le
-finestre a mano:
-
-```powershell
-cargo run -p ui -- --config-dir "Test Run\Configuration" --open library
-cargo run -p ui -- --config-dir "Test Run\Configuration" --open config
-```
-
-Un valore diverso da `config`/`library` (o l'assenza del flag) non apre nulla — comportamento
-identico a prima dell'introduzione del flag.
-
 ### Canale shell senza la host (client di sviluppo)
 
 `lare-shell.exe` (host C#, piano 2b) esiste ora — vedi §"Host C#" sotto per costruirla e avviarla

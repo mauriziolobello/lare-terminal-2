@@ -847,15 +847,6 @@ async function bootstrap() {
 
   // Listener back-channel della finestra "Nuova nota"/"Modifica nota".
   setupNoteWindowEvents();
-
-  // Flag di sviluppo TEMPORANEO (piano 1 → rimosso nel piano 3, vedi
-  // main.rs::DevOpenRequest): senza overlay né canale shell nessuna
-  // superficie può ancora chiedere l'apertura di /config o Library da sola
-  // — `ui.exe --open config|library` lo fa al posto loro, per poter
-  // verificare le finestre a mano durante lo sviluppo.
-  const open = await invokeCmd("dev_open_request");
-  if (open === "config") invokeCmd("open_config_window");
-  if (open === "library") invokeCmd("open_library_window");
 }
 
 bootstrap();

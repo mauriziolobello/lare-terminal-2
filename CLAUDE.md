@@ -48,7 +48,6 @@ dotnet test shell/lare-shell/LareShell.sln    # test della host C# (115)
 cargo run -p orchestrator -- --config-dir "Test Run\Configuration" --console-log
 cargo run -p ui -- --config-dir "Test Run\Configuration"
 node scripts/dev/shell-client.mjs -- '/ping'   # canale shell senza console interattiva (dev/CI)
-# Flag di sviluppo (finché non c'è la modalità A, piano 3): ui.exe --open config|library
 
 .\deploy_test_run.ps1                         # popola Test Run\ (pubblica anche lare-shell; -SkipShell per saltarla)
 ```

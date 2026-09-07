@@ -34,6 +34,18 @@ notify-debouncer-mini = "0"
 # risolutore, nessuna env var). Vedi crates/ui/src-tauri/src/config_dir.rs.
 startup-config = { path = "../../startup-config" }
 
+# PTY portabile per la finestra terminale (piano 3) — apre lare-shell.exe
+# dentro una pseudo-console (ConPTY su Windows) e ne pilota I/O da Rust.
+portable-pty = "0.9"
+
+# Encoding delle sequenze OSC/keystroke scambiate col frontend xterm.js
+# (piano 3, Task 5+).
+base64 = "0.22"
+
+# Generazione di identificatori casuali (es. id di sessione terminale,
+# piano 3, Task 5+).
+rand = "0.8"
+
 [dev-dependencies]
 # Used in config tests: create temp files/dirs with auto-cleanup.
 tempfile = "3"

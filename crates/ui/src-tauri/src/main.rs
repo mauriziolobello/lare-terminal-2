@@ -198,18 +198,6 @@ fn set_config(
     Ok(())
 }
 
-/// Flag di sviluppo TEMPORANEO (piano 1 → rimosso nel piano 3): `--open
-/// config|library` apre subito quella finestra, perché senza overlay né
-/// canale shell nessuna superficie può chiederlo da sola. Letto una volta da
-/// argv in `main()` e tenuto in stato gestito; `host.js` lo legge una sola
-/// volta al bootstrap.
-pub struct DevOpenRequest(pub Option<String>);
-
-#[tauri::command]
-fn dev_open_request(state: tauri::State<DevOpenRequest>) -> Option<String> {
-    state.0.clone()
-}
-
 // ---------------------------------------------------------------------------
 // Markdown window commands (ADR-013)
 // ---------------------------------------------------------------------------
@@ -1291,28 +1279,10 @@ fn main() {
     }
     println!("[ui] config dir: {}", cfg_state.config_dir.display());
 
-    // ── Flag di sviluppo TEMPORANEO `--open config|library` (Task 7, piano 1
-    //    → rimosso nel piano 3): letto una volta da argv reali, come
-    //    `--config-dir` sopra. Senza overlay né canale shell nessuna
-    //    superficie può ancora chiedere l'apertura di una finestra da sola —
-    //    questo flag la apre subito, per poter verificare le finestre a mano
-    //    durante lo sviluppo. Un valore diverso da "config"/"library" (o
-    //    l'assenza del flag) è silenziosamente `None`: nessuna finestra si
-    //    apre da sola, comportamento identico a prima dell'introduzione del
-    //    flag.
-    let args: Vec<String> = std::env::args().collect();
-    let open = args
-        .iter()
-        .position(|a| a == "--open")
-        .and_then(|i| args.get(i + 1))
-        .filter(|v| *v == "config" || *v == "library")
-        .cloned();
-
     tauri::Builder::default()
         // Stato gestito: cartella di configurazione + startup.json, risolti
         // una volta sopra — nessun comando/modulo li ri-deriva da solo.
         .manage(cfg_state)
-        .manage(DevOpenRequest(open))
         // Register Tauri commands callable from JS.
         .invoke_handler(tauri::generate_handler![
             get_lare_token,
@@ -1320,7 +1290,6 @@ fn main() {
             diagnose_connection,
             get_config,
             set_config,
-            dev_open_request,
             search_settings::get_search_settings,
             search_settings::set_search_settings,
             aichat_settings::get_aichat_settings,

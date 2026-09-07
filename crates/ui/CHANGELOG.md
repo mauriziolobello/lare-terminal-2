@@ -5,6 +5,24 @@ Versioning: `major.minor.update`.
 
 ---
 
+## [Unreleased] — scaffold piano 3: vendor xterm.js, dipendenze PTY, rimosso `--open` (Task 0)
+
+Terreno pulito per la finestra terminale (xterm.js + ConPTY) che i task successivi del piano 3
+costruiscono. Nessun comportamento nuovo in questo task.
+
+- **Vendored**: `crates/ui/frontend/vendor/xterm.js`, `xterm.css`, `addon-fit.js` — copie
+  byte-identiche dallo spike (`spikes/lare-terminal-window/frontend/vendor/`), pronte per essere
+  caricate da `terminal.html` (Task 4).
+- **Nuove dipendenze Rust** in `crates/ui/src-tauri/Cargo.toml`: `portable-pty = "0.9"` (ConPTY
+  portabile per pilotare `lare-shell.exe` da Rust), `base64 = "0.22"` e `rand = "0.8"` (encoding
+  OSC/keystroke e id di sessione, Task 5+).
+- **`build.rs`**: aggiunta `println!("cargo:rerun-if-changed=../frontend")` — senza questa riga
+  `generate_context!` incorpora `frontendDist` a compile time e una modifica al solo frontend non
+  fa ripartire la build (gotcha dello spike 2).
+- **Rimosso il flag di sviluppo `--open config|library`** (piano 1, Task 7): eliminati
+  `DevOpenRequest`/`dev_open_request` e il parsing degli argv in `main.rs`, e il blocco
+  corrispondente in `host.js`. Resa obsoleta dalla finestra terminale che il piano 3 introduce.
+
 ## 2.1.0 — 2026-09-06 — finestra di output del canale shell, `open_ui_local`, `/help` singleton, `ui_pong` (piano 2a, Task 9)
 
 Consuma i messaggi additivi di `protocol` 2.1.0 verso `ui` (`OpenOutputWindow`,

@@ -3,8 +3,8 @@
 > Stato a fine piano 2b: `lare-shell.exe` (host C# del motore PowerShell, ADR-015) esiste ed è
 > pubblicata da `deploy_test_run.ps1` in `Test Run\shell\`, verificabile in **modalità B** (profilo
 > Windows Terminal "Lare Terminal" — `install-wt-profile.ps1`). La modalità A (`ui.exe` che lancia
-> `lare-shell.exe` dentro una ConPTY) resta piano 3; fino ad allora il flag di sviluppo `--open`
-> resta utile per aprire una finestra senza passare dalla shell — vedi `RUN-LOCAL.md`.
+> `lare-shell.exe` dentro una ConPTY) è il piano 3, completato — vedi `RUN-LOCAL.md` sezione
+> "Modalità A".
 
 ## Prerequisiti sulla macchina di destinazione
 
