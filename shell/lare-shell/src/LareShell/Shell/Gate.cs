@@ -1,3 +1,6 @@
+using LareShell.Config;
+using LareShell.Host;
+
 namespace LareShell.Shell;
 
 /// <summary>Risposta dell'utente al gate ADR-007 (spec §4.3). <c>Cancel</c> = Ctrl+C (annulla tutto
@@ -26,6 +29,12 @@ internal interface IGate
 /// </summary>
 internal sealed class ConsoleGate : IGate
 {
+    private readonly HostLog _log;
+
+    public ConsoleGate() : this(HostLog.Null) { }
+
+    public ConsoleGate(HostLog log) => _log = log;
+
     public GateAnswer Ask(string commands, Func<bool> shouldAbandon)
     {
         Console.WriteLine();
@@ -65,6 +74,12 @@ internal sealed class ConsoleGate : IGate
         try { previous = Console.TreatControlCAsInput; Console.TreatControlCAsInput = true; } catch { /* nessuna console */ }
         try
         {
+            // Il gate risponde SOLO a un tasto premuto DOPO il prompt: tutto ciò che è già nel
+            // buffer della console (type-ahead, o tasti fantasma — visti all'e2e in Windows
+            // Terminal: l'Invio della riga /… arrivava di nuovo qui e accettava il gate da solo)
+            // viene scartato, con log di ciò che c'era, per capire da dove viene.
+            DrainPendingKeys();
+
             while (!shouldAbandon())
             {
                 if (!Console.KeyAvailable)
@@ -74,6 +89,7 @@ internal sealed class ConsoleGate : IGate
                 }
 
                 ConsoleKeyInfo key = Console.ReadKey(intercept: true);
+                _log.Debug("gate: tasto " + Describe(key));
                 if (key.Key == ConsoleKey.C && key.Modifiers.HasFlag(ConsoleModifiers.Control))
                 {
                     Console.WriteLine("^C");
@@ -102,4 +118,37 @@ internal sealed class ConsoleGate : IGate
             try { Console.TreatControlCAsInput = previous; } catch { /* nessuna console */ }
         }
     }
+
+    /// <summary>Svuota il buffer di input della console e logga cosa conteneva (diagnostica) e la
+    /// console mode dell'input (per riconoscere ENABLE_VIRTUAL_TERMINAL_INPUT e simili).</summary>
+    private void DrainPendingKeys()
+    {
+        try
+        {
+            if (OperatingSystem.IsWindows()
+                && ConsoleModes.TryGetMode(ConsoleModes.GetHandle(ConsoleModes.StdInputHandle), out uint mode))
+            {
+                _log.Debug("gate: input mode 0x" + mode.ToString("X"));
+            }
+
+            int drained = 0;
+            while (Console.KeyAvailable)
+            {
+                ConsoleKeyInfo stale = Console.ReadKey(intercept: true);
+                drained++;
+                _log.Debug("gate: scartato tasto pendente " + Describe(stale));
+                if (drained > 64)
+                {
+                    break;   // paranoia: una sorgente infinita di eventi non deve bloccare il prompt
+                }
+            }
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or IOException)
+        {
+            // Nessuna console vera: niente da svuotare.
+        }
+    }
+
+    private static string Describe(ConsoleKeyInfo key) =>
+        "Key=" + key.Key + " Char=0x" + ((int)key.KeyChar).ToString("X") + " Mod=" + key.Modifiers;
 }

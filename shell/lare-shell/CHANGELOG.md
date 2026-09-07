@@ -11,6 +11,7 @@ Fix wave della revisione finale del piano 2b (nessun bump di versione: `fix:`, n
 
 ### Fixed
 
+- `ConsoleGate`: il buffer di input della console viene svuotato prima del prompt `[Y/n]` (il gate risponde solo a un tasto premuto DOPO il prompt) e i tasti scartati/letti sono loggati — all'e2e con AI reale due gate risultavano accettati da tasti pendenti.
 - `install-wt-profile.ps1`: `commandline` del profilo Windows Terminal ora virgolettata — senza
   virgolette, WT passa la stringa a `CreateProcess` senza `lpApplicationName`, che con un percorso
   con spazi ("Test Run") prova a risolvere ogni prefisso troncato allo spazio.

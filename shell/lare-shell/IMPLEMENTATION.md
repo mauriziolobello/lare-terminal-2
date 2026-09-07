@@ -85,7 +85,7 @@ ConPTY) è piano 3.
   `PowerShell.Stop()`: su SDK 7.6.5 `Invoke()` torna normalmente con
   `InvocationStateInfo.State == Stopped` (non un'eccezione — scoperta del Task 4, il catch
   `PipelineStoppedException` resta per coprire altri SDK/percorsi).
-- **`IGate`** / **`ConsoleGate`** — il prompt `[Y/n]` del gate ADR-007: lettura tasto diretta
+- **`IGate`** / **`ConsoleGate`** — il prompt `[Y/n]` del gate ADR-007: lettura tasto diretta (buffer svuotato prima del prompt, tasti loggati)
   (`Console.ReadKey`, non PSReadLine), polling `KeyAvailable` ogni 50 ms così può accorgersi
   (`shouldAbandon`) che il turno è già finito altrove; con stdin rediretto (pipe/test manuale)
   ricade su `Console.ReadLine` e **fallisce chiuso** su EOF (nessun umano a rispondere → rifiuta,

@@ -205,7 +205,7 @@ internal sealed class Repl
         _turnCts = cts;
         try
         {
-            var turn = new SlashTurn(_client, new ConsoleGate(), _executor, Console.Out, _log);
+            var turn = new SlashTurn(_client, new ConsoleGate(_log), _executor, Console.Out, _log);
             TurnResult result = turn.Run(input, _session.CurrentDirectory, cts.Token);
             if (result == TurnResult.Disconnected)
             {

@@ -82,6 +82,8 @@ allo streaming token-per-token, fuori MVP — spec §12).
 
 ## [APERTO] Debiti nativi della host `lare-shell` (piano 2b)
 
+- **Gate `[Y/n]` accettato da tasti pendenti (osservato UNA volta, non riprodotto).** Nella prima passata dell'e2e con AI reale i primi due gate del turno risultavano già accettati e la `y` del terzo è comparsa anche al prompt successivo: tasti duplicati/pendenti nel buffer della console (Windows Terminal + ConPTY, driver SendKeys). Protezione in `ConsoleGate.Ask`: il buffer viene svuotato PRIMA del prompt (il gate risponde solo a un tasto premuto dopo) e i tasti scartati finiscono nel log (`gate: scartato tasto pendente …`, `gate: input mode …`). Nelle passate successive nessun tasto pendente. Se ricompare, il log dice cosa c'era.
+
 **Introdotti nel piano 2b** (nativi del 2.0): decisioni deliberate della host C# (ruling del piano,
 ADR-019), non bug scoperti per caso. Dettaglio implementativo completo in
 `shell/lare-shell/IMPLEMENTATION.md` §Debiti; qui solo il sintomo osservabile dall'utente.

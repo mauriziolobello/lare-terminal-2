@@ -165,6 +165,8 @@ Terminal "Lare Terminal", `lare-shell.exe` nudo):
 - **Chore separata**: `cargo fmt` globale sul codice copiato dalla v1 (non fmt-clean), fuori dai
   piani per non sporcare i diff di review.
 
+- **E2E con AI reale fatto il 2026-09-07** (`llms.json` copiato dal deploy v1 in `Test Run\Configuration\`, gitignored): punti 5-9 di `TESTING-e2e.md` Parte 6 tutti OK (tre gate in sequenza, exec nel runspace, `cd` persistente, rifiuto, Ctrl+C in attesa e durante l'exec, `python` interattivo). Trovato e protetto un caso di gate accettato da tasti pendenti (svuotamento del buffer prima del prompt + log): vedi `KNOWN-ISSUES.md`.
+
 ### Debiti / decisioni del piano 2a
 
 Deliberati durante l'implementazione (revisione advisor + review del controller), da tenere
