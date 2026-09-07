@@ -151,10 +151,13 @@ e2e — nessun dato recuperabile da questa sede, va solo segnalato.
 > l'ha eseguita dal vivo DOPO il completamento del piano (con lo stesso metodo "da tastiera" già
 > usato per la Parte 6 — `scripts/dev/e2e-driver/`, SendKeys + screenshot + UI Automation, README
 > con le lezioni), incluso il fix di chiusura finestra emerso proprio da questa passata (commit
-> `07c584c` — vedi `HANDOFF.md`). **Passi 1/2/5/6/7/9/10 e le verifiche di modalità B/autostart
-> Task 6 eseguiti dal vivo dal controller dopo il completamento del piano (incluso il fix di
-> chiusura finestra, commit `07c584c`); il resto resta da eseguire.** Stesso principio delle Parti
-> precedenti: registrare gli esiti REALI una volta osservati, non presumerli.
+> `07c584c` — vedi `HANDOFF.md`), e ha anche trovato e corretto dal vivo un secondo difetto reale
+> (bottone "riavvia" invisibile dietro il viewport di xterm.js, `z-index`, commit `80cd46a`). **Passi
+> 1/2/5/6/7/9/10, le verifiche di modalità B/autostart Task 6 e il bottone "riavvia" eseguiti dal
+> vivo dal controller dopo il completamento del piano; restano da eseguire solo `/calc`, `/config`/
+> `/library`/i pulsanti della barra, `/aichat` doppio, l'avvio senza autostart, e il resize.**
+> Stesso principio delle Parti precedenti: registrare gli esiti REALI una volta osservati, non
+> presumerli.
 
 Prerequisiti: build fatta (`cargo build`, `cargo build -p ui`, `cargo build -p plugin-calc`) e
 `.\deploy_test_run.ps1 -IncludePlugins` eseguito (pubblica anche `lare-shell` in
@@ -187,10 +190,15 @@ prevedeva righe separate per queste — annotate qui invece di forzarle in righe
   `ui.exe --no-terminal` (confermato: processo `ui` compare, nessuna finestra terminale, nessun
   `lare-shell.exe`), la finestra "Lare — Comandi" si è aperta davvero, ack "→ finestra aperta"
   (non il fallback `NO_UI_ACK`).
+- **Bottone "riavvia" dopo un crash esterno di `lare-shell.exe`**: OK. Verificato anche il difetto
+  che questa stessa passata aveva trovato nel banner (bottone dipinto sotto il viewport opaco di
+  xterm.js, invisibile/incliccabile — corretto con `z-index: 1` su `#restart-banner`, commit
+  `80cd46a`): con la correzione il banner "shell terminata (exit code …)" compare sopra il
+  terminale (screenshot confermato), il clic su "riavvia" fa ripartire `lare-shell.exe` (PID
+  nuovo, stessa sessione), `term.reset()` pulisce lo schermo, prompt funzionante.
 
 **Righe/passi esplicitamente NON testati dal vivo** (lasciati "Da eseguire", nessun esito
 inventato): riga 3 (`/calc`); riga 4 (`/config`/`/library`, né digitati né coi pulsanti; i
 pulsanti della barra inferiore in generale — mai cliccati, solo digitazione diretta); riga 8
 (`/aichat` due volte → una sola finestra); riga 11 (avvio di `ui.exe` senza orchestratore E con
-autostart disattivato); il bottone "riavvia" dopo un crash esterno di `lare-shell.exe`; il resize
-della finestra (nessuna verifica di re-fit).
+autostart disattivato); il resize della finestra (nessuna verifica di re-fit).

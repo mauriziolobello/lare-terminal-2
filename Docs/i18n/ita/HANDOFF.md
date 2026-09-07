@@ -203,16 +203,23 @@ un'asserzione esistente in `LauncherTests.cs`, non aggiunge test propri):
   l'aggiramento locale può essere rimosso**. Commit `07c584c`, `ui` 2.2.0 → 2.2.1 (CHANGELOG/
   IMPLEMENTATION di `ui`).
 
-**Da fare prima di considerare il piano 3 chiuso al 100%**: la Parte 7 di `TESTING-e2e.md` (e2e
-manuale dal vivo, modalità A) — vedi la nota in testa a quella sezione.
+**Da fare prima di considerare il piano 3 chiuso al 100%**: solo poche righe residue della Parte 7
+di `TESTING-e2e.md` (`/calc`, `/config`/`/library` e i pulsanti della barra, `/aichat` doppio,
+avvio senza autostart, resize) — la parte sostanziale (self-heal, OSC 9001, ActivityIndicator, un
+turno `/ai` reale, chiusura finestra, autostart di `ui.exe` dall'orchestratore, bottone "riavvia")
+è stata eseguita dal vivo dal controller ed è OK, vedi la nota in testa a quella sezione.
 
 ## DA FARE
 
 - **Idea (Maurizio, 2026-09-07) — più LLM dalla riga di comando: `/ai:<nome>`, gruppi, AI che parlano fra loro.** Oggi `/ai "…"` usa solo il provider `active` di `llms.json` (che però ha già un registro di provider con nome: `claude-direct`, `deepseek-openrouter`, …). Atteso: `/ai:Claude-sonnet "…"`, `/ai:Gemini "…"`, `/ai:Kimi "…"` per rivolgersi a una AI specifica configurata; **gruppi con nome** (es. `Coders` = quelle tre) e `/ai:Coders "…"` che interroga tutte in un colpo solo; poi, la parte più interessante, **le AI che interagiscono fra loro** sul modello di `/aichat` (chat fra due macchine Lare, ciascuna con una AI diversa). In parte esiste, andrà "aggiustato": sintassi nel pre-router della shell (`shell_slash.rs`), gruppi in `llms.json`, fan-out e aggregazione delle risposte nella finestra di output. Da studiare più avanti (dopo il piano 3).
 - **Idea (Maurizio, 2026-09-07) — interazione dell'AI "da tastiera" e descrittore di form.** La metodologia usata per l'e2e del piano 2b (tasti via `SendKeys`, screenshot letti come immagine, UI Automation per finestre e schede — `scripts/dev/e2e-driver/`, README con le lezioni) va conservata e fatta diventare un plugin o un metodo interno di interazione dell'AI dentro Lare Terminal. Estensione ancora embrionale: un **modello descrittore di form** (forma da definire) per pagine web, che faccia da "traccia" all'AI: l'utente chiede, l'AI apre la pagina e, seguendo il descrittore, inserisce i valori ricevuti. Da brainstormare quando arriva il suo turno (dopo il piano 3).
-- **E2E manuale dal vivo, modalità A (piano 3)**: `TESTING-e2e.md` Parte 7 è una checklist
-  compilata ma NON eseguita (nessun accesso GUI durante il Task 7 di documentazione) — da fare dal
-  controller con `scripts/dev/e2e-driver/` prima di considerare il piano 3 chiuso al 100%.
+- **E2E manuale dal vivo, modalità A (piano 3)**: `TESTING-e2e.md` Parte 7 — la parte sostanziale
+  eseguita dal vivo dal controller dopo il piano (self-heal, OSC 9001, ActivityIndicator, un turno
+  `/ai` reale, chiusura finestra, autostart di `ui.exe` dall'orchestratore, bottone "riavvia", tutti
+  OK — ha anche trovato e fatto correggere due difetti reali: chiusura finestra senza terminare i
+  processi, poi bottone "riavvia" invisibile per uno `z-index` mancante). Restano da eseguire solo
+  righe minori: `/calc`, `/config`/`/library` e i pulsanti della barra, `/aichat` doppio, avvio
+  senza autostart, resize.
 - **Streaming token-per-token nella finestra di output** (spec §12, fuori MVP finora): il
   contenuto arriva tutto insieme a `Done`/`Error` da sempre (piano 2a) — il piano 3 lo esclude
   esplicitamente dal proprio scope (Global Constraints), non è quindi legato a un piano
