@@ -72,8 +72,21 @@ impl Registry {
         self.shells.insert(session_id.to_string(), tx);
     }
 
-    pub fn unregister_shell(&mut self, session_id: &str) {
-        self.shells.remove(session_id);
+    /// Rimuove la sessione shell `session_id` SOLO se il sender registrato è ancora quello di
+    /// `tx` (`same_channel`) — stesso schema di `clear_ui_sink_if`. Senza questo controllo, una
+    /// connessione VECCHIA che si riconnette con lo stesso `session_id` (la host `lare-shell` lo
+    /// fa: piano 2b) potrebbe finire il proprio teardown DOPO che la connessione NUOVA si è già
+    /// registrata, cancellando la registrazione giusta e lasciando quella sessione shell
+    /// irraggiungibile finché non arriva un'altra riconnessione. Ritorna `true` se ha rimosso
+    /// davvero (trovato dalla revisione finale del piano 2b, F4).
+    pub fn unregister_shell_if(&mut self, session_id: &str, tx: &UnboundedSender<ServerMsg>) -> bool {
+        match self.shells.get(session_id) {
+            Some(current) if current.same_channel(tx) => {
+                self.shells.remove(session_id);
+                true
+            }
+            _ => false,
+        }
     }
 
     pub fn shell_count(&self) -> usize {
@@ -137,11 +150,32 @@ mod tests {
     fn shells_are_registered_by_session_id() {
         let mut r = Registry::new();
         let (a, _ra) = unbounded_channel::<ServerMsg>();
-        r.register_shell("s1", a);
+        r.register_shell("s1", a.clone());
         assert_eq!(r.shell_count(), 1);
-        r.unregister_shell("s1");
+        assert!(r.unregister_shell_if("s1", &a));
         assert_eq!(r.shell_count(), 0);
-        r.unregister_shell("mai-esistita"); // no-op, niente panic
+        assert!(!r.unregister_shell_if("mai-esistita", &a)); // no-op, niente panic
+    }
+
+    /// Riconnessione con lo stesso `session_id` (piano 2b, host `lare-shell`): il teardown
+    /// della connessione VECCHIA non deve cancellare la registrazione della NUOVA. Stesso
+    /// difetto già risolto per il sink `ui` da `clear_ui_sink_if` — trovato dalla revisione
+    /// finale del piano 2b (F4) perché `lare-shell` si riconnette con lo stesso `session_id`.
+    #[test]
+    fn unregister_shell_if_non_cancella_una_riconnessione_con_lo_stesso_session_id() {
+        let mut r = Registry::new();
+        let (old_tx, _old_rx) = unbounded_channel::<ServerMsg>();
+        let (new_tx, _new_rx) = unbounded_channel::<ServerMsg>();
+        r.register_shell("s1", old_tx.clone());
+        // La nuova connessione arriva e sovrascrive la entry PRIMA che il teardown della vecchia giri.
+        r.register_shell("s1", new_tx.clone());
+        assert_eq!(r.shell_count(), 1);
+        // Il teardown della vecchia connessione non deve toccare la entry (che ora è `new_tx`).
+        assert!(!r.unregister_shell_if("s1", &old_tx));
+        assert_eq!(r.shell_count(), 1);
+        // Solo il teardown della connessione giusta la rimuove davvero.
+        assert!(r.unregister_shell_if("s1", &new_tx));
+        assert_eq!(r.shell_count(), 0);
     }
 
     #[tokio::test]

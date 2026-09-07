@@ -848,7 +848,7 @@ async fn handle_connection(
     // comunque il comportamento di fine-scope.
     if let Some(s) = shell.take() {
         s.abort_all().await;
-        registry.lock().await.unregister_shell(s.session_id());
+        registry.lock().await.unregister_shell_if(s.session_id(), &out_tx);
         drop(s);
     }
 
