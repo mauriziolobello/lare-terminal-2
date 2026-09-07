@@ -50,8 +50,14 @@ copiati" — vedi `HANDOFF.md`): non è un segnale di errore, guarda l'output
 **Verifica rapida del deploy** (senza tastiera né orchestratore):
 
 ```powershell
-.\Test Run\shell\lare-shell.exe --selftest
+& ".\Test Run\shell\lare-shell.exe" --selftest
 ```
+
+(`Test Run` contiene uno spazio: PowerShell impone l'operatore di chiamata `&` quando il comando è
+un'espressione fra virgolette — le virgolette avvolgono **solo il percorso**, gli argomenti
+restano fuori. `.\Test Run\...` senza virgolette si spezza sullo spazio; `".\Test Run\...
+--selftest"` con l'argomento dentro le virgolette diventa una stringa unica, che PowerShell si
+limita a restituire invece di eseguire.)
 
 Una riga `[OK]`/`[FAIL]` per controllo (cartella di configurazione, `startup.json`, pwsh trovato,
 …), exit code 0/1.
