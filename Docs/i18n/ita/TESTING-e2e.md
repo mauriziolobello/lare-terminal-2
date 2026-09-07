@@ -107,7 +107,7 @@ riverificato i punti toccati dal fix (autostart, riconnessione).
 | 5 | `/ai "elenca i 3 file più grandi in questa cartella"` → `[Y/n]` → Invio → comando eseguito NEL terminale → finestra Markdown col risultato | **Non verificabile dal vivo** (nessuna chiave AI → `StubAdapter`, nessuna tool call quindi nessun gate reale) — coperto da `SlashTurnTests`/`ExecutorTests`/`ws_integration.rs`. Verificato invece, con lo `StubAdapter`: `/ai "ciao, chi sei?"` completa un turno e apre una finestra |
 | 6 | `/ai "vai nella cartella Documents"` → il prompt dopo mostra `Documents` (cwd persiste, D17) | **Non verificabile dal vivo** (richiede una tool call AI reale) — coperto dai test automatici (cwd per sessione, `ws_integration.rs`). La persistenza della cwd per un comando DIGITATO (`cd ..`) è invece verificata dal vivo (punto 2) |
 | 7 | `/ai "cancella tutti i file temporanei"` → `n` al gate → nessun comando eseguito, il turno finisce | **Non verificabile dal vivo** (nessun gate reale senza tool call AI) — coperto da `SlashTurnTests` (percorso Reject) |
-| 8 | Ctrl+C in attesa del turno AI, e Ctrl+C durante un `ExecInShell` lungo avviato dall'AI → "annullato (Ctrl+C)"/"comando interrotto (Ctrl+C): turno annullato" | **Non verificabile nella forma esatta del punto** (richiede un turno AI reale). Verificato invece Ctrl+C su un comando DIGITATO (`Start-Sleep`): torna al prompt correttamente, **ma la riga "[LARE] comando interrotto (Ctrl+C)." non è comparsa** (KNOWN-ISSUE, causa non investigata); il meccanismo (`PowerShell.Stop()` → `InvocationStateInfo.State == Stopped`) resta comunque coperto da `ExecutorTests` |
+| 8 | Ctrl+C in attesa del turno AI, e Ctrl+C durante un `ExecInShell` lungo avviato dall'AI → "annullato (Ctrl+C)"/"comando interrotto (Ctrl+C): turno annullato" | **Non verificabile nella forma esatta del punto** (richiede un turno AI reale). Verificato invece (terza passata, host in una **nuova finestra Windows Terminal**, cioè ConPTY come in modalità B) Ctrl+C su un comando DIGITATO (`Start-Sleep 30`): nel log `Ctrl+C ricevuto (turno in corso: False)`, nel terminale `[LARE] comando interrotto (Ctrl+C).` e il prompt. Nelle prime due passate (host in `conhost`) la riga mancava: era il **driver** (`SendKeys ^c` e `GenerateConsoleCtrlEvent` non consegnavano alcun Ctrl+C, nemmeno a un `pwsh` di controllo) — non la host |
 | 9 | `/ai "apri python in modo interattivo"` → REPL python utilizzabile, `exit()` torna al prompt | **Non verificabile dal vivo** (richiede una tool call AI con `interactive: true`) — coperto dai test automatici di `Executor`/`ws_integration.rs` (percorso `capture:false`) |
 | 10 | Chiudi `ui.exe` → `/help` la riavvia (self-heal, ruling 8); uccidi l'orchestratore (`Stop-Process -Name orchestrator`) → `/ping` → "orchestratore non raggiungibile … avvio …" → riconnesso e finestra aperta | Parzialmente verificato. OK: "orchestratore ucciso → `/ping` riavvia e riconnette (stessa sessione)", finestra `/ping` aperta (seconda passata). La chiusura manuale di `ui.exe` seguita da `/help` per il self-heal non risulta annotata come passo distinto — non verificato esplicitamente (l'autostart di `ui.exe` all'apertura della scheda è invece verificato, punto 1) |
 | 11 | `exit` → la scheda si chiude; `Get-Process lare-shell` → nulla; `Get-Process orchestrator, ui` → ANCORA vivi (processi staccati) | OK, verificato **due volte**: prima passata, "orchestrator e ui sopravvivono (anche quando la host girava in una scheda WT chiusa)"; seconda passata, "orchestrator e ui vivi" dopo `exit`. Il comando `Get-Process lare-shell` non risulta trascritto nel ledger come eseguito alla lettera — la sopravvivenza dei due processi staccati è comunque confermata in entrambe le passate |
@@ -121,9 +121,9 @@ riverificato i punti toccati dal fix (autostart, riconnessione).
    avvia anche `ui.exe` con `hideWindow: true` (verificato: le finestre vere create da `ui.exe` —
    Markdown, `/config`, `/library` — restano visibili; solo la console di debug resta nascosta).
    Vedi ADR-019 punto 6 (rivisto) e `HANDOFF.md`.
-2. **Fragment del profilo WT**: `commandline` senza virgolette (come nello spike) — le virgolette
-   non erano la causa del sintomo osservato (era il driver SendKeys), ma la forma senza virgolette
-   resta quella collaudata e non è stata cambiata.
+2. **Fragment del profilo WT**: il sintomo "avvio di `Terminal` fallito" era il driver SendKeys,
+   non le virgolette; la revisione finale ha poi imposto il `commandline` **quotato** (senza, con
+   spazi nel percorso, `CreateProcess` prova prefissi come `…\Progetti\Lare.exe`), fix wave `22dcb09`.
 3. **Il fragment richiede il riavvio di Windows Terminal.** La finestra WT dell'utente era già
    aperta quando il fragment è stato installato → il profilo "Lare Terminal" non era ancora
    caricato in quella finestra → la **prima passata** dell'e2e è stata condotta in una finestra
@@ -133,7 +133,8 @@ riverificato i punti toccati dal fix (autostart, riconnessione).
 
 Fix wave e2e: commit `a8d148f` (2 file + test nuovi, 115/115).
 
-**Nota per Maurizio (incidente durante l'e2e).** Durante la prima passata, guidata via SendKeys,
-il controller ha chiuso per errore una scheda "PowerShell" nella finestra Windows Terminal
-dell'utente (verosimilmente una scheda dell'utente stesso, non aperta da questo e2e) — nessun dato
-recuperabile da questa sede, va solo segnalato.
+**Nota per Maurizio (incidente durante l'e2e).** Durante la prima passata, guidata via SendKeys e
+UI Automation, il controller ha chiuso con `exit` una scheda "PowerShell" nella finestra Windows
+Terminal dell'utente (`wt -w new` aveva aperto una seconda finestra WT nello stesso processo e
+l'enumerazione leggeva la prima): quasi certamente una scheda dell'utente, non aperta da questo
+e2e — nessun dato recuperabile da questa sede, va solo segnalato.

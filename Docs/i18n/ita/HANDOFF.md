@@ -287,9 +287,9 @@ turno gateizzato questo basta: l'ack `Chunk` che precede il `Done` conta come te
 mezzo; `ToolConfirmRequest`
 senza `turn_id`; il gate con stdin rediretto blocca dentro `Console.ReadLine`; **`ConsoleGate` e
 `Repl` non hanno test automatici** (richiedono una console interattiva vera — coperti solo
-dall'e2e manuale, `TESTING-e2e.md` Parte 6); la riga `"[LARE] comando interrotto (Ctrl+C)."` non è
-comparsa una volta durante l'e2e dopo un Ctrl+C su un comando digitato (`Start-Sleep`) — causa non
-investigata, il meccanismo resta coperto dai test automatici di `Executor`; `#pragma warning
+dall'e2e manuale, `TESTING-e2e.md` Parte 6); Ctrl+C su un comando digitato è verificato dal vivo in
+Windows Terminal (log `Ctrl+C ricevuto` + riga `"[LARE] comando interrotto (Ctrl+C)."`): il caso
+"riga mancante" delle prime passate era il driver dell'e2e in `conhost`, non la host; `#pragma warning
 disable xUnit1031` nei test sincroni di `SlashTurn` (bloccano di proposito, come il thread REPL
 vero); il fragment del profilo Windows Terminal (`install-wt-profile.ps1`) è letto solo all'avvio
 di WT — installarlo/aggiornarlo richiede di riavviarlo, non basta una nuova scheda; `ui.exe` in

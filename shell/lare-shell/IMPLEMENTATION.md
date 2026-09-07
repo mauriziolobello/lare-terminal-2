@@ -235,10 +235,11 @@ dotnet test shell/lare-shell/LareShell.sln --filter "FullyQualifiedName~Executor
   `runtimes\win-x64\lib\net10.0\Modules\` (mai usati: i moduli "standard" (PSReadLine compreso)
   vengono dalla cartella `Modules` di **pwsh**, anteposta al `PSModulePath` del processo da
   `PwshLocator`/`RunspaceSession.Open`) — ridondanza nel publish, non un bug funzionale.
-- La riga `"[LARE] comando interrotto (Ctrl+C)."` non è comparsa una volta durante l'e2e dal vivo
-  (Ctrl+C su un `Start-Sleep` digitato: il prompt è tornato correttamente, ma senza quella riga) —
-  causa non investigata, coperta dai test automatici di `Executor`/`SlashTurn` che verificano il
-  meccanismo (`InvocationStateInfo.State == Stopped`), non l'e2e reale.
+- Ctrl+C su un comando digitato: verificato dal vivo in Windows Terminal (ConPTY) — il log riporta
+  `Ctrl+C ricevuto (turno in corso: False)` e il terminale `"[LARE] comando interrotto (Ctrl+C)."`.
+  Il caso "riga mancante" osservato nelle prime passate dell'e2e (host in `conhost`, Ctrl+C
+  sintetico via `SendKeys`/`GenerateConsoleCtrlEvent`) era il driver: lo stesso evento non
+  interrompeva nemmeno un `pwsh` di controllo.
 - `#pragma warning disable xUnit1031` in `SlashTurnTests` (i test del turno sono sincroni per
   mandato del piano: bloccano di proposito sul thread di test, come farebbe il thread REPL vero).
 - Il fragment del profilo Windows Terminal (`install-wt-profile.ps1`) è letto solo all'**avvio** di
