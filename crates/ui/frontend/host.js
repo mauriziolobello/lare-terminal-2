@@ -311,6 +311,15 @@ function handleServerMsg(msg) {
       emitToLibrary("library:note-upserted", { note: msg.note });
       break;
 
+    // ── Segnalino di stato per la finestra terminale (piano 3, Task 5) ─────
+    case "activity_indicator":
+      emitToTerminal("terminal:activity", {
+        session_id: msg.session_id,
+        kind: msg.kind,
+        on: msg.on,
+      });
+      break;
+
     // ── Share (Library → AI Chat) ───────────────────────────────────────
     case "share_request":
       pushAiChat("aichat:share-request", {
@@ -585,6 +594,15 @@ function emitToLibrary(event, payload) {
     tauriEvent
       .emit(event, payload)
       .catch((e) => console.error(`[host] emitToLibrary ${event} error:`, e));
+  }
+}
+
+// Ponte verso la finestra terminale — stesso schema di emitToLibrary/emitToPlugin.
+function emitToTerminal(event, payload) {
+  if (tauriEvent?.emit) {
+    tauriEvent
+      .emit(event, payload)
+      .catch((e) => console.error(`[host] emit ${event} error:`, e));
   }
 }
 

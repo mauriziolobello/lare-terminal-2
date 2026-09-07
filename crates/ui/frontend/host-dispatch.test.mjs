@@ -20,3 +20,6 @@ test("messaggi del cursore v1 senza superficie sono ignored", () => {
 test("tool_confirm_request senza cursore viene negato (safe default)", () => {
   assert.equal(classifyServerMsg({ type: "tool_confirm_request" }), "deny");
 });
+test("activity_indicator è relay (piano 3, Task 5)", () => {
+  assert.equal(classifyServerMsg({ type: "activity_indicator" }), "relay");
+});

@@ -39,6 +39,7 @@ const WINDOW = new Set([
 
 const RELAY = new Set([
   "ai_chat_message",
+  "activity_indicator",
   "ai_chat_roster",
   "ai_chat_reachable_peers",
   "ai_chat_history",
