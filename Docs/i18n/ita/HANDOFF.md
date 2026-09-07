@@ -147,6 +147,7 @@ Terminal "Lare Terminal", `lare-shell.exe` nudo):
 
 ## DA FARE
 
+- **Idea (Maurizio, 2026-09-07) — interazione dell'AI "da tastiera" e descrittore di form.** La metodologia usata per l'e2e del piano 2b (tasti via `SendKeys`, screenshot letti come immagine, UI Automation per finestre e schede — `scripts/dev/e2e-driver/`, README con le lezioni) va conservata e fatta diventare un plugin o un metodo interno di interazione dell'AI dentro Lare Terminal. Estensione ancora embrionale: un **modello descrittore di form** (forma da definire) per pagine web, che faccia da "traccia" all'AI: l'utente chiede, l'AI apre la pagina e, seguendo il descrittore, inserisce i valori ricevuti. Da brainstormare quando arriva il suo turno (dopo il piano 3).
 - **Piano 3** — finestra terminale Tauri (xterm.js + ConPTY, ADR-016), **modalità A** (`ui.exe`
   lancia `lare-shell.exe --config-dir … --session <id>` dentro una ConPTY e diventa l'app che
   l'utente avvia — spec §2.3/§5). Include: autostart reciproco completo (`ui.exe` avvia
