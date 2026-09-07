@@ -12,7 +12,7 @@ eseguire dal vivo**, vedi la nota in testa a quella sezione. Compila la colonna
 "primo avvio").
 
 **Prerequisiti**: build fatta (`cargo build`, `cargo build -p ui`, `cargo build -p plugin-ping -p
-plugin-calc`) e `.\deploy_test_run.ps1 -IncludePlugins` eseguito — vedi `RUN-LOCAL.md`.
+plugin-calc`) e `.\deploy_test_run.ps1 -IncludePlugins` eseguito — vedi `BUILD.md`/`DEPLOY.md`.
 
 ## Parte 1 — Orchestrator da `Test Run\`
 
@@ -61,8 +61,9 @@ plugin-calc`) e `.\deploy_test_run.ps1 -IncludePlugins` eseguito — vedi `RUN-L
 ## Parte 5 — Canale shell col client di sviluppo
 
 Verifica il canale shell del piano 2a (`Docs/i18n/ita/06-decisions.md` ADR-018) senza `lare-shell`
-(host C#, piano 2b): `scripts/dev/shell-client.mjs` imita la host — vedi `RUN-LOCAL.md` §"Canale
-shell senza la host" per l'uso e il gotcha Git Bash/MSYS (lancia da **PowerShell**). Prerequisiti:
+(host C#, piano 2b): `scripts/dev/shell-client.mjs` imita la host — vedi `BUILD.md` §"Strumento di
+sviluppo: parlare il canale shell senza una console vera" per l'uso e il gotcha Git Bash/MSYS
+(lancia da **PowerShell**). Prerequisiti:
 orchestrator e `ui.exe` avviati da `Test Run\` (Parte 1/2); nessun `ANTHROPIC_API_KEY` impostata
 va bene — l'orchestrator ricade sullo `StubAdapter`, sufficiente per verificare il giro dei
 messaggi (non la qualità delle risposte).
@@ -162,7 +163,7 @@ e2e — nessun dato recuperabile da questa sede, va solo segnalato.
 Prerequisiti: build fatta (`cargo build`, `cargo build -p ui`, `cargo build -p plugin-calc`) e
 `.\deploy_test_run.ps1 -IncludePlugins` eseguito (pubblica anche `lare-shell` in
 `Test Run\shell\` e `calc.exe` in `Test Run\plugins\calc\`, senza cui il passo 3 non ha nulla da
-rispondere) — vedi `RUN-LOCAL.md` §"Modalità A".
+rispondere) — vedi `RUN.md` §"Modalità A".
 
 | # | Passo | Atteso | Esito |
 |---|---|---|---|

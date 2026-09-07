@@ -1,10 +1,14 @@
-# DEPLOY — Lare Terminal 2.0
+# DEPLOY — preparare una cartella eseguibile di Lare Terminal 2.0
 
-> Stato a fine piano 2b: `lare-shell.exe` (host C# del motore PowerShell, ADR-015) esiste ed è
-> pubblicata da `deploy_test_run.ps1` in `Test Run\shell\`, verificabile in **modalità B** (profilo
-> Windows Terminal "Lare Terminal" — `install-wt-profile.ps1`). La modalità A (`ui.exe` che lancia
-> `lare-shell.exe` dentro una ConPTY) è il piano 3, completato — vedi `RUN-LOCAL.md` sezione
-> "Modalità A".
+Come popolare `Test Run\` (o una copia altrove) con i binari e la configurazione, **dopo** aver
+compilato (`BUILD.md`). Non contiene istruzioni per avviare il programma — quelle sono in
+`RUN.md`.
+
+`Test Run\` nel repo **è già** un deploy: script di popolamento, manifest e struttura sono
+committati; binari, DLL, segreti e dati generati dall'uso no (gitignored). Per lo sviluppo
+quotidiano non serve altro — `Test Run\` stessa è la cartella da cui lanciare il programma (vedi
+`RUN.md`). Questa pagina serve anche a chi vuole copiare il programma su un'altra macchina o in
+un'altra cartella.
 
 ## Prerequisiti sulla macchina di destinazione
 
@@ -16,21 +20,47 @@
   (`PwshLocator`, ADR-019 punto 2) — senza pwsh l'editing di riga ricade su un fallback povero
   (`Console.ReadLine`), la shell resta comunque usabile.
 - **.NET 10 runtime x64**: `lare-shell` è pubblicata *framework-dependent* (publish
-  `-r win-x64 --self-contained false`, ~100 MB invece di ~200 self-contained). Misurata dal vivo
-  nel Task 8: `Test Run\shell\` (lare-shell.exe + le DLL del motore PowerShell, `System.Management.
+  `-r win-x64 --self-contained false`, ~100 MB invece di ~200 self-contained). Misurata dal vivo:
+  `Test Run\shell\` (lare-shell.exe + le DLL del motore PowerShell, `System.Management.
   Automation.dll` compresa) pesa **41,4 MB**. Senza il runtime il processo non parte (errore di
   framework mancante, non un crash Lare).
 - Un venv Python per dominio in `pytools\<dominio>\venv\` **creato a mano** sulla macchina di
   destinazione (mai deployato: vedi sotto) — necessario solo se si useranno i tool che dipendono
   da quel dominio (es. `/markets` → `financial-markets`).
 
-## Layout di deploy
+## Popolare (o ri-popolare) `Test Run\`
 
-`Test Run\` nel repo è lo specchio esatto del layout (spec §7): struttura, manifest e script sono
-committati; binari, DLL, segreti e dati generati dall'uso no. Per creare un deploy altrove, copia
-`Test Run\` (dopo un `deploy_test_run.ps1` che l'abbia popolata di binari) in una cartella
-qualunque — i percorsi in `startup.json` sono relativi alla radice del deploy (la cartella che
-contiene `Configuration\`), non alla posizione originale, quindi funziona senza modifiche.
+```powershell
+.\deploy_test_run.ps1                          # da target\debug\ (build debug, vedi BUILD.md)
+.\deploy_test_run.ps1 -IncludePlugins           # come sopra, più ping.exe/calc.exe in plugins\<id>\
+.\deploy_test_run.ps1 -BuildConfig release      # da target\release\ invece di target\debug\
+.\deploy_test_run.ps1 -SkipShell                # salta il publish di lare-shell (~1 minuto) —
+                                                 # utile quando ricompili solo il Rust
+```
+
+Lo script **non tocca mai** `Test Run\Configuration\` (token, config generate, log — gitignored,
+sopravvivono a ogni deploy) e pubblica sempre `lare-shell` in `Test Run\shell\` con
+`dotnet publish -c Release -r win-x64 --self-contained false` (la host non ha una build "debug"
+utile nel deploy — vedi `BUILD.md`), a meno di `-SkipShell`.
+
+Termina con `$LASTEXITCODE` diverso da 0 anche a successo (debito noto, `robocopy` usa 1 per "file
+copiati" — vedi `HANDOFF.md`): non è un segnale di errore, guarda l'output
+(`Test Run pronta: ...` sull'ultima riga).
+
+**Verifica rapida del deploy** (senza tastiera né orchestratore):
+
+```powershell
+.\Test Run\shell\lare-shell.exe --selftest
+```
+
+Una riga `[OK]`/`[FAIL]` per controllo (cartella di configurazione, `startup.json`, pwsh trovato,
+…), exit code 0/1.
+
+## Layout del deploy
+
+I percorsi in `startup.json` sono relativi alla radice del deploy (la cartella che contiene
+`Configuration\`), non alla posizione originale: `Test Run\` (o una sua copia in qualunque altra
+cartella) funziona senza modifiche.
 
 ```
 <deploy>\
@@ -38,8 +68,10 @@ contiene `Configuration\`), non alla posizione originale, quindi funziona senza 
 ├── shell\                                            ← lare-shell.exe + DLL del motore PowerShell
 │                                                        + powershell.config.json (execution policy,
 │                                                        ADR-019); publish framework-dependent win-x64
-├── install-wt-profile.ps1  uninstall-wt-profile.ps1  ← modalità B: profilo Windows Terminal "Lare Terminal"
-├── init_orchestrator.ps1  init_tauri.ps1            ← avvio manuale, nessuna variabile d'ambiente
+├── install-wt-profile.ps1  uninstall-wt-profile.ps1  ← installa/rimuove il profilo Windows
+│                                                        Terminal "Lare Terminal" (modalità B —
+│                                                        vedi RUN.md, si esegue una volta sola)
+├── init_orchestrator.ps1  init_tauri.ps1            ← avvio manuale dei due processi (vedi RUN.md)
 ├── Configuration\
 │   ├── startup.json                                 ← template, nessun segreto
 │   ├── README.md
@@ -74,36 +106,19 @@ d'ambiente — scelta esplicita, fuori dallo scope di D6 (che riguarda la *posiz
 configurazione Lare, non le credenziali dei provider): impostale sulla macchina di destinazione,
 oppure crea `Configuration\llms.json` a mano per selezionare un provider/modello diverso dal
 default (`claude-sonnet-4-6` via Claude diretto, con `StubAdapter` come fallback se nessuna delle
-due è disponibile).
+due è disponibile). Senza nessuna delle due, l'orchestrator logga `ANTHROPIC_API_KEY non
+impostata — uso StubAdapter` e risponde con un adapter finto invece di chiamare Claude davvero.
 
-## Passi
+## Copiare il deploy altrove
 
-1. Compila in release (`cargo build --release`, `cargo build --release -p ui`, `cargo build
-   --release -p plugin-ping -p plugin-calc` — vedi `RUN-LOCAL.md` per gli equivalenti debug usati
-   in sviluppo).
-2. `.\deploy_test_run.ps1 -BuildConfig release -IncludePlugins` popola `Test Run\` da
-   `target\release\` (deve esistere: senza il passo 1 in release, lo script fallisce con "Manca
-   ...\target\release") **e pubblica `lare-shell` in `Test Run\shell\`** (`dotnet publish -c
-   Release -r win-x64 --self-contained false`, sempre — la host non ha una build "debug" utile nel
-   deploy). `-SkipShell` salta questo passo (utile quando si ricompila solo il Rust: il publish
-   .NET costa circa 1 minuto).
-3. `.\install-wt-profile.ps1` (da `Test Run\`, o passando `-ShellExe` a un percorso diverso)
-   installa il profilo "Lare Terminal" in Windows Terminal (modalità B, spec §2.3): scrive un
-   fragment JSON in `%LOCALAPPDATA%\Microsoft\Windows Terminal\Fragments\Lare\` — **riavvia
-   Windows Terminal** (chiudi tutte le finestre) perché il fragment venga letto, aprire una nuova
-   scheda in una finestra già avviata non basta.
-4. `.\shell\lare-shell.exe --selftest` verifica il deploy senza tastiera né orchestratore: una
-   riga `[OK]`/`[FAIL]` per controllo (cartella di configurazione, `startup.json`, pwsh trovato,
-   …), exit code 0/1 — utile anche dopo aver copiato `Test Run\` altrove (passo 5 sotto, percorsi
-   relativi).
-5. Copia `Test Run\` nella cartella di destinazione (qualunque percorso: i path relativi
-   ripartono dalla nuova radice).
-6. Se serve un provider AI diverso dal default, crea `Configuration\llms.json` a mano (mai
-   copiarlo da un altro deploy: contiene chiavi).
-7. Se serve un dominio `pytools` (es. `/markets`), crea il venv a mano dentro
-   `pytools\<dominio>\` sulla macchina di destinazione (vedi `RUN-LOCAL.md` §Python) — i venv non
-   sono mai copiati dal deploy script.
-8. Modalità B (consigliata): apri la scheda "Lare Terminal" in Windows Terminal (passo 3) —
-   `lare-shell.exe` avvia da sola `orchestrator.exe` e `ui.exe` se mancano (self-heal, §6.4).
-   Modalità manuale (senza `lare-shell`, come nei piani precedenti): `.\init_orchestrator.ps1` poi
-   `.\init_tauri.ps1` (o viceversa, l'ordine non conta).
+Copia l'intera cartella (`Test Run\`, o l'equivalente popolato altrove) nella destinazione:
+qualunque percorso va bene, i path relativi in `startup.json` ripartono dalla nuova radice.
+Dopo la copia:
+
+- Se serve un provider AI diverso dal default, crea `Configuration\llms.json` **a mano sulla
+  nuova macchina** (mai copiarlo da un altro deploy: contiene chiavi).
+- Se serve un dominio `pytools` (es. `/markets`), crea il venv a mano dentro
+  `pytools\<dominio>\` sulla macchina di destinazione (vedi `BUILD.md` §Python) — i venv non sono
+  mai copiati dal deploy script.
+
+Per avviare il programma una volta che il deploy è pronto (qui o dopo una copia): **`RUN.md`**.
