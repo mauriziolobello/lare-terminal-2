@@ -8,3 +8,4 @@
 pub mod config;
 pub mod archive;
 pub mod library_watch;
+pub mod pty;

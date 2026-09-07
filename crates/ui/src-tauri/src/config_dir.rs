@@ -34,6 +34,12 @@ impl ConfigDirState {
     pub fn plugins_dir(&self) -> PathBuf {
         StartupConfig::resolve_path(&self.config_dir, &self.startup.paths.plugins_dir)
     }
+    /// Percorso risolto dell'eseguibile `lare-shell.exe` (Task 2, piano 3):
+    /// stesso schema di `plugins_dir()`, `paths.shell` di `startup.json`
+    /// risolto contro la radice del deploy.
+    pub fn shell_exe(&self) -> PathBuf {
+        StartupConfig::resolve_path(&self.config_dir, &self.startup.paths.shell)
+    }
 }
 
 pub fn token_path(config_dir: &Path) -> PathBuf {

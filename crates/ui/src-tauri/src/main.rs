@@ -164,6 +164,67 @@ fn diagnose_connection(app: AppHandle, state: State<'_, ConfigDirState>) -> Conn
     }
 }
 
+/// Sink Tauri per `pty::PtyOutputSink`: inoltra output/uscita come eventi
+/// `pty-out`/`pty-exit` alla finestra terminale. `Emitter::emit` è globale
+/// (raggiunge tutte le finestre in ascolto) — un solo `AppHandle` per
+/// processo, coerente con "una finestra, una sessione" dell'MVP.
+struct AppHandleSink(tauri::AppHandle);
+impl ui_lib::pty::PtyOutputSink for AppHandleSink {
+    fn on_output(&self, chunk: &str) {
+        let _ = self.0.emit("pty-out", chunk);
+    }
+    fn on_exit(&self, code: i64) {
+        let _ = self.0.emit("pty-exit", code);
+    }
+}
+
+struct PtyState(ui_lib::pty::SharedPtyState);
+
+/// Avvia `lare-shell.exe --config-dir <dir> --session <id>` nella pty della
+/// finestra terminale. `session_id` arriva dal frontend, che lo ha ottenuto
+/// da `get_terminal_session` (Task 4) — un solo id per finestra, generato
+/// UNA volta alla creazione della finestra, non ad ogni riavvio della shell.
+#[tauri::command]
+fn pty_spawn(
+    app: AppHandle,
+    state: State<'_, PtyState>,
+    cfg: State<'_, ConfigDirState>,
+    session_id: String,
+    cols: u16,
+    rows: u16,
+) -> Result<(), String> {
+    let exe = cfg.shell_exe();
+    let exe_str = exe
+        .to_str()
+        .ok_or("percorso di lare-shell.exe non è UTF-8")?
+        .to_string();
+    let sink = std::sync::Arc::new(AppHandleSink(app));
+    ui_lib::pty::spawn(
+        &state.0,
+        sink,
+        &exe_str,
+        &[
+            "--config-dir".to_string(),
+            cfg.config_dir.to_string_lossy().into_owned(),
+            "--session".to_string(),
+            session_id,
+        ],
+        None,
+        cols,
+        rows,
+    )
+}
+
+#[tauri::command]
+fn pty_write(state: State<'_, PtyState>, data: String) -> Result<(), String> {
+    ui_lib::pty::write(&state.0, data.as_bytes())
+}
+
+#[tauri::command]
+fn pty_resize(state: State<'_, PtyState>, cols: u16, rows: u16) -> Result<(), String> {
+    ui_lib::pty::resize(&state.0, cols, rows)
+}
+
 /// Return a copy of the current config to the frontend.
 ///
 /// The frontend uses this to populate the /config dialog and apply CSS vars
@@ -1283,11 +1344,17 @@ fn main() {
         // Stato gestito: cartella di configurazione + startup.json, risolti
         // una volta sopra — nessun comando/modulo li ri-deriva da solo.
         .manage(cfg_state)
+        // Stato gestito: sessione pty condivisa (Task 2, piano 3) — una sola
+        // sessione "una finestra, una sessione" dell'MVP, vedi pty::shared_state().
+        .manage(PtyState(ui_lib::pty::shared_state()))
         // Register Tauri commands callable from JS.
         .invoke_handler(tauri::generate_handler![
             get_lare_token,
             get_ws_endpoint,
             diagnose_connection,
+            pty_spawn,
+            pty_write,
+            pty_resize,
             get_config,
             set_config,
             search_settings::get_search_settings,
