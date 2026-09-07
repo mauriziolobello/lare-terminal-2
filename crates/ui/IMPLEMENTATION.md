@@ -1,6 +1,6 @@
-# Implementation — crates/ui v2.2.0
+# Implementation — crates/ui v2.2.1
 
-## Finestra terminale: `pty.rs`, `launcher.rs`, `terminal.js` (v2.2.0)
+## Finestra terminale: `pty.rs`, `launcher.rs`, `terminal.js` (v2.2.0, fix v2.2.1)
 
 Piano `Docs/i18n/ita/superpowers/plans/2026-09-07-piano-3-finestra-terminale.md`, spec §2.3/§5,
 ADR-016/ADR-020. `ui.exe` guadagna la **modalità A**: una finestra terminale (xterm.js dentro
@@ -35,6 +35,22 @@ mano nei test.
 sink senza un ordine garantito tra loro. Documentato nel doc-comment di `on_exit`; il frontend
 (sotto) non decide "ho finito" solo sull'evento di uscita.
 
+**`kill(state)` (v2.2.1, fix post-piano)**: terza operazione oltre a `write`/`resize`, per
+terminare il processo pty da un contesto completamente indipendente (l'handler di chiusura
+finestra in `main.rs`, non il thread di `spawn_exit_watcher`). `PtySession` tiene un
+`killer: Box<dyn ChildKiller + Send + Sync>`, ottenuto con `child.clone_killer()` subito dopo lo
+spawn — è esattamente il caso d'uso per cui `portable-pty` espone quel metodo (poter segnalare il
+processo da un thread diverso da quello bloccato in `Child::wait()`, che ne ha il possesso
+esclusivo). **Bug verificato in `portable-pty` 0.9.0 su Windows**: `WinChildKiller::kill`
+(`src/win/mod.rs`) ha la condizione invertita sull'esito di `TerminateProcess` — quell'API Win32
+ritorna non-zero in caso di SUCCESSO (a differenza della convenzione POSIX/errno usata altrove nel
+crate), ma il codice fa `if res != 0 { Err(err) } else { Ok(()) }`: un kill riuscito arriva come
+`Err` con `raw_os_error() == Some(0)` (ERROR_SUCCESS, "operazione completata con successo"). `kill`
+tratta esplicitamente quel caso come successo (commento nel codice rimanda al file/riga esatti del
+crate), propagando ogni altro errore. Provato dal vivo dal test
+`kill_termina_il_processo_pty_attivo` (spawna una shell finta a vita lunga, chiama `kill`, verifica
+con `wait_until` che l'exit watcher se ne accorga — prova che il processo OS muore davvero).
+
 ### `launcher.rs` — self-heal Rust dell'orchestratore + `--no-terminal`
 
 Nuovo modulo (`crates/ui/src-tauri/src/launcher.rs`), mirror Rust di `Launcher.cs` (host C#,
@@ -66,6 +82,18 @@ testati del Task 1 (`base64.mjs`, `osc-lare.mjs`, `indicators.mjs`, `fit-debounc
 `get_terminal_session` (comando Tauri) espone l'id di sessione risolto a `terminal.js` — non
 gestito in modalità `--no-terminal` (nessun chiamante possibile in quel ruolo, la finestra non
 esiste).
+
+**Chiusura finestra → fine processo (v2.2.1, fix post-piano)**: in `main.rs`, dopo `.build()`
+della finestra terminale, `WebviewWindow::on_window_event` (metodo sull'oggetto costruito — il
+builder `WebviewWindowBuilder` non lo espone) intercetta `WindowEvent::CloseRequested` e chiama
+`pty::kill(...)` poi `AppHandle::exit(0)`. "Una finestra, una sessione" (spec §5) applicato fino in
+fondo: in modalità A la finestra terminale è l'unica ragione per cui `ui.exe` esiste, quindi
+chiuderla (bottone X) termina anche `lare-shell.exe` (altrimenti orfano — nessuno lo possiede più)
+e l'intero processo `ui.exe`, comprese le altre finestre eventualmente aperte (output Markdown,
+config, ...), che sono secondarie e non tengono in vita l'app da sole per progetto (l'host nascosta
+resterebbe altrimenti sempre viva). `PtyState`/`AppHandle` sono catturati prima della closure —
+`app: &AppHandle` di `.setup()` non è disponibile dentro un handler di evento finestra, che vive
+più a lungo di quello scope.
 
 Consuma due segnali mai letti prima d'ora: l'OSC 9001 `intercept` (emesso dalla host dal piano 2b)
 via `registerOscHandler(9001, …)` di xterm.js — segnalino acceso dopo un comando gateizzato — e

@@ -20,7 +20,7 @@ use std::sync::{Arc, Mutex};
 
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine as _;
-use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
+use portable_pty::{native_pty_system, Child, ChildKiller, CommandBuilder, MasterPty, PtySize};
 
 /// Confine testabile: nel prodotto lo implementa `AppHandle` (emette eventi
 /// Tauri), nei test un fake che registra le chiamate.
@@ -49,12 +49,19 @@ pub trait PtyOutputSink: Send + Sync + 'static {
 }
 
 /// Sessione pty attiva: master (per il resize) + writer (per scrivere
-/// input). NIENTE campo `child` qui — vedi `spawn_exit_watcher`:
-/// `Child::wait()` richiede possesso esclusivo e vive nel suo thread
-/// dedicato, non nello stato condiviso.
+/// input) + killer (per terminare il processo figlio da un contesto
+/// indipendente — vedi `kill` sotto). NIENTE campo `child` qui — vedi
+/// `spawn_exit_watcher`: `Child::wait()` richiede possesso esclusivo e vive
+/// nel suo thread dedicato, non nello stato condiviso. `killer` invece è
+/// esattamente pensato da `portable-pty` per essere "staccato" dal `Child` e
+/// usato da un thread diverso da quello bloccato in `wait()` (vedi doc di
+/// `ChildKiller::clone_killer` a monte) — è il modo giusto per terminare il
+/// processo dalla chiusura della finestra terminale (spec §10, "chiusura
+/// finestra → nessun processo residuo").
 pub struct PtySession {
     master: Box<dyn MasterPty + Send>,
     writer: Box<dyn Write + Send>,
+    killer: Box<dyn ChildKiller + Send + Sync>,
 }
 
 /// Stato condiviso: `None` finché nessuna sessione è mai partita; tornato a
@@ -113,6 +120,14 @@ pub fn spawn<S: PtyOutputSink>(
         .spawn_command(cmd)
         .map_err(|e| format!("spawn_command fallita ({exe}): {e}"))?;
 
+    // Cloniamo il "killer" SUBITO, prima che `child` sia mosso interamente
+    // nel thread di `spawn_exit_watcher` (che ne prende possesso esclusivo
+    // per `wait()`) — questa è l'unica finestra in cui possiamo ancora
+    // accedere a `child` da qui. Il killer clonato è indipendente: può
+    // uccidere il processo da un thread completamente diverso (l'handler di
+    // chiusura finestra in `main.rs`) senza contendere il lock di `wait()`.
+    let killer = child.clone_killer();
+
     // Il lato slave non serve più al padre una volta ereditato dal figlio;
     // tenerlo in vita impedisce a certi backend di segnalare mai un EOF di
     // lettura (spike 2).
@@ -133,6 +148,7 @@ pub fn spawn<S: PtyOutputSink>(
     *guard = Some(PtySession {
         master: pair.master,
         writer,
+        killer,
     });
     Ok(())
 }
@@ -158,6 +174,35 @@ pub fn resize(state: &SharedPtyState, cols: u16, rows: u16) -> Result<(), String
             pixel_height: 0,
         })
         .map_err(|e| e.to_string())
+}
+
+/// Termina il processo pty attivo, se c'è (usato alla chiusura della finestra
+/// terminale — spec §10, "chiusura finestra → nessun processo residuo").
+/// No-op se nessuna sessione è viva. Non aspetta l'uscita del processo: è
+/// `spawn_exit_watcher` (già in ascolto su `child.wait()`) che se ne accorge
+/// e libera lo stato/notifica il sink, come per una terminazione naturale.
+pub fn kill(state: &SharedPtyState) -> Result<(), String> {
+    let mut guard = state.lock().map_err(|e| e.to_string())?;
+    if let Some(session) = guard.as_mut() {
+        if let Err(e) = session.killer.kill() {
+            // Bug verificato in `portable-pty` 0.9.0 su Windows: la logica di
+            // `WinChildKiller::kill` (src/win/mod.rs) è invertita per l'esito
+            // di `TerminateProcess` — quella API Win32 ritorna NON-ZERO in
+            // caso di SUCCESSO (convenzione opposta a quella POSIX/`errno`
+            // che il resto del crate usa), ma il codice fa
+            // `if res != 0 { Err(err) } else { Ok(()) }`. Risultato: un kill
+            // RIUSCITO viene riportato come `Err` con "operazione completata
+            // con successo" (`raw_os_error() == Some(0)`, ERROR_SUCCESS) —
+            // verificato dal vivo col test `kill_termina_il_processo_pty_attivo`
+            // sotto (il processo muore comunque, solo l'esito è sbagliato).
+            // Trattiamo quel caso specifico come successo; propaghiamo ogni
+            // altro errore reale.
+            if e.raw_os_error() != Some(0) {
+                return Err(e.to_string());
+            }
+        }
+    }
+    Ok(())
 }
 
 fn spawn_reader_thread<S: PtyOutputSink>(sink: Arc<S>, mut reader: Box<dyn Read + Send>) {
@@ -333,5 +378,50 @@ mod tests {
         });
         let _ = write(&state, b"\r\n");
         wait_until(|| sink.exited.load(Ordering::SeqCst));
+    }
+
+    /// Prova che `kill` termina davvero il processo reale (non solo che la
+    /// funzione non erra): lancia una shell finta a vita lunga (`cmd /c
+    /// pause`, stesso pattern del test "già attiva" sopra — resta in attesa
+    /// di input finché non viene ucciso), chiama `kill`, e verifica che
+    /// l'exit watcher se ne accorga (`on_exit` chiamato) — questo è l'unico
+    /// segnale affidabile che il processo OS è morto davvero (spec §10,
+    /// "chiusura finestra → nessun processo residuo").
+    #[test]
+    fn kill_termina_il_processo_pty_attivo() {
+        let state = shared_state();
+        let sink = std::sync::Arc::new(FakeSink::default());
+        spawn(
+            &state,
+            sink.clone(),
+            "cmd",
+            &["/c".into(), "pause".into()],
+            None,
+            80,
+            24,
+        )
+        .unwrap();
+
+        // Come nel test precedente: conhost blocca su ESC[6n all'avvio, va
+        // sbloccato prima che il processo possa reagire a qualunque cosa
+        // (kill compreso, per evitare un falso negativo se il kill arrivasse
+        // mentre conhost è ancora appeso sulla DSR).
+        answer_cursor_position_query(&state, &sink);
+        wait_until(|| {
+            sink.outputs
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|b64| decode(b64).contains("continuare"))
+        });
+
+        kill(&state).unwrap();
+
+        wait_until(|| sink.exited.load(Ordering::SeqCst));
+
+        // Lo stato è tornato libero: `kill` non aggira `spawn_exit_watcher`,
+        // che resta l'unico punto che sgombra lo stato (stesso invariante
+        // del test di uscita naturale sopra).
+        assert!(state.lock().unwrap().is_none());
     }
 }

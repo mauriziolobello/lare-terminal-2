@@ -1606,7 +1606,7 @@ fn main() {
             if !no_terminal {
                 let session_id = format!("{:08x}", rand::random::<u32>());
                 app.manage(TerminalSession(session_id.clone()));
-                tauri::WebviewWindowBuilder::new(
+                let terminal_window = tauri::WebviewWindowBuilder::new(
                     app,
                     "terminal",
                     tauri::WebviewUrl::App("terminal.html".into()),
@@ -1619,6 +1619,37 @@ fn main() {
                 .build()
                 .map_err(|e| format!("finestra terminale: {e}"))?;
                 println!("[ui] finestra terminale aperta (sessione {session_id})");
+
+                // "Una finestra, una sessione" (spec §5, §10): in modalità A
+                // la finestra terminale è l'UNICA ragione per cui `ui.exe`
+                // esiste. Chiuderla (bottone X — equivale a
+                // `WindowEvent::CloseRequested`) deve quindi: (a) terminare
+                // il processo pty figlio (`lare-shell.exe`), altrimenti resta
+                // orfano — nessuno lo possiede più una volta sparita la
+                // finestra; (b) terminare l'intero processo `ui.exe`, non
+                // solo questa finestra — a differenza delle altre finestre
+                // (Markdown, config, ...) che sono secondarie e non tengono
+                // in vita l'app da sole per progetto (host nascosta sempre
+                // viva), la finestra terminale chiusa DEVE portarsi via
+                // tutto, come chiudere un vero emulatore di terminale chiude
+                // l'intera sessione. `on_window_event` vive sulla
+                // `WebviewWindow` costruita (`WebviewWindowBuilder` non lo
+                // espone — verificato nel sorgente vendored di `tauri`
+                // 2.11.3, `webview/webview_window.rs`), quindi lo agganciamo
+                // qui dopo `.build()`, non nel builder.
+                let pty_state_for_close = app.state::<PtyState>().0.clone();
+                let app_handle_for_close = app.handle().clone();
+                terminal_window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { .. } = event {
+                        // Best-effort: non blocchiamo mai la chiusura per un
+                        // errore nel kill del pty — logghiamo e procediamo
+                        // comunque a terminare il processo.
+                        if let Err(e) = ui_lib::pty::kill(&pty_state_for_close) {
+                            eprintln!("[ui] kill pty alla chiusura finestra terminale: {e}");
+                        }
+                        app_handle_for_close.exit(0);
+                    }
+                });
             }
 
             // Niente più "Press <tasto> to toggle": l'overlay F2 è sparito, la

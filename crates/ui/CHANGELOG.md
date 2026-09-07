@@ -5,6 +5,33 @@ Versioning: `major.minor.update`.
 
 ---
 
+## 2.2.1 — 2026-09-07 — fix: chiusura finestra terminale termina pty child + intero processo
+
+Difetto trovato dal controllore con e2e dal vivo (screenshot): chiudendo la finestra terminale
+(bottone X) restavano in esecuzione `lare-shell.exe`, `ui.exe` E `orchestrator.exe` — nessun
+codice del piano 3 (Task 0-8) legava la vita del processo pty figlio o dell'intero `ui.exe` alla
+chiusura di quella finestra. Viola spec §9/§10 ("chiusura finestra → nessun processo residuo").
+
+- **`pty.rs`**: `PtySession` ha un nuovo campo `killer: Box<dyn portable_pty::ChildKiller + Send +
+  Sync>`, catturato via `child.clone_killer()` subito dopo lo spawn (prima che `child` sia mosso
+  per intero nel thread di `spawn_exit_watcher`) — pensato apposta da `portable-pty` per uccidere
+  il processo da un thread indipendente da quello bloccato in `wait()`. Nuova `pub fn kill(state)`.
+  **Bug scoperto in `portable-pty` 0.9.0 su Windows**: `WinChildKiller::kill` ha la condizione di
+  successo di `TerminateProcess` invertita (quell'API Win32 ritorna non-zero in caso di successo,
+  al contrario della convenzione POSIX/errno che il resto del crate segue) — un kill *riuscito*
+  viene riportato come `Err` con `raw_os_error() == Some(0)` (ERROR_SUCCESS). `kill()` tratta
+  quel caso specifico come successo (commentato nel codice), propaga ogni altro errore reale.
+- **`main.rs`**: la finestra terminale, dopo `.build()`, si aggancia a
+  `WebviewWindow::on_window_event` (non sul builder — `WebviewWindowBuilder` non espone quel
+  metodo, verificato nel sorgente vendored di `tauri` 2.11.3) — su `WindowEvent::CloseRequested`
+  chiama `pty::kill(...)` (best-effort, mai un panic) poi `AppHandle::exit(0)`: l'intera
+  applicazione esce, non solo quella finestra ("una finestra, una sessione" — in modalità A la
+  finestra terminale è l'unica ragione per cui `ui.exe` esiste; le altre finestre eventualmente
+  aperte, es. output Markdown, sono secondarie e chiudono con lei).
+- Nuovo test `pty::tests::kill_termina_il_processo_pty_attivo`: spawna una shell finta a vita
+  lunga, chiama `kill`, verifica con `wait_until` che l'exit watcher se ne accorga davvero (il
+  processo OS muore, non solo "la funzione non erra").
+
 ## 2.2.0 — 2026-09-07 — finestra terminale: xterm.js + ConPTY, self-heal, `--no-terminal`, ActivityIndicator (piano 3, Task 0-5)
 
 `ui.exe` guadagna una vera finestra terminale (spec §2.3/§5, ADR-016): xterm.js dentro ConPTY,
