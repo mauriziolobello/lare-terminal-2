@@ -396,6 +396,10 @@ orchestratore avviato in autostart non deve sporcare il terminale; `init_*.ps1` 
   piano 2b, rivisto durante l'e2e: la formulazione iniziale lasciava `ui.exe` con finestra visibile,
   ma in build debug `ui.exe` è un'app console che rubava il fuoco alla shell — vedi `TESTING-e2e.md`
   Parte 6).
+- **`--no-terminal`** (piano 3): chi avvia `ui.exe` per il solo ruolo host (self-heal della host
+  C# in modalità B, autostart dell'orchestratore) passa sempre questo flag — senza, ogni self-heal
+  aprirebbe anche una finestra terminale non voluta. Assente = modalità A (finestra terminale
+  all'avvio, uso interattivo diretto).
 - Servizio Windows, autorun al login, tray: fuori MVP (§12).
 
 ## 7. `Test Run\` — layout di deploy dentro il repo
@@ -444,7 +448,7 @@ self-contained; da confermare).
 | WS non raggiungibile, autostart off o fallito entro 5 s | `ui.exe`/host: errore nel terminale, la shell **resta usabile** (i `/comandi` rispondono "orchestratore non raggiungibile") |
 | WS cade durante un turno | Host: riga d'errore, torna al prompt; turno cancellato lato orchestratore (disconnessione = cancel, v1); **riconnessione al prossimo `/…` (piano 2b: "on demand", con autostart — non un task di riconnessione in background, ruling 2)** |
 | Token errato | Rifiuto, come v1; riga d'errore nel terminale |
-| Nessuna connessione `ui` per un messaggio "finestra" | Autostart `ui.exe`, attesa 10 s, poi `Error` al mittente ("finestra non disponibile") |
+| Nessuna connessione `ui` per un messaggio "finestra" | Autostart `ui.exe --no-terminal`, attesa fino a 10 s per il sink; se non compare, il turno prosegue con `NO_UI_ACK` come già oggi (nessun `Error` dedicato — comportamento consolidato piano 2a/2b, non modificato dal piano 3) |
 | Slash ignoto da shell | `Done` muta; log `info` |
 | `/ai` o `/` senza virgolette | `Error` con la sintassi corretta, stampato |
 | Ctrl+C in attesa del turno / durante `ExecInShell` | `CancelCommand`; pipeline fermata; turno cancellato; finestra "annullato" |

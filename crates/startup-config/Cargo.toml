@@ -1,6 +1,6 @@
 [package]
 name = "startup-config"
-version = "2.0.2"
+version = "2.0.3"
 edition = "2021"
 
 # Crate infrastrutturale puro (nessuna logica di dominio) -- stessa

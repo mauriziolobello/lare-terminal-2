@@ -5,22 +5,24 @@
 
 ## Versioni correnti
 
-(a fine piano 2b "host C# `lare-shell`" — lette da ogni `Cargo.toml`/`.csproj`; `protocol`/
-`orchestrator`/`ui` restano 2.1.0, non toccati da questo piano)
+(a fine piano 3 "finestra terminale" — lette da ogni `Cargo.toml`/`.csproj`; `protocol` resta
+2.1.0, non toccato da questo piano)
 
 - protocol 2.1.0 (da v1 0.15.4)
-- startup-config 2.0.2 (da v1 0.1.0)
+- startup-config 2.0.3 (da v1 0.1.0; `spawn_detached` piano 3 Task 3 — bump chiuso in Task 7,
+  era rimasto `[Unreleased]` nel CHANGELOG)
 - mcp-server 2.0.1 (da v1 0.7.1)
 - mcp-nmap 2.0.0 (da v1 0.8.2)
-- orchestrator 2.1.0 (da v1 0.41.21)
+- orchestrator 2.2.0 (da v1 0.41.21)
 - plugin-protocol 2.0.0 (da v1 0.2.1)
 - plugin-ping 2.0.0 (da v1 0.1.0)
 - plugin-counter 2.0.0 (da v1 0.1.0)
 - plugin-calc 2.0.0 (da v1 0.2.0)
 - plugin-lc 2.0.0 (da v1 0.4.5)
 - plugin-crypto 2.0.0 (da v1 1.0.1)
-- ui 2.1.0 (da v1 0.47.1)
-- **lare-shell 2.0.0 (nuovo componente, piano 2b — non un crate Cargo: `shell/lare-shell/`, .NET/C#)**
+- ui 2.2.0 (da v1 0.47.1)
+- lare-shell 2.0.1 (piano 2b 2.0.0 → 2.0.1 nel piano 3, Task 3: `Launcher.EnsureUi()` passa
+  `--no-terminal` — non un crate Cargo: `shell/lare-shell/`, .NET/C#)
 
 ## FATTO
 
@@ -145,25 +147,62 @@ Terminal "Lare Terminal", `lare-shell.exe` nudo):
   piano 2b completato — host C# lare-shell 2.0.0 (modalità B in Windows Terminal), ADR-019, e2e
   Parte 6`).
 
+**Piano 3 — "finestra terminale"** (`Docs/i18n/ita/superpowers/plans/2026-09-07-piano-3-finestra-terminale.md`),
+completato il 2026-09-07 — **modalità A** (spec §2.3/§5, ADR-016): `ui.exe` apre di default una
+finestra terminale (xterm.js + ConPTY) con `lare-shell.exe` come processo figlio, diventando
+l'app che l'utente avvia direttamente — `orchestrator`/`ui` **2.2.0**, `startup-config` 2.0.3,
+`lare-shell` 2.0.1. Test (riverificati al Task 7): `cargo test` (default-members) 1481 verdi;
+`cargo test -p ui` 141 verdi (92 lib + 49 bin); `node --test crates/ui/frontend/*.test.mjs`
+242/242; `dotnet test shell/lare-shell/LareShell.sln` 118/118 (115 alla chiusura del piano 2b + 3
+aggiunti da `22dcb09` (review finale piano 2b — `ReplTests.cs`/`ExecutorTests.cs`/
+`SlashTurnTests.cs`), PRIMA dell'inizio di questo piano — Task 3 di questo piano modifica
+un'asserzione esistente in `LauncherTests.cs`, non aggiunge test propri):
+
+- **Task 0** — scaffold: vendored xterm.js/`addon-fit` dallo spike, dipendenze Rust
+  (`portable-pty`/`base64`/`rand`), `build.rs` con `rerun-if-changed`, rimosso il flag di sviluppo
+  `--open` (piano 1). Commit `83f9a77`; pre-flight `7dbc143` (Task 0 Step 3 corretto: `build.rs`
+  esisteva già).
+- **Task 1** — 4 moduli JS puri (`base64.mjs`, `osc-lare.mjs`, `indicators.mjs`,
+  `fit-debounce.mjs`, TDD RED→GREEN). Commit `60cf744`.
+- **Task 2** — `pty.rs`: comandi `pty_spawn`/`pty_write`/`pty_resize`, `PtyOutputSink` (seam di
+  test), `SharedPtyState`. Commit `a5d66f2` (review clean; deviazione isolata ai test — DSR nel
+  fake, approvata come correzione legittima).
+- **Task 3** — self-heal Rust dell'orchestratore (`launcher.rs`, `ensure_orchestrator`),
+  `startup_config::spawn_detached`, flag `--no-terminal` (letto da `ui.exe`, generato da
+  `Launcher.cs` — `lare-shell` 2.0.1). Commit `59ba6f4`.
+- **Task 4** — la finestra terminale (`terminal.{html,css,js}`, capability
+  `terminal-window.json`, costruzione in `.setup()`): xterm.js + ConPTY, consumo dell'OSC 9001
+  `intercept` (emesso dalla host dal piano 2b, mai letto da un emulatore prima d'ora), bottone
+  "riavvia". Commit `61ae928`; smoke test manuale dal vivo deferito al Task 7 (nessun ambiente
+  GUI per i subagenti).
+- **Task 5** — consumo di `ActivityIndicator` (emesso dal piano 2a, mai letto da un consumatore
+  prima d'ora): relay `host-dispatch.mjs` → evento `terminal:activity`. Commit `651743b`.
+- **Task 6** — `orchestrator`: autostart di `ui.exe --no-terminal` quando manca il sink
+  (`RuntimeConfig::ui_exe()`, `ensure_ui_sink` in `shell_turn.rs`) — chiude l'autostart reciproco
+  completo previsto da §6.4. Commit `3c9cb02`.
+- **Task 7** — Documentazione: ADR-020, emendamento allo spec §9 (riga "finestra non disponibile"
+  → `NO_UI_ACK`, non un `Error` dedicato) e §6.4 (nota `--no-terminal`), sezione "Modalità A" in
+  `RUN-LOCAL.md` (con la sua seconda nota `--open` aggiornata), "Parte 7" in `TESTING-e2e.md`
+  (checklist e2e modalità A **ancora da eseguire dal vivo** — nessun accesso GUI durante questo
+  task, esplicitamente deferita al controller), versioni 2.2.0/2.2.0/2.0.3, CHANGELOG/
+  IMPLEMENTATION di `ui`/`orchestrator`/`startup-config` (chiude anche il gap IMPLEMENTATION.md
+  di `ui` lasciato aperto dal Task 3, e lo `[Unreleased]` di `startup-config` lasciato dal Task 3),
+  questo aggiornamento di `HANDOFF.md`. Questo commit di release.
+
+**Da fare prima di considerare il piano 3 chiuso al 100%**: la Parte 7 di `TESTING-e2e.md` (e2e
+manuale dal vivo, modalità A) — vedi la nota in testa a quella sezione.
+
 ## DA FARE
 
 - **Idea (Maurizio, 2026-09-07) — più LLM dalla riga di comando: `/ai:<nome>`, gruppi, AI che parlano fra loro.** Oggi `/ai "…"` usa solo il provider `active` di `llms.json` (che però ha già un registro di provider con nome: `claude-direct`, `deepseek-openrouter`, …). Atteso: `/ai:Claude-sonnet "…"`, `/ai:Gemini "…"`, `/ai:Kimi "…"` per rivolgersi a una AI specifica configurata; **gruppi con nome** (es. `Coders` = quelle tre) e `/ai:Coders "…"` che interroga tutte in un colpo solo; poi, la parte più interessante, **le AI che interagiscono fra loro** sul modello di `/aichat` (chat fra due macchine Lare, ciascuna con una AI diversa). In parte esiste, andrà "aggiustato": sintassi nel pre-router della shell (`shell_slash.rs`), gruppi in `llms.json`, fan-out e aggregazione delle risposte nella finestra di output. Da studiare più avanti (dopo il piano 3).
 - **Idea (Maurizio, 2026-09-07) — interazione dell'AI "da tastiera" e descrittore di form.** La metodologia usata per l'e2e del piano 2b (tasti via `SendKeys`, screenshot letti come immagine, UI Automation per finestre e schede — `scripts/dev/e2e-driver/`, README con le lezioni) va conservata e fatta diventare un plugin o un metodo interno di interazione dell'AI dentro Lare Terminal. Estensione ancora embrionale: un **modello descrittore di form** (forma da definire) per pagine web, che faccia da "traccia" all'AI: l'utente chiede, l'AI apre la pagina e, seguendo il descrittore, inserisce i valori ricevuti. Da brainstormare quando arriva il suo turno (dopo il piano 3).
-- **Piano 3** — finestra terminale Tauri (xterm.js + ConPTY, ADR-016), **modalità A** (`ui.exe`
-  lancia `lare-shell.exe --config-dir … --session <id>` dentro una ConPTY e diventa l'app che
-  l'utente avvia — spec §2.3/§5). Include: autostart reciproco completo (`ui.exe` avvia
-  l'orchestratore se assente, e viceversa, §6.4 — oggi solo `lare-shell` avvia entrambi gli altri
-  due, non il contrario), rimozione del flag di sviluppo `--open` (sostituito dal canale shell
-  reale), **consumo dell'OSC 9001 `intercept`** (emesso dalla host dal piano 2b, mai ancora letto
-  da un emulatore — xterm.js dovrà registrarlo con `registerOscHandler(9001, …)`), consumo di
-  **`ActivityIndicator`** (emesso dal piano 2a, mai ancora letto da un consumatore — i segnalini
-  della finestra terminale), streaming token-per-token nella finestra di output (§12, fuori MVP
-  finora).
-- **Prerequisito per il piano 3**: `connections.rs::unregister_shell` rimuove per `session_id`
-  senza confrontare il `tx` (a differenza di `clear_ui_sink_if`): con la host che si riconnette
-  con lo stesso `session_id`, il teardown della vecchia connessione può cancellare la
-  registrazione della nuova — nessun consumatore oggi, da correggere (`unregister_shell_if`)
-  prima che il piano 3 legga il registro (trovato dalla revisione finale del piano 2b, F4).
+- **E2E manuale dal vivo, modalità A (piano 3)**: `TESTING-e2e.md` Parte 7 è una checklist
+  compilata ma NON eseguita (nessun accesso GUI durante il Task 7 di documentazione) — da fare dal
+  controller con `scripts/dev/e2e-driver/` prima di considerare il piano 3 chiuso al 100%.
+- **Streaming token-per-token nella finestra di output** (spec §12, fuori MVP finora): il
+  contenuto arriva tutto insieme a `Done`/`Error` da sempre (piano 2a) — il piano 3 lo esclude
+  esplicitamente dal proprio scope (Global Constraints), non è quindi legato a un piano
+  particolare. Da studiare quando/se emerge come esigenza reale.
 - **Chore separata**: `cargo fmt` globale sul codice copiato dalla v1 (non fmt-clean), fuori dai
   piani per non sporcare i diff di review.
 

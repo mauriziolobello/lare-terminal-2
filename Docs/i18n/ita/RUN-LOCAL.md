@@ -1,14 +1,16 @@
 # RUN-LOCAL — sviluppo locale di Lare Terminal 2.0
 
-> Stato a fine piano 2b ("host C# `lare-shell`"): esistono `orchestrator`, `mcp-server`,
+> Stato a fine piano 3 ("finestra terminale"): esistono `orchestrator`, `mcp-server`,
 > `mcp-nmap`, `ui`, i plugin (`plugin-ping`, `plugin-counter`, `plugin-calc`, `plugin-lc`,
 > `plugin-crypto`), gli script Python in `scripts/pytools/` **e** `shell/lare-shell/`, la host C#
-> del motore PowerShell (ADR-015) — verificabile in **modalità B** (profilo Windows Terminal "Lare
-> Terminal", §"Host C#" sotto). La modalità A (`ui.exe` che lancia `lare-shell.exe` dentro una
-> ConPTY, ADR-016) resta piano 3: fino ad allora il flag di sviluppo `--open config|library` resta
-> utile per aprire una finestra senza passare dalla shell, e `scripts/dev/shell-client.mjs` resta
-> utile per parlare il canale shell senza una console interattiva vera (es. da Claude Code, dove
-> lo stdin è rediretto — vedi il gotcha in fondo a questa sezione).
+> del motore PowerShell (ADR-015). Esistono ora **entrambe** le modalità dello spec §2.3:
+> **modalità A** (`ui.exe`, avviato senza `--no-terminal`, apre di default una finestra terminale
+> con `lare-shell.exe` dentro ConPTY, ADR-016 — §"Modalità A" sotto) e **modalità B** (profilo
+> Windows Terminal "Lare Terminal", `lare-shell.exe` nudo, §"Host C#" sotto). Il flag di sviluppo
+> `--open config|library` è sparito col piano 3 (sostituito dal canale shell reale, ora
+> disponibile in entrambe le modalità); `scripts/dev/shell-client.mjs` resta comunque utile per
+> parlare il canale shell senza una console interattiva vera (es. da Claude Code, dove lo stdin è
+> rediretto — vedi il gotcha in fondo a questa sezione).
 
 ## Build
 
@@ -61,6 +63,26 @@ l'autostart, dove nessuno guarda un terminale). Se lanci invece i binari già in
 `.\Test Run\init_orchestrator.ps1` / `.\Test Run\init_tauri.ps1`), **non serve** `--config-dir`:
 gli exe vivono già accanto a `Configuration\`, che è il default.
 
+### Modalità A (finestra terminale)
+
+`ui.exe`, avviato SENZA `--no-terminal`, apre la finestra terminale all'avvio: xterm.js dentro
+ConPTY, `lare-shell.exe` come processo figlio (risolto da `startup.json` → `paths.shell`).
+
+**Avvio da sorgente:**
+
+```powershell
+cargo run -p ui -- --config-dir "Test Run\Configuration"
+```
+
+Se `Test Run\shell\lare-shell.exe` non esiste, esegui prima `.\deploy_test_run.ps1` (pubblica anche
+la host C#). Chiudere la finestra termina il processo `lare-shell.exe` figlio — nessun processo
+residuo (verificabile in Task Manager).
+
+**Modalità B** (`ui.exe --no-terminal`, avviato dalla host C# o dall'orchestratore): apre solo la
+host page nascosta, mai la finestra terminale — usata quando la shell "vera" è già
+`lare-shell.exe` in una scheda Windows Terminal (profilo "Lare Terminal", vedi sezione "Host C#"
+sopra).
+
 ### Canale shell senza la host (client di sviluppo)
 
 `lare-shell.exe` (host C#, piano 2b) esiste ora — vedi §"Host C#" sotto per costruirla e avviarla
@@ -100,7 +122,7 @@ xUnit). Dettagli implementativi: `shell/lare-shell/IMPLEMENTATION.md`.
 
 ```powershell
 dotnet build shell/lare-shell/LareShell.sln
-dotnet test shell/lare-shell/LareShell.sln                                      # 115 test
+dotnet test shell/lare-shell/LareShell.sln                                      # 118 test
 dotnet test shell/lare-shell/LareShell.sln --filter "FullyQualifiedName~Executor"   # un solo file di test
 ```
 

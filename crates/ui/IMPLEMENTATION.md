@@ -1,4 +1,77 @@
-# Implementation — crates/ui v2.1.0
+# Implementation — crates/ui v2.2.0
+
+## Finestra terminale: `pty.rs`, `launcher.rs`, `terminal.js` (v2.2.0)
+
+Piano `Docs/i18n/ita/superpowers/plans/2026-09-07-piano-3-finestra-terminale.md`, spec §2.3/§5,
+ADR-016/ADR-020. `ui.exe` guadagna la **modalità A**: una finestra terminale (xterm.js dentro
+ConPTY) con `lare-shell.exe` come processo figlio — l'app che l'utente avvia direttamente, invece
+del solo host di finestre nascosto.
+
+### `pty.rs` — plumbing ConPTY testabile
+
+Nuovo modulo (`crates/ui/src-tauri/src/pty.rs`), sopra `portable-pty` (non l'API Windows ConPTY
+diretta — `portable-pty` la incapsula e resta portabile in teoria, anche se il prodotto è
+Windows-only per ora). Tre comandi Tauri (`main.rs`): `pty_spawn(session_id, cols, rows)` (risolve
+`lare-shell.exe` da `cfg.shell_exe()`, passa `--config-dir <dir> --session <session_id>` — una
+sola sessione pty alla volta, una seconda `pty_spawn` mentre la prima è ancora attiva viene
+rifiutata, non accodata né sostituita), `pty_write(data)`, `pty_resize(cols, rows)`.
+
+**Perché è testabile senza una ConPTY reale**: l'output della pty non va MAI direttamente a una
+`WebviewWindow` — passa per `PtyOutputSink` (trait: `on_output(base64_chunk)`/`on_exit(code)`),
+con due implementazioni: `AppHandleSink` (produzione, `main.rs` — un newtype su `AppHandle` che
+fa `self.0.emit("pty-out"/"pty-exit", ...)`, evento globale) e `FakeSink` (test, un buffer in
+memoria dietro un `Mutex`). Stesso schema di `IProcessStarter` nella host C# (composizione, non
+eredità — dal doc-comment del trait). I test spawnano un processo reale ma innocuo (`cmd /c echo
+hello`/`cmd /c pause` — "una shell finta disponibile su ogni Windows", non `lare-shell.exe`, che
+non esiste nel sandbox dei test) e devono rispondere a mano alla DSR `ESC[6n` che conhost manda al
+primo avvio del figlio (altrimenti la pty resta bloccata a tempo indefinito — scoperto dal vivo,
+`answer_cursor_position_query` nei test simula la stessa risposta CPR che xterm.js dà nativamente
+in produzione). Non toccano mai Tauri: `SharedPtyState` (lo stato condiviso dietro
+`Arc<Mutex<...>>`) è lo stesso tipo passato a `.manage(PtyState(...))` in produzione e costruito a
+mano nei test.
+
+**Concorrenza nota**: `on_exit` (thread `spawn_exit_watcher`) può arrivare PRIMA dell'ultimo
+`on_output` (thread `spawn_reader_thread`) — due thread indipendenti che scrivono sullo stesso
+sink senza un ordine garantito tra loro. Documentato nel doc-comment di `on_exit`; il frontend
+(sotto) non decide "ho finito" solo sull'evento di uscita.
+
+### `launcher.rs` — self-heal Rust dell'orchestratore + `--no-terminal`
+
+Nuovo modulo (`crates/ui/src-tauri/src/launcher.rs`), mirror Rust di `Launcher.cs` (host C#,
+piano 2b): `ensure_orchestrator(connect, autostart, orchestrator_exe, config_dir, window, retry)`
+— `connect: &dyn Fn() -> Option<String>` (`None` = connessione riuscita, altrimenti il motivo,
+stessa forma di `Func<string?>` in `Launcher.cs::EnsureConnected`); se fallisce e `autostart` è
+vero ED `orchestrator_exe.exists()`, chiama `startup_config::spawn_detached(orchestrator_exe,
+&["--config-dir", ...])` e ritenta `connect()` ogni `retry` (`RETRY_INTERVAL`, 250ms in
+produzione) fino a `window` (`CONNECT_WINDOW`, 5s) prima di arrendersi (ritorna `bool`: successo
+finale). Stesso schema di firma (funzione di controllo iniettata, non una chiamata diretta a
+`TcpStream`) di `ensure_ui_sink` (`orchestrator`, Task 6 dello stesso piano) — implementazioni
+indipendenti dello stesso pattern, non condivisione di codice fra i due crate.
+
+**`--no-terminal`** (ADR-020): letto in `main.rs` da `std::env::args()`, tenuto in uno stato
+gestito `NoTerminal(bool)`. Con il flag, `ui.exe` NON costruisce la finestra terminale — resta il
+puro host di finestre nascosto delle versioni precedenti. Chi avvia `ui.exe` per il solo ruolo
+host lo passa sempre: `Launcher.EnsureUi()` (C#, `lare-shell` 2.0.1) e `ensure_ui_sink`
+(`orchestrator`, Task 6). Senza il flag (uso interattivo diretto, modalità A) la finestra si apre
+sempre — comportamento di default intenzionale.
+
+### `terminal.{html,css,js}` — la finestra
+
+Costruita in `.setup()` (a meno di `--no-terminal`): xterm.js + `addon-fit` (vendored, Task 0),
+1000×650, `lare-shell.exe` spawnato via `pty_spawn` con `--config-dir <dir> --session <id>`
+(percorso da `config_dir::shell_exe()`, risolto da `startup.json` → `paths.shell`). Codice di
+cablaggio imperativo (`terminal.js`), non testato in isolamento — stesso trattamento di
+`host.js`/`library.js` per la parte non-pura, mentre la logica pura che consuma è nei 4 moduli
+testati del Task 1 (`base64.mjs`, `osc-lare.mjs`, `indicators.mjs`, `fit-debounce.mjs`).
+`get_terminal_session` (comando Tauri) espone l'id di sessione risolto a `terminal.js` — non
+gestito in modalità `--no-terminal` (nessun chiamante possibile in quel ruolo, la finestra non
+esiste).
+
+Consuma due segnali mai letti prima d'ora: l'OSC 9001 `intercept` (emesso dalla host dal piano 2b)
+via `registerOscHandler(9001, …)` di xterm.js — segnalino acceso dopo un comando gateizzato — e
+`ActivityIndicator` (emesso dall'orchestratore dal piano 2a, Task 5: relay da `host-dispatch.mjs`
+— classificato `"relay"` — all'evento `terminal:activity`) — segnalino acceso per la durata di un
+turno `/ai` lungo. Bottone "riavvia" se la pty termina (processo figlio chiuso/crashato).
 
 ## Finestra di output, `open_ui_local`, `/help` singleton, `ui_pong`, output-buffer (v2.1.0)
 

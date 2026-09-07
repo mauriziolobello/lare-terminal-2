@@ -5,29 +5,56 @@ Versioning: `major.minor.update`.
 
 ---
 
-## [Unreleased] — scaffold piano 3: vendor xterm.js, dipendenze PTY, rimosso `--open` (Task 0)
+## 2.2.0 — 2026-09-07 — finestra terminale: xterm.js + ConPTY, self-heal, `--no-terminal`, ActivityIndicator (piano 3, Task 0-5)
 
-Terreno pulito per la finestra terminale (xterm.js + ConPTY) che i task successivi del piano 3
-costruiscono. Nessun comportamento nuovo in questo task.
+`ui.exe` guadagna una vera finestra terminale (spec §2.3/§5, ADR-016): xterm.js dentro ConPTY,
+`lare-shell.exe` come processo figlio — la **modalità A**. Fino a questo piano esisteva solo la
+modalità B (host C# in Windows Terminal, piano 2b); ora `ui.exe` stesso può essere l'app che
+l'utente avvia. Riassunto per task (dettaglio completo nei `task-N-report.md` del piano):
 
-- **Vendored**: `crates/ui/frontend/vendor/xterm.js`, `xterm.css`, `addon-fit.js` — copie
-  byte-identiche dallo spike (`spikes/lare-terminal-window/frontend/vendor/`), pronte per essere
-  caricate da `terminal.html` (Task 4).
-- **Nuove dipendenze Rust** in `crates/ui/src-tauri/Cargo.toml`: `portable-pty = "0.9"` (ConPTY
-  portabile per pilotare `lare-shell.exe` da Rust), `base64 = "0.22"` e `rand = "0.8"` (encoding
-  OSC/keystroke e id di sessione, Task 5+).
-- **`build.rs`**: aggiunta `println!("cargo:rerun-if-changed=../frontend")` — senza questa riga
-  `generate_context!` incorpora `frontendDist` a compile time e una modifica al solo frontend non
-  fa ripartire la build (gotcha dello spike 2).
-- **Rimosso il flag di sviluppo `--open config|library`** (piano 1, Task 7): eliminati
-  `DevOpenRequest`/`dev_open_request` e il parsing degli argv in `main.rs`, e il blocco
-  corrispondente in `host.js`. Resa obsoleta dalla finestra terminale che il piano 3 introduce.
-- **Self-heal dell'orchestratore lato Rust** (Task 3, nuovo modulo `launcher.rs`,
-  `ensure_orchestrator`): se il WS non risponde e `autostart.orchestrator` è attivo, `ui.exe` lo
-  avvia (`startup_config::spawn_detached`) e ritenta per 5s prima di costruire la finestra
-  terminale — mirror Rust di `Launcher.cs` (host C#, modalità B). Nuovo flag `--no-terminal`
-  (stato gestito `NoTerminal`, letto dalla finestra terminale nel Task 4) per chi avvia `ui.exe`
-  in ruolo "solo host" (la host C# in modalità B, e l'autostart dell'orchestratore nel Task 6).
+- **Task 0 — scaffold**: vendored `crates/ui/frontend/vendor/xterm.js`/`xterm.css`/`addon-fit.js`
+  (copie byte-identiche dallo spike, `spikes/lare-terminal-window/frontend/vendor/`); nuove
+  dipendenze Rust (`portable-pty = "0.9"`, `base64 = "0.22"`, `rand = "0.8"`); `build.rs` ora ha
+  `rerun-if-changed=../frontend` (senza, `generate_context!` incorpora `frontendDist` a compile
+  time e una modifica al solo frontend non fa ripartire la build). **Rimosso** il flag di sviluppo
+  `--open config|library` (piano 1, Task 7: `DevOpenRequest`/`dev_open_request` in `main.rs`,
+  blocco corrispondente in `host.js`) — reso obsoleto dal canale shell reale via la finestra
+  terminale.
+- **Task 1 — 4 moduli JS puri** (`base64.mjs`, `osc-lare.mjs`, `indicators.mjs`,
+  `fit-debounce.mjs`, TDD RED→GREEN, nessun DOM/Tauri): decodifica base64→byte per la pty,
+  parsing dell'OSC 9001 `intercept` emesso dalla host (piano 2b), stato dei segnalini
+  (intercept/attività), debounce del resize di `addon-fit`.
+- **Task 2 — `pty.rs`** (nuovo modulo, `portable-pty`): comandi Tauri `pty_spawn`/`pty_write`/
+  `pty_resize`, `PtyOutputSink` (trait, seam di test — `AppHandleSink` in produzione, `FakeSink`
+  nei test), `SharedPtyState`. Una sola sessione pty alla volta (una seconda `pty_spawn` mentre la
+  prima è attiva viene rifiutata). Nuovo `config_dir::shell_exe()` (percorso di
+  `lare-shell.exe`, risolto da `startup.json` → `paths.shell`).
+- **Task 3 — self-heal Rust + `--no-terminal`**: `startup_config::spawn_detached` (nuovo,
+  `crates/startup-config`) + `crates/ui/src-tauri/src/launcher.rs` (`ensure_orchestrator`): se il
+  WS non risponde e `autostart.orchestrator` è attivo, `ui.exe` avvia da solo `orchestrator.exe`
+  e ritenta per 5s prima di costruire la finestra terminale — mirror Rust di `Launcher.cs` (host
+  C#, piano 2b). Nuovo flag `--no-terminal` (stato gestito `NoTerminal`, letto dalla finestra
+  terminale nel Task 4) per chi avvia `ui.exe` in ruolo "solo host" (la host C# in modalità B —
+  `lare-shell` 2.0.1, `Launcher.EnsureUi()` lo passa sempre — e l'autostart dell'orchestratore,
+  Task 6 di `orchestrator`).
+- **Task 4 — la finestra terminale** (`terminal.html`/`.css`/`.js`, nuovi; capability
+  `terminal-window.json`): costruita in `.setup()` (a meno di `--no-terminal`), 1000×650,
+  xterm.js + `addon-fit`, `lare-shell.exe` spawnato via `pty_spawn` con `--config-dir`/`--session`
+  risolti da `main.rs`. Nuovo comando `get_terminal_session`. Consuma l'OSC 9001 `intercept`
+  (emesso dalla host dal piano 2b, mai letto da un emulatore prima d'ora) via
+  `registerOscHandler(9001, …)` — segnalino visivo che si accende dopo un comando gateizzato.
+  Bottone "riavvia" se la pty termina (`lare-shell.exe` chiuso/crashato).
+- **Task 5 — consumo di `ActivityIndicator`**: `activity_indicator` (emesso dall'orchestratore
+  dal piano 2a, mai letto da un consumatore prima d'ora) classificato come `"relay"` in
+  `host-dispatch.mjs` e rigirato alla finestra terminale come evento `terminal:activity` — secondo
+  segnalino, acceso per la durata di un turno `/ai` lungo.
+
+Suite JS invariata/crescente (241/242 a seconda del task, nessuna regressione); `cargo test -p ui`
+e `cargo clippy -p ui --all-targets` senza nuovi warning in nessun task (verificato contro il
+baseline pre-piano-3 con `git stash`). Smoke test manuale dal vivo (apertura reale della finestra,
+`/help` digitato nella pty, resize, chiusura → processo figlio terminato) deferito al Task 7 di
+questo piano (documentazione — nessun ambiente GUI/interattivo per i subagenti che hanno costruito
+questi task).
 
 ## 2.1.0 — 2026-09-06 — finestra di output del canale shell, `open_ui_local`, `/help` singleton, `ui_pong` (piano 2a, Task 9)
 

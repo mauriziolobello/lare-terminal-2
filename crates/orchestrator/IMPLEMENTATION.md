@@ -1,4 +1,35 @@
-# Implementation — orchestrator v2.1.0 (Canale shell — piano 2a)
+# Implementation — orchestrator v2.2.0 (Finestra terminale — piano 3)
+
+## Autostart di `ui.exe`: `RuntimeConfig::ui_exe()`, `ensure_ui_sink` (v2.2.0)
+
+Piano `Docs/i18n/ita/superpowers/plans/2026-09-07-piano-3-finestra-terminale.md` Task 6, spec
+§6.4/§9 (emendato nello stesso piano, Task 7), ADR-020. Chiude il lato mancante dell'autostart
+reciproco: fino a questo task solo `ui.exe`/`lare-shell.exe` sapevano avviare l'orchestratore
+(self-heal, piano 2b/3), mai il contrario.
+
+`RuntimeConfig::ui_exe()` (`runtime_config.rs`): percorso di `ui.exe`, sempre
+`startup_config::deploy_root(&self.config_dir).join("ui.exe")` — a differenza di
+`mcp_server_exe()`/`mcp_nmap_exe()`, che leggono `paths.*` da `startup.json`, `ui.exe` vive sempre
+alla radice del deploy, come `orchestrator.exe` stesso, mai spostabile.
+
+`ensure_ui_sink` (`shell_turn.rs`, privata): prima verifica il sink `ui` già nel `Registry`
+(`registry.lock().await.ui_sink()`) — se presente, ritorna subito, nessuna attesa. Se assente e
+`autostart.ui` (da `startup.json`) è disattivato, ritorna `None` senza tentare nulla. Altrimenti,
+se `ui.exe` esiste sul filesystem (funzione iniettata, non `Path::exists()` diretto — seam di
+test), lo avvia (`startup_config::spawn_detached(&ui_exe, &["--config-dir", dir, "--no-terminal"])`
+— sempre con `--no-terminal`, ADR-020: l'orchestratore avvia `ui.exe` per il solo ruolo host, mai
+per aprire una finestra terminale interattiva) e ritenta ogni `UI_AUTOSTART_RETRY` (250ms) fino a
+`UI_AUTOSTART_WINDOW` (10s). `start_turn` lo chiama al posto della lettura diretta del sink prima
+di aprire un turno con finestra. Se il sink non compare comunque entro la finestra, il turno
+prosegue con `NO_UI_ACK` (`surface.rs`) — nessun `Error` dedicato al mittente, stesso
+comportamento consolidato dal piano 2a/2b quando `ui.exe` non è mai connesso.
+
+**Stesso schema di firma di `launcher::ensure_orchestrator`** (`ui`, Task 3 dello stesso piano):
+funzioni di controllo/spawn iniettate (`exists`/`spawn`), non chiamate dirette al filesystem/
+`Command` — due implementazioni indipendenti dello stesso pattern in due crate diversi, non
+codice condiviso. Testabile senza un `ui.exe` reale: i 4 test (`ensure_ui_sink_*`) passano
+funzioni fake per `exists`/`spawn`; nessuna `config_dir` di test ha mai un `ui.exe` reale alla
+radice del deploy risolta, quindi la suite non rallenta di 10s per caso.
 
 ## Canale shell: registro, gate, superficie, `/ping` (v2.1.0)
 

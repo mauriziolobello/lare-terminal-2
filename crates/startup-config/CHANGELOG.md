@@ -5,7 +5,7 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), versioning: [S
 
 ---
 
-## [Unreleased] — `spawn_detached` (piano 3, Task 3)
+## 2.0.3 — 2026-09-07 — `spawn_detached` (piano 3, Task 3)
 
 Aggiunta `spawn_detached(exe, args)`: avvia un processo staccato dal corrente
 (`DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP` su Windows) — un solo posto che

@@ -5,6 +5,28 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), versioning: [S
 
 ---
 
+## 2.2.0 — 2026-09-07 — autostart di `ui.exe` quando manca il sink (piano 3, Task 6)
+
+Chiude l'ultimo lato dell'autostart reciproco previsto dallo spec §6.4: fino a questo task solo
+`ui.exe`/`lare-shell.exe` sapevano avviare l'orchestratore (piano 2b), non il contrario.
+
+- **`RuntimeConfig::ui_exe()`** (`runtime_config.rs`): percorso di `ui.exe`, sempre alla radice
+  del deploy (come `orchestrator.exe`), mai spostabile via `startup.json` — a differenza di
+  `mcp_server`/`mcp_nmap`, che vivono sotto `paths.*`.
+- **`ensure_ui_sink`** (`shell_turn.rs`, privata): prima di aprire un turno con finestra, verifica
+  il sink `ui` nel registro; se assente e `autostart.ui` è attivo, avvia `ui.exe --config-dir <dir>
+  --no-terminal` (`startup_config::spawn_detached`) e ritenta ogni 250ms fino a 10s
+  (`UI_AUTOSTART_WINDOW`/`UI_AUTOSTART_RETRY`) prima di rinunciare. `start_turn` la usa al posto
+  della lettura diretta del sink. Se il sink non compare comunque, il turno prosegue con
+  `NO_UI_ACK` (§9 dello spec, emendato in questo stesso piano, Task 7) — nessun `Error` dedicato,
+  comportamento consolidato dal piano 2a/2b, non modificato da questo task.
+- 4 nuovi test (`ensure_ui_sink_ritorna_subito_se_gia_registrato`,
+  `ensure_ui_sink_non_avvia_nulla_se_autostart_disattivo`,
+  `ensure_ui_sink_non_avvia_nulla_se_leseguibile_non_esiste`,
+  `ensure_ui_sink_avvia_e_trova_il_sink_comparso_durante_lattesa`); nessun rallentamento della
+  suite (nessuna `config_dir` di test ha un `ui.exe` reale alla radice del deploy risolta, quindi
+  `exists()` è sempre `false` nei test che non lo forniscono esplicitamente).
+
 ## 2.1.0 — 2026-09-06 — canale shell: registro, gate, turni con finestra di output, `/ping` (piano 2a, Task 2-8, 10)
 
 Consuma i tipi additivi di `protocol` 2.1.0 (Task 1): una sessione `lare-shell` (spec

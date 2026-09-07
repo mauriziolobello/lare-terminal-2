@@ -1,4 +1,22 @@
-# Implementation — startup-config v2.0.2
+# Implementation — startup-config v2.0.3
+
+## `spawn_detached` — un solo posto che sa staccare un processo (v2.0.3)
+
+Piano `Docs/i18n/ita/superpowers/plans/2026-09-07-piano-3-finestra-terminale.md` Task 3, spec
+§6.4. `spawn_detached(exe: &Path, args: &[String]) -> std::io::Result<Child>`: su Windows,
+`CommandExt::creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP)` — equivalente Windows di
+`setsid` (nessuna console ereditata dal padre, gruppo di processi proprio: un Ctrl+C nella console
+del padre non raggiunge il figlio). Fuori Windows (non verificato, il prodotto oggi lo è per
+intero, ADR-019): spawn semplice senza distacco, solo per non rompere la compilazione su altre
+piattaforme di sviluppo.
+
+Riusata da due chiamanti che avviano un processo "collega" senza volerne la console: `ui.exe`
+(self-heal dell'orchestratore, `launcher::ensure_orchestrator` — crate `ui`) e l'orchestratore
+stesso (autostart di `ui.exe --no-terminal`, `ensure_ui_sink` — crate `orchestrator`, Task 6 dello
+stesso piano). Prima di questa funzione, la logica dei flag Windows sarebbe stata duplicata in
+entrambi i punti (o mai scritta lato orchestratore, che non aveva alcun bisogno di spawnare
+processi prima del piano 3) — un solo posto che sa COME staccare un processo, testato una volta
+sola (`spawn_detached_avvia_un_processo_reale`, avvia un processo reale e verifica che parta).
 
 ## Assolutizzazione di `--config-dir` spostata qui dall'orchestrator (v2.0.2)
 

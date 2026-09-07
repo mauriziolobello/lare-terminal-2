@@ -297,3 +297,19 @@ prompt) — verificato empiricamente nel Task 4. `$LASTEXITCODE` è azzerato pri
 
 **Conseguenze.** La host è un pwsh "vero" per l'utente (PSReadLine, profilo, prompt) più i `/…`;
 i test girano contro un server WS finto su `TcpListener` (mai `HttpListener`); debiti in HANDOFF.
+
+## ADR-020 — Finestra terminale: `--no-terminal` come ruolo esplicito di `ui.exe` (2026-09-07)
+
+**Contesto.** Piano 3 introduce una finestra terminale che `ui.exe` apre di default all'avvio.
+Ma `ui.exe` viene avviato anche da chi ha già una shell (self-heal della host C# in modalità B,
+autostart dell'orchestratore per aprire una finestra di output) — per loro una seconda finestra
+terminale sarebbe un bug visibile, non una funzionalità.
+
+**Decisione.** Un flag esplicito, `--no-terminal`, distingue i due ruoli invece di un'euristica
+(es. "c'è già un lare-shell.exe in esecuzione?", fragile e con finestre di gara). Chi avvia
+`ui.exe` per il solo ruolo host lo passa sempre; la sua assenza è la modalità A.
+
+**Conseguenze.** `Launcher.EnsureUi()` (C#, `lare-shell` 2.0.1) e l'autostart dell'orchestratore
+(Task 6) lo passano entrambi. Un utente che avvia `ui.exe` a mano senza il flag ottiene sempre la
+finestra terminale — comportamento di default intenzionale (modalità A è l'uso interattivo
+"normale" del prodotto).
