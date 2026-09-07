@@ -21,8 +21,9 @@ $fragment = [ordered]@{
     profiles = @(
         [ordered]@{
             name              = "Lare Terminal"
-            # Virgolette obbligatorie: il percorso contiene spazi ("Test Run").
-            commandline       = "`"$ShellExe`""
+            # Senza virgolette anche se il percorso contiene spazi ("Test Run"): Windows Terminal
+            # risolve da solo un eseguibile con spazi nel percorso (verificato dallo spike e all'e2e).
+            commandline       = $ShellExe
             startingDirectory = "%USERPROFILE%"
         }
     )

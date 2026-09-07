@@ -108,7 +108,7 @@ public class LauncherTests
         (string exe, IReadOnlyList<string> args, bool hidden) = Assert.Single(s.Started);
         Assert.Equal(@"C:\Lare\ui.exe", exe);
         Assert.Equal(new[] { "--config-dir", Cfg }, args);
-        Assert.False(hidden);   // app GUI: finestra normale
+        Assert.True(hidden);    // console di debug nascosta (le finestre Tauri sono mostrate dall'app)
 
         s.Running.Add(@"C:\Lare\ui.exe");
         Assert.False(l.EnsureUi());

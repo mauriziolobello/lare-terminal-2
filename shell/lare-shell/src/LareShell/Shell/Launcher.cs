@@ -153,7 +153,12 @@ internal sealed class Launcher
         }
 
         _log.Info("autostart ui: " + UiExe);
-        _starter.Start(UiExe, new[] { "--config-dir", _configDir }, hideWindow: false);
+        // hideWindow anche per ui.exe (scoperto all'e2e del piano 2b): in build debug ui.exe è
+        // un'app CONSOLE (Tauri tiene la console per i log) e, con Windows Terminal impostato come
+        // terminale predefinito, una console nuova si apre come SCHEDA di WT e ruba il fuoco alla
+        // shell. WindowStyle.Hidden nasconde solo quella console: le finestre di ui.exe sono
+        // create e mostrate esplicitamente dall'app, e restano visibili (verificato dal vivo).
+        _starter.Start(UiExe, new[] { "--config-dir", _configDir }, hideWindow: true);
         return true;
     }
 }
