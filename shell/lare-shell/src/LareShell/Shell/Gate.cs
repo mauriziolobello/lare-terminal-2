@@ -41,9 +41,22 @@ internal sealed class ConsoleGate : IGate
 
         if (Console.IsInputRedirected)
         {
-            // Nessuna tastiera (pipe/test manuale): una riga di testo.
+            // Nessuna tastiera (pipe/test manuale): una riga di testo. Il gate fallisce CHIUSO:
+            // EOF (ReadLine → null) vuol dire che non c'è nessun umano a rispondere, e un gate di
+            // conferma (ADR-007) in dubbio deve rifiutare, mai accettare. Una riga VUOTA invece è
+            // l'Invio di un utente vero e vale come il default del prompt [Y/n], cioè accetta.
+            // Limite accettato: in questo ramo si resta fermi dentro ReadLine senza consultare
+            // shouldAbandon (nessun polling possibile su una pipe), quindi il prompt non si chiude
+            // da solo quando il turno finisce. Stdin rediretto è un percorso di sviluppo/test, non
+            // del prodotto — e comunque il timeout di 180 s lato orchestratore (spec §4.3) chiude
+            // il turno per conto suo.
             string? line = Console.ReadLine();
-            return line is null or "" || line.StartsWith('y') || line.StartsWith('Y') || line.StartsWith('s') || line.StartsWith('S')
+            if (line is null)
+            {
+                return GateAnswer.Reject;
+            }
+
+            return line is "" || line.StartsWith('y') || line.StartsWith('Y') || line.StartsWith('s') || line.StartsWith('S')
                 ? GateAnswer.Accept
                 : GateAnswer.Reject;
         }

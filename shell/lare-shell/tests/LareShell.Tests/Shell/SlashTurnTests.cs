@@ -51,10 +51,13 @@ internal sealed class FakeExecutor : IExecutor
     public List<(string Command, bool Capture, int ThreadId)> Calls { get; } = new();
     public ExecOutcome Outcome { get; set; } = new(0, "fake-output", @"C:\x", Stopped: false);
 
+    /// <summary>Se valorizzata, Run la lancia invece di tornare Outcome: simula un runspace rotto.</summary>
+    public Exception? Throws { get; set; }
+
     public ExecOutcome Run(string command, bool capture)
     {
         Calls.Add((command, capture, Environment.CurrentManagedThreadId));
-        return Outcome;
+        return Throws is null ? Outcome : throw Throws;
     }
 
     public void StopCurrent() { }
@@ -71,7 +74,11 @@ public class SlashTurnTests
     {
         FakeOrchestrator server = FakeOrchestrator.Start();
         var client = new OrchestratorClient(server.Uri, () => "tok", "s1", "2.0.0", HostLog.Null);
-        Task<JsonObject> accepted = server.AcceptAsync(Ct());
+        CancellationToken ct = Ct();
+        // L'accept gira su un thread del pool (dove SynchronizationContext.Current è null), come il
+        // resto del lato server nei test: il thread del test si blocca subito dopo dentro Connect e
+        // non deve dipendere da come xUnit inoltra le continuazioni del proprio contesto.
+        Task<JsonObject> accepted = Task.Run(() => server.AcceptAsync(ct));
         string? reason = client.Connect(@"C:\w", TimeSpan.FromSeconds(10));
         accepted.GetAwaiter().GetResult();
         Assert.Null(reason);
@@ -133,7 +140,7 @@ public class SlashTurnTests
     }
 
     [Fact]
-    public void Rifiuto_al_gate_manda_accept_false_e_non_esegue_nulla()
+    public void Rifiuto_al_gate_manda_accept_false()
     {
         (FakeOrchestrator server, OrchestratorClient client) = Connected();
         using (client)
@@ -155,6 +162,8 @@ public class SlashTurnTests
 
             Assert.Equal(TurnResult.Completed, turn.Run("/ai \"x\"", @"C:\w", CancellationToken.None));
             Assert.False((bool?)serverSide.GetAwaiter().GetResult()["accept"]);
+            // Sanity check, non la tesi del test: qui il server non manda alcun exec_in_shell, quindi
+            // questa riga non dimostra che un rifiuto blocchi l'esecuzione (lo decide l'orchestratore).
             Assert.Empty(executor.Calls);
             server.DisposeAsync().AsTask().GetAwaiter().GetResult();
         }
@@ -218,12 +227,16 @@ public class SlashTurnTests
         using (client)
         {
             var executor = new FakeExecutor();
-            var turn = new SlashTurn(client, new FakeGate(), executor, TextWriter.Null, HostLog.Null) { NewId = () => "t" };
+            var output = new StringWriter();
+            var turn = new SlashTurn(client, new FakeGate(), executor, output, HostLog.Null) { NewId = () => "t" };
             CancellationToken ct = Ct();
             Task serverSide = Task.Run(async () =>
             {
                 await server.ReceiveAsync(ct);
                 await server.SendAsync(J(new { type = "done", id = "vecchio", exit_code = (int?)null }), ct);
+                // Il chunk DOPO il done estraneo è la vera guardia: se un done qualsiasi chiudesse il
+                // turno, questa riga non verrebbe mai stampata (e nemmeno l'exec_in_shell letto).
+                await server.SendAsync(J(new { type = "chunk", id = "t", content = "ancora-vivo" }), ct);
                 await server.SendAsync(J(new { type = "exec_in_shell", turn_id = "altro", exec_id = "e9", command = "Remove-Item x", capture = true }), ct);
                 await server.SendAsync(J(new { type = "heartbeat", id = "t" }), ct);
                 await server.SendAsync(J(new { type = "done", id = "t", exit_code = (int?)null }), ct);
@@ -231,6 +244,7 @@ public class SlashTurnTests
 
             Assert.Equal(TurnResult.Completed, turn.Run("/ping", @"C:\w", CancellationToken.None));
             serverSide.GetAwaiter().GetResult();
+            Assert.Contains("ancora-vivo", output.ToString());   // il done di "vecchio" NON ha chiuso il turno
             Assert.Empty(executor.Calls);   // §8: l'ExecInShell di un altro turno NON viene eseguito
             server.DisposeAsync().AsTask().GetAwaiter().GetResult();
         }
@@ -258,6 +272,38 @@ public class SlashTurnTests
 
             Assert.Equal(TurnResult.Cancelled, turn.Run("/ai \"x\"", @"C:\w", CancellationToken.None));
             Assert.Equal("cancel_command", (string?)serverSide.GetAwaiter().GetResult()["type"]);
+            server.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        }
+    }
+
+    [Fact]
+    public void Eccezione_dell_executor_cancella_il_turno()
+    {
+        // Se il runspace lancia, il turno NON deve restare appeso lato orchestratore ad aspettare
+        // un ExecResult che non arriverà mai: la host chiude con un CancelCommand e lo dice a video.
+        (FakeOrchestrator server, OrchestratorClient client) = Connected();
+        using (client)
+        {
+            var gate = new FakeGate();
+            gate.Answers.Enqueue(GateAnswer.Accept);
+            var executor = new FakeExecutor { Throws = new InvalidOperationException("runspace rotto") };
+            var output = new StringWriter();
+            var turn = new SlashTurn(client, gate, executor, output, HostLog.Null) { NewId = () => "t" };
+            CancellationToken ct = Ct();
+            Task<JsonObject> serverSide = Task.Run(async () =>
+            {
+                await server.ReceiveAsync(ct);
+                await server.SendAsync(J(new { type = "tool_confirm_request", id = "g1", commands = "Get-Date" }), ct);
+                await server.ReceiveAsync(ct);   // accept
+                await server.SendAsync(J(new { type = "exec_in_shell", turn_id = "t", exec_id = "e1", command = "Get-Date", capture = true }), ct);
+                return await server.ReceiveAsync(ct);   // deve essere cancel_command, NON exec_result
+            });
+
+            Assert.Equal(TurnResult.Cancelled, turn.Run("/ai \"x\"", @"C:\w", CancellationToken.None));
+            JsonObject cancel = serverSide.GetAwaiter().GetResult();
+            Assert.Equal("cancel_command", (string?)cancel["type"]);
+            Assert.Equal("t", (string?)cancel["id"]);
+            Assert.Contains("runspace rotto", output.ToString());
             server.DisposeAsync().AsTask().GetAwaiter().GetResult();
         }
     }

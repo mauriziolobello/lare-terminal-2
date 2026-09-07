@@ -101,7 +101,22 @@ internal sealed class SlashTurn
                     break;
 
                 case ExecInShell ex when ex.TurnId == id:
-                    ExecOutcome outcome = _executor.Run(ex.Command, ex.Capture);
+                    ExecOutcome outcome;
+                    try
+                    {
+                        outcome = _executor.Run(ex.Command, ex.Capture);
+                    }
+                    catch (Exception e)
+                    {
+                        // Il runspace può lanciare (host chiuso, pipeline in uno stato illegale, un
+                        // bug nostro): se l'eccezione salisse, il REPL uscirebbe dal turno senza
+                        // dire niente all'orchestratore, che resterebbe ad aspettare l'ExecResult
+                        // fino al proprio timeout — turno appeso da entrambe le parti. Chiudiamo
+                        // noi con un CancelCommand, come per il Ctrl+C durante l'esecuzione.
+                        _log.Warn("esecuzione fallita nel turno " + id + ": " + e);
+                        return Cancel(id, "errore nell'esecuzione: " + e.Message);
+                    }
+
                     if (outcome.Stopped)
                     {
                         // §4.4: Ctrl+C durante l'exec = stop della pipeline E cancel del turno, mai un ExecResult parziale.
