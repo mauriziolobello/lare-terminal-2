@@ -3,12 +3,15 @@
 .DESCRIPTION
   target\<BuildConfig>\ -> Test Run\ : orchestrator.exe, mcp-server.exe, mcp-nmap.exe, ui.exe;
   scripts\pytools\ -> Test Run\pytools\ (mai venv/cache);
+  shell\lare-shell (dotnet publish, Release, win-x64, framework-dependent) -> Test Run\shell\ (salta con -SkipShell);
   con -IncludePlugins: target\<BuildConfig>\<id>.exe -> Test Run\plugins\<id>\<id>.exe
   (i plugin.json sono già committati). Non tocca Test Run\Configuration.
 #>
 param(
     [ValidateSet("debug", "release")] [string]$BuildConfig = "debug",
-    [switch]$IncludePlugins
+    [switch]$IncludePlugins,
+    # Salta il dotnet publish della host C# (lento, ~1 min): utile quando si ricompila solo il Rust.
+    [switch]$SkipShell
 )
 $ErrorActionPreference = "Stop"
 $Repo = $PSScriptRoot
@@ -20,6 +23,16 @@ foreach ($exe in "orchestrator.exe", "mcp-server.exe", "mcp-nmap.exe", "ui.exe")
     if (-not (Test-Path $src)) { throw "Manca $src" }
     Copy-Item $src (Join-Path $Dest $exe) -Force
     Write-Host "copiato $exe"
+}
+if (-not $SkipShell) {
+    # Host C# (spec §7): publish framework-dependent per win-x64 in Test Run\shell\ — serve il
+    # runtime .NET 10 sulla macchina di destinazione (DEPLOY.md), in cambio ~100 MB invece di ~200.
+    # Sempre Release: la host non ha una build "debug" utile nel deploy.
+    $proj = Join-Path $Repo "shell\lare-shell\src\LareShell\LareShell.csproj"
+    $shellOut = Join-Path $Dest "shell"
+    & dotnet publish $proj -c Release -r win-x64 --self-contained false -o $shellOut --nologo -v quiet
+    if ($LASTEXITCODE -ne 0) { throw "dotnet publish della host fallita (exit $LASTEXITCODE)" }
+    Write-Host "pubblicata lare-shell in shell\"
 }
 robocopy (Join-Path $Repo "scripts\pytools") (Join-Path $Dest "pytools") /E /XD venv __pycache__ .pytest_cache /XF tickers_us.json fundamentals_cache.json technical_cache.json discoveries.json /NFL /NDL /NJH /NJS | Out-Null
 # robocopy usa i bit 0-7 di $LASTEXITCODE per segnalare cosa ha copiato, NON errori:
