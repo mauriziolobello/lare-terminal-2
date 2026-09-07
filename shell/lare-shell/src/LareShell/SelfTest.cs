@@ -17,7 +17,15 @@ internal static class SelfTest
         bool allOk = true;
         Console.WriteLine("=== lare-shell " + HostInfo.Version + " --selftest ===");
         allOk &= Check("Cartella di configurazione: " + configDir, Directory.Exists(configDir));
-        allOk &= Check("startup.json letto (ws_port " + cfg.WsPort + ")", cfg.Warnings.Count == 0, string.Join("; ", cfg.Warnings));
+        // "cfg.Warnings.Count == 0" da solo era vacuamente vero anche col file assente:
+        // StartupConfig.Load ripiega sui default senza avvisi quando non trova nulla da
+        // leggere. In un deploy vero il file DEVE esistere (fix round 1): controlliamo anche
+        // la sua presenza, non solo l'assenza di avvisi nel parsing di quel che c'è.
+        bool startupJsonExists = File.Exists(Path.Combine(configDir, "startup.json"));
+        allOk &= Check(
+            "startup.json presente e letto (ws_port " + cfg.WsPort + ")",
+            startupJsonExists && cfg.Warnings.Count == 0,
+            startupJsonExists ? string.Join("; ", cfg.Warnings) : "file assente");
         allOk &= Check("powershell.config.json accanto all'exe", File.Exists(Path.Combine(AppContext.BaseDirectory, "powershell.config.json")));
 
         string? pwsh = PwshLocator.FindInstallDir();

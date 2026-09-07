@@ -43,15 +43,28 @@ internal sealed class Repl
 
         ConsoleCancelEventHandler onCancel = (_, e) =>
         {
-            e.Cancel = true;                 // non terminare il processo
-            _executor.StopCurrent();         // ferma la pipeline (utente o ExecInShell)
-            _turnCts?.Cancel();              // sveglia SlashTurn in attesa → CancelCommand
+            // e.Cancel = true PRIMA di tutto, fuori dal try: anche se StopCurrent/Cancel
+            // lanciano, il processo non deve terminare (comportamento di default di Ctrl+C
+            // senza questo flag). Un'eccezione NON gestita qui sfuggirebbe dall'handler di
+            // Console.CancelKeyPress: il runtime la considera non gestita e TERMINA il
+            // processo — l'esatto opposto di "Ctrl+C non esce mai dalla shell" (§4.4). Per
+            // questo il corpo è avvolto in un try/catch che logga e assorbe tutto.
+            e.Cancel = true;
+            try
+            {
+                _executor.StopCurrent();     // ferma la pipeline (utente o ExecInShell)
+                _turnCts?.Cancel();           // sveglia SlashTurn in attesa → CancelCommand
+            }
+            catch (Exception ex)
+            {
+                _log.Warn("handler Ctrl+C: " + ex.Message);
+            }
         };
         Console.CancelKeyPress += onCancel;
 
         try
         {
-            Banner(usePsReadLine);
+            Banner(usePsReadLine, _session.PsReadLineAvailable);
             LoadProfiles();
             ConnectAtStartup();
 
@@ -88,10 +101,19 @@ internal sealed class Repl
         return _session.Host.ExitCode;
     }
 
-    private void Banner(bool usePsReadLine)
+    /// <summary>
+    /// Tre casi distinti, non due: PSReadLine può essere disponibile ma non usato (stdin
+    /// rediretto — non è un problema, solo un fatto), oppure proprio non disponibile (editing
+    /// di riga più povero: un fatto diverso, che vale la pena segnalare in modo diverso).
+    /// </summary>
+    private void Banner(bool usePsReadLine, bool psReadLineAvailable)
     {
-        Console.WriteLine("Lare Terminal " + HostInfo.Version + " — sessione " + _client.SessionId
-                          + (usePsReadLine ? string.Empty : "  (PSReadLine non disponibile: editing di riga base)"));
+        string suffix = usePsReadLine
+            ? string.Empty
+            : psReadLineAvailable
+                ? "  (PSReadLine non in uso: stdin rediretto)"
+                : "  (PSReadLine non disponibile: editing di riga base)";
+        Console.WriteLine("Lare Terminal " + HostInfo.Version + " — sessione " + _client.SessionId + suffix);
     }
 
     private void LoadProfiles()
@@ -144,7 +166,13 @@ internal sealed class Repl
 
         _launcher.EnsureUi();   // self-heal (ruling 8): la finestra di output vive in ui.exe
 
-        using var cts = new CancellationTokenSource();
+        // NIENTE "using" qui: un CTS senza timer né registrazioni non possiede risorse native
+        // da rilasciare, quindi ometterne il Dispose non perde nulla di reale — e questo evita
+        // la race con l'handler di Ctrl+C (altro thread): se il turno finisce ed entra nel
+        // finally proprio mentre l'handler legge _turnCts, con "using" l'handler potrebbe
+        // chiamare Cancel() su un CTS già disposto (ObjectDisposedException). Senza "using",
+        // Cancel() su un CTS già "consumato" ma non disposto è un semplice no-op innocuo.
+        var cts = new CancellationTokenSource();
         _turnCts = cts;
         try
         {
