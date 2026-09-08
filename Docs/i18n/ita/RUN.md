@@ -37,6 +37,17 @@ Le due modalità **non si escludono**: puoi avere la modalità B installata e co
 `ui.exe` quando preferisci, o viceversa. Non condividono processo: sono due modi diversi di
 lanciare la stessa `lare-shell.exe`.
 
+**La modalità A non può diventare un profilo Windows Terminal** — non è una scelta, è un limite
+architetturale: WT ospita processi *console-subsystem* attaccati a una ConPTY che gestisce lei, e
+ne disegna l'output nella propria scheda. `ui.exe` è un'app *GUI-subsystem* in release
+(`windows_subsystem = "windows"`, `main.rs`) — il terminale che vedi in modalità A lo disegna
+xterm.js dentro la sua finestra Tauri; la ConPTY verso `lare-shell.exe` è plumbing interno,
+invisibile al sottosistema console di Windows. Un profilo WT puntato a `ui.exe` darebbe nella
+migliore delle ipotesi una scheda vuota, con la vera finestra che si apre comunque a parte — non
+un tab autosufficiente. Per un lancio comodo di modalità A l'equivalente naturale è un
+collegamento o un'icona sulla taskbar a `ui.exe`, non un profilo WT. `install-wt-profile.ps1`
+serve solo per la modalità B.
+
 ## Modalità A — dettaglio
 
 ```powershell
