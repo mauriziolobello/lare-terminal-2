@@ -64,6 +64,19 @@ indagare — vedi la sezione "Se trovi un bug reale" più sotto, non da ignorare
 
 ## Parte 1 — `deploy_test_run.ps1`
 
+**CORREZIONE (2026-09-08, dopo che Codex ha segnalato la discrepanza durante la sua verifica
+baseline — la correzione gli è dovuta, il testo originale sotto era sbagliato)**: lo script copia
+SOLO `$id.exe` in `Test Run\plugins\$id\$id.exe` — **non copia mai `plugin.json`**. I manifest di
+`ping`/`calc` in `Test Run\plugins\ping\plugin.json` e `Test Run\plugins\calc\plugin.json` sono
+committati DIRETTAMENTE nel repo (verificato con `git ls-files "Test Run/plugins/"` — li elenca),
+non generati da questo script. Per `counter`/`crypto`/`lc` quei file NON esistono ancora sotto
+`Test Run/plugins/` — la frase "i plugin.json sono già committati" nel commento in cima allo
+script è vera solo per `ping`/`calc`, io l'avevo estesa erroneamente a tutti e 5 confondendo
+"esiste in `crates/plugin-X/plugin.json`" (vero per tutti e 5) con "è committato in
+`Test Run/plugins/X/plugin.json`" (vero solo per `ping`/`calc`). Aggiungere solo i tre nomi al
+`foreach` qui sotto SENZA fare altro farebbe fallire il deploy per `counter`/`crypto`/`lc`
+(nessun manifest presente da cui l'orchestratore possa fare `discover`).
+
 Riga (numero indicativo, verifica leggendo il file):
 
 ```powershell
@@ -76,11 +89,21 @@ diventa:
 foreach ($id in "ping", "calc", "counter", "crypto", "lc") {
 ```
 
-Il resto del blocco (copia `$id.exe` + verifica che `plugins\$id\plugin.json` sia già committato
-— lo è per tutti e 5, verificato) resta identico, è già generico per `$id`. Verificato anche che
-`Test Run\plugins\` oggi contiene SOLO `ping`/`calc` (le cartelle di `counter`/`crypto`/`lc` non
-esistono ancora lì) — è normale, le crea questo stesso script quando gira con l'elenco corretto,
-non è un problema da risolvere a mano prima.
+**Passo aggiuntivo necessario, PRIMA di eseguire lo script con l'elenco esteso**: per ciascuno dei
+tre plugin, copia il suo `plugin.json` sorgente nella destinazione e mettilo sotto controllo
+versione, mirando esattamente cosa già esiste per `ping`/`calc`:
+
+```powershell
+foreach ($id in "counter", "crypto", "lc") {
+    New-Item -ItemType Directory -Force -Path "Test Run\plugins\$id" | Out-Null
+    Copy-Item "crates\plugin-$id\plugin.json" "Test Run\plugins\$id\plugin.json"
+}
+git add "Test Run/plugins/counter/plugin.json" "Test Run/plugins/crypto/plugin.json" "Test Run/plugins/lc/plugin.json"
+```
+
+Poi lo script copia solo l'`.exe` sopra il manifest già presente — comportamento identico a
+`ping`/`calc`, resta generico per `$id`, nessuna modifica allo script oltre alla riga del
+`foreach` sopra.
 
 Nota non bloccante, per non farti perdere tempo se te ne accorgi durante la Parte 1 o 3: i
 `plugin.json` di `crypto` (`"version": "1.0.1"`) e `lc` (`"version": "0.4.5"`) hanno un numero di
