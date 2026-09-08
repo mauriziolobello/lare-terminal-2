@@ -10,6 +10,24 @@ Il progetto ha due toolchain indipendenti, compilate separatamente:
 - **.NET** (soluzione separata, non nel workspace Cargo): `shell/lare-shell/` — la host C# del
   motore PowerShell (ADR-015).
 
+## Tutto in un colpo — `build.ps1`
+
+Per compilare tutto quello che serve a un deploy vero (Rust + host C#) senza ricordare i comandi
+uno per uno:
+
+```powershell
+.\build.ps1                                    # debug: default-members + ui + lare-shell
+.\build.ps1 -BuildConfig release               # come sopra, in release
+.\build.ps1 -IncludePlugins                    # aggiunge plugin-ping/plugin-calc
+.\build.ps1 -SkipUi                            # salta ui (ciclo rapido sul solo backend)
+.\build.ps1 -SkipShell                         # salta la host C# (~1 min risparmiato)
+.\build.ps1 -CleanUi                           # + cargo clean -p ui prima (gotcha frontend, sotto)
+```
+
+Non popola `Test Run\`: dopo, esegui `.\deploy_test_run.ps1` (stesso `-BuildConfig`) — vedi
+`DEPLOY.md`. Il resto di questa pagina descrive cosa fa `build.ps1` sotto il cofano, comando per
+comando, per chi vuole compilare solo un pezzo durante lo sviluppo.
+
 ## Rust — debug (ciclo di sviluppo)
 
 Dalla radice del repo:
