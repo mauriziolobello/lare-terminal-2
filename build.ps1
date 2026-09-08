@@ -3,7 +3,7 @@
 .DESCRIPTION
   cargo build [--release] (default-members: orchestrator, mcp-server, mcp-nmap, startup-config,
   protocol) + cargo build [--release] -p ui (salta con -SkipUi, lento la prima volta) +
-  cargo build [--release] -p plugin-ping -p plugin-calc (solo con -IncludePlugins) +
+  cargo build [--release] -p plugin-ping -p plugin-calc -p plugin-counter -p plugin-crypto -p plugin-lc (solo con -IncludePlugins) +
   dotnet build di shell\lare-shell\LareShell.sln (salta con -SkipShell). La host C# compila
   sempre in Debug (dotnet build): non ha una build "release" utile da sorgente — solo il publish
   di deploy_test_run.ps1 lo è (BUILD.md). Non popola Test Run\: dopo questo script, esegui
@@ -43,10 +43,10 @@ if (-not $SkipUi) {
 }
 
 if ($IncludePlugins) {
-    Write-Host "== cargo build $($CargoFlags -join ' ') -p plugin-ping -p plugin-calc =="
-    & cargo build @CargoFlags -p plugin-ping -p plugin-calc
+    Write-Host "== cargo build $($CargoFlags -join ' ') -p plugin-ping -p plugin-calc -p plugin-counter -p plugin-crypto -p plugin-lc =="
+    & cargo build @CargoFlags -p plugin-ping -p plugin-calc -p plugin-counter -p plugin-crypto -p plugin-lc
     if ($LASTEXITCODE -ne 0) { throw "cargo build dei plugin fallita (exit $LASTEXITCODE)" }
-    Write-Host "compilato: plugin-ping, plugin-calc"
+    Write-Host "compilato: plugin-ping, plugin-calc, plugin-counter, plugin-crypto, plugin-lc"
 }
 
 if (-not $SkipShell) {

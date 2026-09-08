@@ -1,0 +1,7 @@
+{
+  "name": "Crittografia",
+  "id": "crypto",
+  "version": "1.0.1",
+  "protocol_version": 1,
+  "triggers": { "command": "/crypto" }
+}

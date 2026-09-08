@@ -49,7 +49,7 @@ robocopy (Join-Path $Repo "scripts\pytools") (Join-Path $Dest "pytools") /E /XD 
 if ($LASTEXITCODE -ge 8) { throw "robocopy fallita (exit $LASTEXITCODE) copiando pytools\" }
 Write-Host "copiato pytools\ (senza venv)"
 if ($IncludePlugins) {
-    foreach ($id in "ping", "calc") {
+    foreach ($id in "ping", "calc", "counter", "crypto", "lc") {
         $src = Join-Path $Target "$id.exe"
         if (Test-Path $src) { Copy-Item $src (Join-Path $Dest "plugins\$id\$id.exe") -Force; Write-Host "copiato plugin $id" }
         else { Write-Warning "plugin $id non compilato ($src): saltato" }

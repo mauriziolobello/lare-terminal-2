@@ -5,6 +5,13 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), versioning: [S
 
 ---
 
+## Non rilasciato — 2026-09-08 — copertura e2e di crypto
+
+- Nuova `plugin_crypto_e2e.rs` con processo reale: discovery, Ready con nome/versione,
+  apertura Cesare, cifratura/decifratura, dialog parametri con id distinto, Applica e chiusura.
+  Ignorata di default come le altre e2e; richiede `cargo build -p plugin-crypto`.
+  Nessuna modifica al comportamento del crate, versione invariata.
+
 ## 2.2.1 — 2026-09-08 — CREATE_NO_WINDOW sui figli + stderr su file (fix da uso reale)
 
 Sopprime le finestre console spurie osservate dall'utente in uso reale (Windows Terminal come

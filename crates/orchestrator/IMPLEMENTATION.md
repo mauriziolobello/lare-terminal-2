@@ -1,5 +1,21 @@
 # Implementation — orchestrator v2.2.0 (Finestra terminale — piano 3)
 
+## Copertura e2e crypto (2026-09-08, nessun cambio di versione)
+
+`tests/plugin_crypto_e2e.rs` usa manifest sorgente e binario compilato in una `TempDir`,
+con `discover` → `PluginHost::start` → attivazione lazy e transport stdio reale.
+Un decoratore del reader verifica `Ready{name:"crypto", protocol_version:1}` e inoltra
+lo stesso messaggio all'host. Il canale server viene collegato prima dell'attivazione.
+Le asserzioni verificano i valori nelle due textarea: Cesare XYZ→ABC, DEF→ABC;
+la dialog cambia shift da 3 a 1 e Applica aggiorna principale (ABC→BCD) e dialog.
+Gli eventi usano l'id ricevuto in ShowWindow, esercitando la registrazione delle finestre
+secondarie nel pump. Dopo CloseWindow, la principale continua a decifrare con shift=1.
+Ogni ricezione ha timeout di 2 secondi; chiusura finale con `shutdown`.
+
+Esecuzione: `cargo build -p plugin-crypto`, poi
+`cargo test -p orchestrator --test plugin_crypto_e2e -- --ignored`.
+Il test non sostituisce la verifica grafica attraverso il deploy reale.
+
 ## Autostart di `ui.exe`: `RuntimeConfig::ui_exe()`, `ensure_ui_sink` (v2.2.0)
 
 Piano `Docs/i18n/ita/superpowers/plans/2026-09-07-piano-3-finestra-terminale.md` Task 6, spec

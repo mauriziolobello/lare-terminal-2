@@ -26,6 +26,14 @@
 
 ## FATTO
 
+- **Porting plugin v1, completamento deploy (2026-09-08)** — `build.ps1` e
+  `deploy_test_run.ps1 -IncludePlugins` includono ping/calc/counter/crypto/lc.
+  Aggiunti i manifest di counter/crypto/lc in `Test Run/plugins/`, copie dei sorgenti
+  come per ping/calc. Nuova e2e reale `plugin_crypto_e2e.rs`: handshake, Cesare,
+  cifratura/decifratura e dialog parametri (Applica e chiusura). Nessun sorgente runtime
+  dei crate modificato e nessun bump di versione. Esiti e limiti delle verifiche nel
+  report `reports/2026-09-08-codex-plugin-porting-v1.md`; lavoro per revisione del supervisore.
+
 - 2026-09-04/05 — brainstorming, spec, due spike (`Docs/i18n/ita/spikes/`).
 
 **Piano 1 — "fondamenta"** (`Docs/i18n/ita/superpowers/plans/2026-09-05-piano-1-fondamenta.md`),
