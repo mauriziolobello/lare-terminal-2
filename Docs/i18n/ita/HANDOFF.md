@@ -242,7 +242,15 @@ turno `/ai` reale, chiusura finestra, autostart di `ui.exe` dall'orchestratore, 
   richiesta dell'utente o su suggerimento della AI stessa. Meccanismo: l'AI ha il vecchio
   prompt, l'utente aggiunge le nuove caratteristiche desiderate, l'AI combina i due e costruisce
   il nuovo progetto pescando dal vecchio tutto quello che può ancora servire (dati, pagine, job
-  schedulati ancora validi), non da zero. Da studiare più avanti.
+  schedulati ancora validi), non da zero. **Estensione (2026-09-08, ancora più avanti) — un
+  framework UI fra gli strumenti fissi a priori**: fra gli strumenti dell'AI (accanto a web
+  client, SQLite, Python, scheduler) anche un framework UI per le pagine, stabilito A PRIORI come
+  standard di progetto — non scelto ad hoc di volta in volta. Esempio illustrativo di Maurizio:
+  si stabilisce che un framework (chiamato per esempio "Bookmark", nome di comodo suo, non un
+  prodotto reale) sia LO standard per la UI di ogni progetto; le sue caratteristiche (aspetto,
+  componenti, convenzioni) vengono definite insieme da utente e AI nel tempo e diventano poi lo
+  standard fisso — così ogni progetto condivide la stessa estetica per costruzione, non a caso.
+  Da studiare più avanti.
 - **Idea (Maurizio, 2026-09-08) — `show_markdown` chiamato più volte in un turno dovrebbe
   aggiornare la STESSA finestra, non aprirne una nuova.** Bug reale trovato dal vivo (piano 3):
   un turno `/ai` lungo con ricerca web può portare il modello a richiamare `show_markdown` più
