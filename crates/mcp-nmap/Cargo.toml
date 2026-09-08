@@ -1,6 +1,6 @@
 [package]
 name = "mcp-nmap"
-version = "2.0.0"
+version = "2.0.1"
 edition = "2021"
 
 # The crate exposes:
@@ -25,6 +25,14 @@ roxmltree = "0.21"
 # TempPath deletes the file on drop after we've read it). NORMAL dependency
 # here (used at runtime for every scan), unlike mcp-server where it is dev-only.
 tempfile = "3"
+
+# oem_cp: decodifica stringhe dai codepage OEM storici di Windows (es. CP850
+# per l'Europa occidentale / italiano, CP437 per l'inglese US). Usato da
+# network_info per decodificare l'output stdout dei comandi nativi Win32
+# (ipconfig, arp, route, netstat) evitando il mojibake dei caratteri accentati
+# (Sì -> S) quando vengono letti byte non-UTF-8. Pura logica Rust, nessuna
+# chiamata unsafe, multipiattaforma.
+oem_cp = "2"
 
 rmcp = { version = "=1.7.0", features = ["server", "transport-io", "macros", "schemars"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "process"] }
@@ -51,4 +59,9 @@ windows = { version = "0.62", features = [
     # error during Task 4 (not something either "verified against docs" list
     # covered — see this crate's IMPLEMENTATION.md).
     "Win32_System_Registry",
+    # GetConsoleOutputCP per leggere il codepage attivo della console.
+    "Win32_System_Console",
+    # GetOEMCP per leggere il codepage OEM di sistema quando il processo
+    # gira senza console attiva (es. sotto l'orchestratore con CREATE_NO_WINDOW).
+    "Win32_Globalization",
 ] }

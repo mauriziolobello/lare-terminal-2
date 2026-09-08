@@ -4,6 +4,40 @@ All notable changes to this crate are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Versioning: `major.minor.update` (SemVer).
 
+## [2.0.1] — 2026-09-08 — fix: codepage OEM per i comandi nativi in `network_info.rs` (mojibake etichette accentate)
+
+**Il bug:** l'output dei comandi diagnostici di rete nativi Win32 (`ipconfig`, `arp`, `route`, `netstat`, `tracert`) invocati da `local_network_info` e `traceroute` mostrava le etichette accentate italiane come caratteri corrotti/mojibake (es. `Sì` diventava `S`, U+FFFD). I dati numerici (IP, subnet, gateway, MAC) non ne risentivano perché ASCII puro.
+
+**Causa radice:** `run_and_capture` decodificava i flussi stdout/stderr usando direttamente `String::from_utf8_lossy` sui byte grezzi. I processi nativi Win32 su console italiana emettono invece byte codificati nel codepage OEM (tipicamente CP850 in Europa occidentale/Italia, CP437 su sistemi in lingua inglese US). Qualsiasi byte accentato OEM non conforme alla sequenza UTF-8 veniva convertito in U+FFFD.
+
+**Il fix:**
+- Sostituita la decodifica ingenua UTF-8 con la decodifica basata sul codepage OEM effettivamente attivo.
+- Aggiunta la funzione pura e multipiattaforma `decode_oem(bytes: &[u8], codepage: u32) -> String` che consulta la tabella `DECODING_TABLE_CP_MAP` del crate `oem_cp` (convertendo in modo verificato `u16::try_from(codepage)`). Se il codepage non è presente o sconosciuto, ripiega sul comportamento invariato di `String::from_utf8_lossy`.
+- Aggiunta la funzione `active_console_output_codepage() -> u32` (`#[cfg(windows)]`): interroga `GetConsoleOutputCP()` dal crate `windows` (feature `Win32_System_Console`).
+- **Gestione del processo senza console (`CREATE_NO_WINDOW`)**: se `mcp-nmap.exe` gira senza console (lanciato dall'orchestratore), `GetConsoleOutputCP()` restituisce `0`. In tal caso, la funzione ripiega su `GetOEMCP()` (feature `Win32_Globalization`), ottenendo il codepage OEM di default a livello di sistema operativo Windows.
+- `run_and_capture` usa `active_console_output_codepage()` e `decode_oem` su Windows, mantenendo il fallback UTF-8 lossy su piattaforme non-Windows.
+
+### Fixed
+
+- `crates/mcp-nmap/src/network_info.rs`: decodifica stdout e stderr dei comandi diagnostici nativi usando il codepage OEM attivo della console o il codepage OEM di sistema (risolvendo il mojibake `Sì` → `S`).
+
+### Dependencies
+
+- Aggiunta dipendenza `oem_cp = "2"` in `Cargo.toml`.
+- Aggiunte features `"Win32_System_Console"` e `"Win32_Globalization"` a `windows = "0.62"` sotto `[target.'cfg(windows)'.dependencies]`.
+
+### TDD (RED → GREEN)
+
+1. **`decode_oem_decodifica_correttamente_accentate_cp850`**, **`decode_oem_codepage_sconosciuta_ripiega_su_utf8_lossy`**, **`decode_oem_preserva_invariati_i_dati_ascii_puri`**: scritti prima del fix con implementazione stub di `decode_oem` ripiegata su `String::from_utf8_lossy`. Confermato RED con `cargo test -p mcp-nmap decode_oem`: l'assert su `[0x53, 0x8D]` (CP850 per "Sì") falliva con `left: "S\u{FFFD}", right: "Sì"`. Con l'integrazione di `oem_cp`, GREEN (64 test passati).
+
+### Verification
+
+- `cargo test -p mcp-nmap` → 64 passati, 0 falliti.
+- `cargo clippy -p mcp-nmap --all-targets` → nessun warning.
+- `cargo build -p mcp-nmap` → compilazione pulita.
+- `cargo test` (intero workspace) → tutti i test passati puliti.
+- **Verifica dal vivo con `CREATE_NO_WINDOW`**: testata l'invocazione di `mcp-nmap.exe` via `ProcessStartInfo` con `CreateNoWindow = $true` e piping JSON-RPC `local_network_info`. L'output ha confermato la corretta lettura di `"DHCP abilitato : Sì"` tramite il fallback `GetOEMCP()`.
+
 ## 2.0.0 — 2026-09-05 — fork da v1 0.8.2
 
 Copia del crate dalla v1 (`mauriziolobello/lare-terminal`) nel repo 2.0. Nessuna modifica

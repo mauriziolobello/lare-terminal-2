@@ -1,4 +1,4 @@
-# Implementation — `mcp-nmap` v0.8.2
+# Implementation — `mcp-nmap` v2.0.1
 
 ## Scope
 
@@ -19,7 +19,7 @@ implementation plan at
 scan-variants plan at
 `Docs/superpowers/plans/2026-07-18-nmap-scan-variants.md`.
 
-Six modules are implemented (current version `0.8.2`):
+Six modules are implemented (current version `2.0.1`):
 
 1. **`src/report.rs`** — pure XML parsing + data model (`ScanReport`,
    `HostReport`, `PortReport`, `ScriptResult`, `ParseError`). Zero
@@ -978,15 +978,34 @@ al modello (solo `summary`, il report va in finestra+Library per l'umano) —
 qui è l'opposto: l'AI deve leggere l'IP/subnet/hop per decidere il prossimo
 target di scan, quindi tutto l'output va nel tool_result che il modello vede.
 
-**Nota nota (0.7.1):** `run_and_capture` usa `String::from_utf8_lossy`
-diretto, quindi riproduce il mojibake OEM già documentato in
-`Docs/KNOWN-ISSUES.md` ("Codepage — output dei comandi NATIVI") sulle
-etichette accentate (`Sì` → `S�`). Non corretto qui: IP/subnet/gateway/MAC —
-i dati ASCII che l'AI legge per scegliere un target — non ne risentono. Fix
-vera è app-wide (tocca anche `mcp-server/src/session.rs`), fuori scope.
+**Risoluzione mojibake codepage OEM (2.0.1):** in v0.7.1 / v2.0.0
+`run_and_capture` usava `String::from_utf8_lossy` diretto, riproducendo il
+mojibake delle etichette accentate italiane (`Sì` → `S`, U+FFFD) documentato in
+`Docs/KNOWN-ISSUES.md`. In v2.0.1 la decodifica usa il codepage OEM reale:
+- `decode_oem(bytes: &[u8], codepage: u32) -> String`: funzione pura
+  multipiattaforma che consulta la tabella `DECODING_TABLE_CP_MAP` del crate
+  `oem_cp` (indicizzata per `u16`, convertita con `u16::try_from(codepage)`)
+  e decodifica tramite `table.decode_string_lossy(bytes)`. Se il codepage non
+  è presente o eccede `u16::MAX`, ripiega su `String::from_utf8_lossy(bytes)`,
+  garantendo fallback deterministico senza panic.
+- `active_console_output_codepage() -> u32` (`#[cfg(windows)]`): chiama
+  `GetConsoleOutputCP()` dal crate `windows` (feature `Win32_System_Console`).
+  **Caso critico processo senza console (`CREATE_NO_WINDOW`)**: quando
+  `mcp-nmap.exe` è avviato dall'orchestratore, non ha una console allocata e
+  `GetConsoleOutputCP()` restituisce `0`. In tal caso ripiega su `GetOEMCP()`
+  (feature `Win32_Globalization`), che restituisce il codepage OEM di sistema
+  (es. CP850 in Italia, CP437 in US).
+- `run_and_capture`: su Windows interroga `active_console_output_codepage()` e
+  decodifica stdout e stderr con `decode_oem`; su piattaforme non-Windows mantiene
+  il fallback UTF-8 lossy.
 
 ```rust
 pub struct NetworkInfoOutcome { pub output: String, pub is_error: bool }
+
+pub(crate) fn decode_oem(bytes: &[u8], codepage: u32) -> String
+
+#[cfg(windows)]
+fn active_console_output_codepage() -> u32
 
 fn run_and_capture(exe: &str, args: &[&str]) -> Result<String, String>
 

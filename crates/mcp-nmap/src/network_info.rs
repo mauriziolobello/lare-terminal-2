@@ -26,29 +26,85 @@ pub struct NetworkInfoOutcome {
     pub is_error: bool,
 }
 
-/// Esegue `exe args...` e cattura stdout (+ stderr se non vuoto, in coda,
-/// marcato). Non usa `NmapProcess` (quel trait modella "un processo che
-/// scrive un file -oX e ritorna un exit status" — questi comandi non
-/// scrivono file, ritornano output diretto): mockare qui aggiungerebbe
-/// un'astrazione per un solo chiamante, YAGNI.
-/// `String::from_utf8_lossy` qui riproduce il mojibake noto su etichette
-/// accentate (`Sì` → `S�`) documentato in `Docs/KNOWN-ISSUES.md` ("Codepage
-/// — output dei comandi NATIVI"): i comandi nativi emettono byte nel
-/// codepage OEM (CP850/437 su Windows italiano), non UTF-8. Non risolto
-/// qui deliberatamente: IP/subnet/gateway/MAC (i dati che servono
-/// all'AI per scegliere un target) sono ASCII e non ne risentono — solo
-/// le etichette italiane si corrompono. La fix vera (decodifica OEM o
-/// `chcp` soppressa) è un problema app-wide che tocca anche
-/// `mcp-server/src/session.rs`, fuori scope per questo tool.
+/// Rileva il codepage di output attivo per decodificare correttamente l'output
+/// dei comandi diagnostici nativi di Windows.
+///
+/// Tenta prima di leggere il codepage associato alla console del processo tramite `GetConsoleOutputCP()`.
+///
+/// **Punto critico (processo senza finestra di console)**:
+/// Quando `mcp-nmap.exe` viene avviato dall'orchestratore con flag `CREATE_NO_WINDOW`,
+/// non esiste alcuna console allocata e `GetConsoleOutputCP()` restituisce `0`.
+/// In questo caso, la funzione ripiega su `GetOEMCP()`, che interroga il codepage OEM
+/// di default configurato a livello di sistema operativo Windows (es. CP850 in Europa occidentale/Italia,
+/// CP437 per installazioni US), garantendo una decodifica corretta anche in produzione.
+#[cfg(windows)]
+fn active_console_output_codepage() -> u32 {
+    // SAFETY: GetConsoleOutputCP è una chiamata Win32 pura di interrogazione,
+    // senza puntatori o parametri da validare.
+    let cp = unsafe { windows::Win32::System::Console::GetConsoleOutputCP() };
+    if cp != 0 {
+        return cp;
+    }
+    // SAFETY: GetOEMCP è una chiamata Win32 pura che ritorna il codepage OEM di sistema.
+    unsafe { windows::Win32::Globalization::GetOEMCP() }
+}
+
+/// Decodifica una sequenza di byte emessa da un processo nativo Win32 usando il
+/// codepage specificato (tipicamente OEM, es. CP850 su Windows italiano o CP437 su Windows US).
+///
+/// Se il `codepage` (rappresentato come `u32` coerentemente con i tipi di ritorno Win32)
+/// è convertibile in `u16` ed è presente nella mappa delle tabelle OEM (`oem_cp::code_table::DECODING_TABLE_CP_MAP`),
+/// la sequenza di byte viene decodificata tramite la tabella corrispondente (`decode_string_lossy`,
+/// che mappa eventuali byte non definiti nel carattere di sostituzione U+FFFD).
+///
+/// Se il codepage non è presente (es. numero sconosciuto/non OEM) o eccede `u16::MAX`,
+/// la funzione ripiega fedelmente su `String::from_utf8_lossy(bytes)` (lo stesso comportamento
+/// storico pre-fix), garantendo che i dati ASCII (IP, MAC, gateway, subnet) rimangano leggibili
+/// e che non si verifichino mai panic o errori fatali.
+pub(crate) fn decode_oem(bytes: &[u8], codepage: u32) -> String {
+    // La tabella `oem_cp::code_table::DECODING_TABLE_CP_MAP` è indicizzata per chiave `u16`,
+    // mentre le API Win32 ritornano `u32`. Convertiamo esplicitamente con `try_from` gestendo
+    // l'eventuale overflow senza troncare silenziosamente con un cast cieco `as u16`.
+    if let Ok(cp16) = u16::try_from(codepage) {
+        if let Some(table) = oem_cp::code_table::DECODING_TABLE_CP_MAP.get(&cp16) {
+            return table.decode_string_lossy(bytes);
+        }
+    }
+    // Fallback contrattuale non-negoziabile: se il codepage non è noto alle tabelle OEM,
+    // si ripiega esattamente su `String::from_utf8_lossy`.
+    String::from_utf8_lossy(bytes).into_owned()
+}
+
+/// Esegue `exe args...` e cattura stdout (+ stderr se non vuoto, in coda, marcato).
+/// Non usa `NmapProcess` (quel trait modella "un processo che scrive un file -oX e
+/// ritorna un exit status" — questi comandi non scrivono file, ritornano output diretto):
+/// mockare qui aggiungerebbe un'astrazione per un solo chiamante, YAGNI.
+///
+/// I comandi diagnostici di rete nativi di Windows (`ipconfig`, `arp`, `route`, `netstat`, `tracert`)
+/// emettono byte nel codepage OEM della console (CP850 in Italia, CP437 su Windows US, ecc.),
+/// non in UTF-8. Su Windows la decodifica dei flussi stdout/stderr interroga il codepage reale
+/// (`active_console_output_codepage()`) e lo decodifica con `decode_oem`, risolvendo il problema
+/// del mojibake sulle etichette accentate (es. "Sì" invece di "S").
+/// Su piattaforme non-Windows viene mantenuto il fallback standard su UTF-8 lossy.
 fn run_and_capture(exe: &str, args: &[&str]) -> Result<String, String> {
     let output = std::process::Command::new(exe)
         .args(args)
         .output()
         .map_err(|e| format!("esecuzione di {exe} fallita: {e}"))?;
-    let mut text = String::from_utf8_lossy(&output.stdout).into_owned();
+
+    #[cfg(windows)]
+    let decode = |bytes: &[u8]| -> String {
+        let cp = active_console_output_codepage();
+        decode_oem(bytes, cp)
+    };
+
+    #[cfg(not(windows))]
+    let decode = |bytes: &[u8]| -> String { String::from_utf8_lossy(bytes).into_owned() };
+
+    let mut text = decode(&output.stdout);
     if !output.stderr.is_empty() {
         text.push_str("\n[stderr]\n");
-        text.push_str(&String::from_utf8_lossy(&output.stderr));
+        text.push_str(&decode(&output.stderr));
     }
     Ok(text)
 }
@@ -165,6 +221,34 @@ mod tests {
     fn traceroute_rejects_target_with_whitespace() {
         let outcome = traceroute("192.168.1.10 extra");
         assert!(outcome.is_error);
+    }
+
+    #[test]
+    fn decode_oem_decodifica_correttamente_accentate_cp850() {
+        // "Sì" in CP850 (Europa occidentale) = byte [0x53, 0x8D]
+        assert_eq!(decode_oem(&[0x53, 0x8D], 850), "Sì");
+
+        // "è" da sola, CP850 = byte [0x8A]
+        assert_eq!(decode_oem(&[0x8A], 850), "è");
+
+        // "città" per intero, CP850 = byte [0x63, 0x69, 0x74, 0x74, 0x85]
+        assert_eq!(decode_oem(&[0x63, 0x69, 0x74, 0x74, 0x85], 850), "città");
+    }
+
+    #[test]
+    fn decode_oem_codepage_sconosciuta_ripiega_su_utf8_lossy() {
+        // Codepage sconosciuta (numero inventato, non in nessuna tabella OEM reale):
+        // il CONTRATTO impone di ripiegare sullo STESSO comportamento di oggi
+        // (String::from_utf8_lossy), non deve mai panicare né inventare un codepage di default.
+        // Fallback per [0x53, 0x8D] è "S\u{FFFD}".
+        assert_eq!(decode_oem(&[0x53, 0x8D], 999999), "S\u{FFFD}");
+    }
+
+    #[test]
+    fn decode_oem_preserva_invariati_i_dati_ascii_puri() {
+        // I dati di rete (IP, subnet, gateway, MAC) sono ASCII puro e devono passare
+        // invariati per qualunque codepage.
+        assert_eq!(decode_oem(b"192.168.1.1", 850), "192.168.1.1");
     }
 
     #[cfg(not(windows))]

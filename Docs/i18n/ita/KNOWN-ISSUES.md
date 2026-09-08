@@ -8,15 +8,24 @@ di design del piano corrente (marcati come tali). Per lo storico completo dei pr
 
 ---
 
-## [APERTO] Codepage — output dei comandi NATIVI (`ipconfig`, …) → accenti come `S�`
+## [PARZIALE] Codepage — output dei comandi NATIVI (`ipconfig`, …) → accenti come `S`
 
 **Segnalato:** dal vivo dall'utente in v1, 2026-06-26 (`ipconfig /all` → "Configurazione automatica
-abilitata : S�", dove dovrebbe esserci `Sì`). **Ancora presente in 2.0**: il codice di
-`crates/mcp-server/src/session.rs` copiato dalla v1 all'inizio del piano 1 non è stato modificato
-da nessun task del piano.
+abilitata : S", dove dovrebbe esserci `Sì`).
+
+**Stato in 2.0**:
+- **Risolto in `crates/mcp-nmap` 2.0.1** (`local_network_info`/`traceroute` in `network_info.rs`):
+  l'output stdout/stderr dei comandi nativi Win32 viene ora decodificato interrogando il codepage
+  della console (`GetConsoleOutputCP()`) o il codepage OEM di sistema (`GetOEMCP()` in caso di processo
+  senza console sotto `CREATE_NO_WINDOW`) tramite il crate `oem_cp` (`decode_oem`).
+- **Ancora aperto in `crates/mcp-server/src/session.rs`** (canali Telegram / AI Chat): il codice
+  copiato dalla v1 non è stato modificato (fuori scope per il compito su `mcp-nmap`). In quella sessione
+  l'output mescola testo generato da PowerShell (UTF-8) con output di comandi nativi Win32 (OEM),
+  richiedendo una strategia riga per riga o ConPTY.
 
 **Sintomo.** I caratteri accentati nell'output dei **comandi nativi** Win32 (`ipconfig`, ecc.)
-appaiono come U+FFFD (`�`). L'output *proprio* di PowerShell (`Write-Output`) è corretto.
+appaiono come U+FFFD (``) quando eseguiti nella sessione di `mcp-server`. L'output *proprio* di
+PowerShell (`Write-Output`) è corretto.
 
 **Causa.** `crates/mcp-server/src/session.rs` inietta nella sessione
 `[Console]::OutputEncoding = UTF8` + `$OutputEncoding = UTF8`: copre la codifica del testo
@@ -24,10 +33,6 @@ appaiono come U+FFFD (`�`). L'output *proprio* di PowerShell (`Write-Output`) 
 console (`GetConsoleOutputCP`) ed emettono byte nel codepage **OEM** (CP850/437), poi decodificati
 come UTF-8 → mojibake. Un `chcp 65001` risolverebbe, ma emette "Active code page: 65001" su
 stdout, corrompendo il protocollo a marker — per questo non è stato applicato in v1.
-
-**Anche in `crates/mcp-nmap/src/network_info.rs`** (`local_network_info`/`traceroute`): stesso
-`String::from_utf8_lossy` diretto sull'output di `ipconfig`/`arp`/`route`/`netstat` — le etichette
-italiane si corrompono, i dati (IP/subnet/gateway/MAC) restano leggibili (ASCII).
 
 **Rilevanza per il piano 2/3.** Nella 2.0 l'utente interagisce con la shell reale tramite
 `lare-shell` (host C# del motore PowerShell, ADR-015/016), non più con la sessione posseduta di
