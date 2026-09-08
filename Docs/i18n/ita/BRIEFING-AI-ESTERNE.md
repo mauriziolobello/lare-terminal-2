@@ -16,9 +16,11 @@ vince — segnala il conflitto nel tuo report finale (sezione 9) invece di ignor
 4. `CHANGELOG.md` + `IMPLEMENTATION.md` del crate + `HANDOFF.md` aggiornati nello **stesso commit**
    del codice.
 5. Resta dentro lo scope del compito assegnato — niente "già che c'ero".
-6. Riporta SOLO risultati che hai davvero verificato tu; se non hai potuto verificare qualcosa,
+6. Tieni un elenco esplicito e aggiornato di ogni file che crei/modifichi/cancelli, non solo il
+   commit — hai accesso pieno alle cartelle del progetto, non solo all'area del tuo compito.
+7. Riporta SOLO risultati che hai davvero verificato tu; se non hai potuto verificare qualcosa,
    dillo esplicitamente.
-7. Il tuo lavoro non è definitivo finché un supervisore non lo approva.
+8. Il tuo lavoro non è definitivo finché un supervisore non lo approva.
 
 Il resto del documento spiega ciascuno di questi punti nel dettaglio e copre i casi che il TL;DR
 non può coprire — leggilo comunque per intero se puoi.
@@ -28,12 +30,14 @@ non può coprire — leggilo comunque per intero se puoi.
 Non sei l'ultima parola su questo codice. Il flusso di lavoro con cui Maurizio (il proprietario
 del progetto) sta operando è:
 
-1. Maurizio ti assegna UN compito delimitato (un bug, una feature piccola, un refactoring),
-   insieme al materiale di contesto necessario (vedi l'ultima sezione di questo documento, rivolta
-   a lui).
-2. Tu lo implementi seguendo questo documento, fino in fondo, per quanto le tue capacità (shell,
+1. Maurizio prepara UN compito delimitato (un bug, una feature piccola, un refactoring) e — di
+   norma — lo fa leggere prima al supervisore (sezione 0bis), che può aggiungere contesto prima
+   che il compito arrivi a te.
+2. Maurizio ti assegna il compito, con accesso pieno alle cartelle del progetto, insieme al
+   materiale di contesto necessario (vedi l'ultima sezione di questo documento, rivolta a lui).
+3. Tu lo implementi seguendo questo documento, fino in fondo, per quanto le tue capacità (shell,
    git, esecuzione di test) lo permettono.
-3. **Un supervisore (un'altra AI, Claude, che opera per conto di Maurizio) rivede il tuo lavoro
+4. **Un supervisore (un'altra AI, Claude, che opera per conto di Maurizio) rivede il tuo lavoro
    prima che venga considerato definitivo.** Può correggerlo, respingerlo in parte, o chiederne
    la revisione. Il tuo lavoro non è "finito" quando tu dici che lo è: è finito quando il
    supervisore lo approva.
@@ -44,6 +48,12 @@ Questo significa concretamente:
 - **I tuoi commit sono materiale di lavoro, non la parola definitiva.** Committa spesso, in
   passi piccoli e leggibili — è quello che rende possibile la revisione, non un problema da
   evitare.
+- **Hai accesso pieno alle cartelle del progetto, non solo all'area del tuo compito — usalo per
+  capire il contesto (sezione 1bis), non per estendere lo scope.** Proprio perché l'accesso è
+  ampio, tieni un elenco esplicito e aggiornato via via (non ricostruito a memoria alla fine) di
+  ogni file che crei, modifichi o cancelli — anche fuori dall'area principale del compito, se
+  capita. Va nel report finale (sezione 9): è quello che permette al supervisore di vedere subito
+  se hai toccato qualcosa fuori scope.
 - **Onestà sui risultati vale più della velocità.** Se qualcosa non hai potuto verificarlo
   davvero (un test non gira, un comando fallisce, un ambiente ti manca), DEVI dirlo esplicitamente
   nel report finale. Dichiarare "fatto" o "testato" senza averlo davvero verificato è l'errore più
@@ -51,13 +61,27 @@ Questo significa concretamente:
   dal vivo che un test non passava mentre tu avevi scritto "tutti i test passano", quella bugia
   costa più tempo di qualunque bug.
 
+## 0bis. Il compito che hai ricevuto potrebbe essere già stato rivisto
+
+Di norma, prima di arrivare a te, il compito passa dal supervisore: Maurizio glielo mostra, il
+supervisore valuta se manca contesto e suggerisce cosa aggiungere (file da allegare, test di
+riferimento, log, sezioni di documentazione). Se il testo del compito che hai ricevuto contiene
+già riferimenti precisi a file/sezioni/decisioni del progetto, è probabile che vengano da questo
+passaggio — non serve che tu lo sappia per lavorare bene, ma spiega perché a volte il compito è
+più dettagliato di quanto un compito scritto "a braccio" sarebbe. Se invece ti sembra comunque
+povero di contesto, vale comunque quanto scritto in sezione 1bis: leggi tu stesso quello che manca
+prima di scrivere codice, non aspettarti che ti sia già stato tutto premasticato.
+
 ## 1. Prima cosa da stabilire: che ambiente hai davvero?
 
 Prima di seguire il resto di questo documento, capisci quali di queste tre cose hai a
 disposizione, perché cambiano come lavori:
 
-- **Accesso al repository + shell + git** (il caso ideale: puoi leggere file, eseguire comandi,
-  fare commit). Segui tutte le sezioni seguenti alla lettera.
+- **Accesso pieno al repository + shell + git** — il caso normale per questo progetto: Maurizio ti
+  dà accesso a tutte le cartelle, non solo all'area del tuo compito, così puoi leggere file,
+  eseguire comandi, fare commit senza limiti artificiali. Segui tutte le sezioni seguenti alla
+  lettera, e ricorda che "accesso pieno" non vuol dire "scope pieno" — resta comunque dentro il
+  compito assegnato (sezione 7), l'accesso ampio serve per CAPIRE il contesto, non per estenderlo.
 - **Accesso al repository ma NON a una shell/git** (puoi leggere e scrivere file, ma non eseguire
   comandi). Fai lo stesso lavoro di lettura/scrittura file descritto sotto; per tutto ciò che
   richiederebbe un comando (build, test, commit), scrivi nel report finale (sezione 9) esattamente
@@ -360,7 +384,11 @@ Struttura obbligatoria del report:
 (cosa hai fatto, in breve, e perché — collegato al compito assegnato)
 
 ### File toccati
-(elenco, o il comando per vederli: `git diff --stat <branch-base>..<tuo-branch>`)
+(l'elenco esplicito che hai tenuto via via — creati/modificati/cancellati, con percorso completo
+— NON solo il risultato di `git diff --stat <branch-base>..<tuo-branch>`: quel comando è un
+riscontro utile in più, ma va incollato ANCHE quello, non al posto dell'elenco. Se hai accesso
+pieno alle cartelle del progetto, includi qui anche qualunque file toccato fuori dall'area
+principale del compito, con una riga sul perché)
 
 ### Branch e commit
 (nome del branch; `git log --oneline <branch-base>..<tuo-branch>`)
@@ -399,6 +427,8 @@ concentrare la propria verifica)
       come AI non-Claude.
 - [ ] CHANGELOG/IMPLEMENTATION/HANDOFF sono aggiornati nello stesso commit del codice.
 - [ ] Non ho toccato `Cargo.lock`/lockfile oltre a quanto causato dalle mie dipendenze dichiarate.
+- [ ] Ho tenuto un elenco esplicito, aggiornato via via, di ogni file creato/modificato/cancellato
+      (non ricostruito a memoria a fine compito) — incluso nel report finale.
 - [ ] Non ho espanso lo scope oltre il compito assegnato.
 - [ ] Non ho toccato segreti, credenziali, o file di configurazione sensibili.
 - [ ] Ho scritto il report finale (sezione 9), con la struttura esatta richiesta, incluso cosa
@@ -408,27 +438,42 @@ concentrare la propria verifica)
 
 ## Nota per chi assegna i compiti (Maurizio)
 
-Questa sezione non è per l'AI che riceve il compito — è un promemoria per te su cosa allegare
-insieme a questo documento, perché il documento da solo non basta: un'AI senza il contesto giusto
+Questa sezione non è per l'AI che riceve il compito — è un promemoria per te su come impostare il
+compito e cosa allegare, perché il documento da solo non basta: un'AI senza il contesto giusto
 produrrà codice corretto nelle regole ma cieco alle convenzioni specifiche del punto che tocca, e
 questo si traduce in più lavoro di revisione per Claude, non meno — che è l'opposto dell'obiettivo.
 
-Insieme a questo documento e al compito, allega quando possibile:
+**Processo che stai usando (confermato 2026-09-08):** dai all'AI esterna accesso pieno alle
+cartelle del progetto (non solo all'area del compito — glielo dici esplicitamente, è quello che
+la sezione 0/1 di questo documento presume ora come caso normale). Le chiedi espressamente di
+tenere un elenco dei file toccati (già richiesto dal documento stesso, in sezione 0/9/10 — ripeterlo
+non fa male). E, prima di dare il compito all'AI esterna, lo mostri al supervisore (Claude): può
+dirti cosa manca prima che il compito parta, invece di scoprirlo solo in revisione — è il momento
+più economico per aggiungere contesto, perché evita all'AI esterna di lavorare al buio E a te di
+scoprirlo solo a lavoro finito.
 
-- **Il contenuto completo dei file che l'AI dovrà modificare** (non solo il loro percorso — se
-  l'AI non ha accesso al repository, un percorso senza contenuto è inutile).
+Quando mostri un compito al supervisore prima di assegnarlo, aspettati che valuti se mancano (e
+te lo dica):
+
+- **Il contenuto completo dei file che l'AI dovrà modificare** (con accesso pieno l'AI può
+  leggerli da sé, ma indicare quali sono già nel testo del compito le fa risparmiare tempo di
+  esplorazione).
 - **Almeno un file di test esistente dello stesso crate/area**, come riferimento di stile.
 - **La testa del `CHANGELOG.md`** del crate coinvolto (l'ultima voce), così l'AI vede il formato
   esatto da riprodurre.
 - **La sezione pertinente di `HANDOFF.md`**, se il compito si inserisce in un lavoro già iniziato.
 - Se è un bug: **i log reali** (non una descrizione a parole del problema) e i passi esatti di
   riproduzione, se li hai già.
+- Se il compito confina con una decisione architetturale già presa (`06-decisions.md`) o un
+  problema noto (`KNOWN-ISSUES.md`): un riferimento esplicito, così l'AI non li scopre a metà
+  lavoro o li ignora del tutto.
 
-Il risparmio di token da parte tua non viene dal documento in sé, ma da due cose: (1) dargli
-abbastanza contesto perché la tua revisione sia leggere un diff invece di indagare da zero, e (2)
-rivedere il lavoro dell'AI esterna UNA volta sola, non iterare avanti e indietro con lei — le
-correzioni, se servono, falle fare a te (Claude) direttamente sul suo branch, non rimandandole
-all'AI esterna per un altro giro.
+Il risparmio di token da parte tua non viene dal documento in sé, ma da tre cose: (1) la revisione
+pre-flight appena descritta, che riduce le sorprese in fase di supervisione; (2) dare abbastanza
+contesto perché la tua revisione finale sia leggere un diff (più l'elenco esplicito dei file
+toccati) invece di indagare da zero; (3) rivedere il lavoro dell'AI esterna UNA volta sola, non
+iterare avanti e indietro con lei — le correzioni, se servono, falle fare a te (Claude)
+direttamente sul suo branch, non rimandandole all'AI esterna per un altro giro.
 
 ---
 
