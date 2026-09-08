@@ -246,8 +246,8 @@ turno `/ai` reale, chiusura finestra, autostart di `ui.exe` dall'orchestratore, 
   framework UI fra gli strumenti fissi a priori**: fra gli strumenti dell'AI (accanto a web
   client, SQLite, Python, scheduler) anche un framework UI per le pagine, stabilito A PRIORI come
   standard di progetto — non scelto ad hoc di volta in volta. Esempio illustrativo di Maurizio:
-  si stabilisce che un framework (chiamato per esempio "Bookmark", nome di comodo suo, non un
-  prodotto reale) sia LO standard per la UI di ogni progetto; le sue caratteristiche (aspetto,
+  si stabilisce che un framework UI reale esistente (es. "Bookmark") sia LO standard per la UI
+  di ogni progetto; le sue caratteristiche (aspetto,
   componenti, convenzioni) vengono definite insieme da utente e AI nel tempo e diventano poi lo
   standard fisso — così ogni progetto condivide la stessa estetica per costruzione, non a caso.
   Da studiare più avanti.
