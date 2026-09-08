@@ -3,7 +3,30 @@
 All notable changes to this package follow [Keep a Changelog](https://keepachangelog.com/) format.
 Versioning: `major.minor.update`.
 
----
+## 2.3.0 — 2026-09-08 — i18n Parte 1: fondamenta e internazionalizzazione /config
+
+Prima parte del piano di internazionalizzazione di Lare Terminal (`Docs/i18n/ita/compiti-ai-esterne/2026-09-08-i18n-programma.md`):
+
+- **Backend Rust (`i18n.rs`)**: nuovo modulo in `crates/ui/src-tauri/src/i18n.rs` esportato da `lib.rs`.
+  Caricamento infallibile di dizionari JSON piatti (`load_dict`), unione con fallback `lang -> it -> key`
+  (`load_merged_dict`, `t_sync`). Unit test TDD completi con tempfile (file assente, JSON corrotto,
+  file valido, catena di fallback).
+- **Nuovo comando Tauri IPC `get_i18n`**: registrato in `generate_handler!` in `main.rs`, espone
+  il dizionario unito al frontend.
+- **Configurazione lingua**: aggiunto `Config.language: String` con default `"it"` in `config.rs`,
+  con test di compatibilità retroattiva per file JSON legacy v1/v2 privi del campo.
+- **Titolo finestra configurazione**: internazionalizzato in `open_config_window` via `i18n::t_sync`.
+- **Risoluzione cartella i18n**: aggiunto `config_dir::i18n_dir_path` (`<config_dir>/i18n`).
+- **Dizionari**: creati `Test Run/Configuration/i18n/it.json` ed `en.json` (34 chiavi per `/config`
+  e controlli comuni).
+- **Frontend `i18n.mjs`**: nuovo modulo con `t(key, params)` (supporto placeholder `{nome}`), `initI18n`,
+  `getDict`, `fetchI18n(invoke, lang)` e DOM walker `applyI18n(root)` per attributi `data-i18n`,
+  `data-i18n-placeholder`, `data-i18n-title`, `data-i18n-aria-label`. Test unitari in `i18n.test.mjs`.
+- **Finestra `/config` convertita**: `config.html`, `config-window.js` e `config-dialog.js` internazionalizzati.
+  Aggiunto selettore lingua a discesa (`Italiano` / `English`) con persistenza tramite `set_config`.
+- **Test automatico di parità chiavi**: `i18n-parity.test.mjs` garantisce che ogni chiave usata nel frontend
+  o nel backend Rust sia definita in entrambi i dizionari `it.json` ed `en.json`, e che nessuna chiave
+  definita rimanga orfana.
 
 ## 2.2.3 — 2026-09-08 — favicon
 

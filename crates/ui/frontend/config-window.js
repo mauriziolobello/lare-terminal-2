@@ -9,6 +9,7 @@ const { invoke } = window.__TAURI__.core;
 const tauriEvent = window.__TAURI__.event;
 
 import { ConfigDialog } from "./config-dialog.js";
+import { fetchI18n, applyI18n } from "./i18n.mjs";
 
 const root     = document.getElementById("config-root");
 const closeBtn = document.getElementById("close-btn");
@@ -25,21 +26,22 @@ const dlg = new ConfigDialog(
   closeSelf,  // onClose → chiudi la finestra (Cancel/Esc/dopo-save)
 );
 
-// ── Trasparenza configurabile (--window-alpha) ─────────────────────────────
-// Questa finestra è l'EMITTER di "config:saved" (vedi callback onSaved sopra) e
-// si chiude subito dopo ogni salvataggio, quindi non le serve un listener per
-// l'evento: basta applicare il valore corrente una volta, all'avvio.
+// ── Inizializzazione configurazione, i18n e apertura dialogo ───────────────
 (async () => {
   try {
     const cfg = await invoke("get_config");
     if (cfg && typeof cfg.window_alpha === "number") {
       document.documentElement.style.setProperty("--window-alpha", cfg.window_alpha);
     }
+    const lang = (cfg && cfg.language) || "it";
+    await fetchI18n(invoke, lang);
   } catch (e) {
-    console.warn("[config-window] get_config on startup failed:", e);
+    console.warn("[config-window] startup get_config/i18n error:", e);
+    await fetchI18n(invoke, "it");
+  } finally {
+    applyI18n();
+    dlg.open();
   }
 })();
 
 closeBtn.addEventListener("click", () => closeSelf());
-
-dlg.open();

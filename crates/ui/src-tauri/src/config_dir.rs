@@ -62,6 +62,9 @@ pub fn library_dir_path(config_dir: &Path) -> PathBuf {
 pub fn find_dir_path(config_dir: &Path) -> PathBuf {
     library_dir_path(config_dir).join("find")
 }
+pub fn i18n_dir_path(config_dir: &Path) -> PathBuf {
+    config_dir.join("i18n")
+}
 
 /// Legge il token dal file; stringa vuota se assente/vuoto (il frontend
 /// mostra lo stato "errore" come in v1). A differenza dell'orchestrator
@@ -83,6 +86,7 @@ mod tests {
         assert_eq!(config_file_path(d), d.join("config.json"));
         assert_eq!(library_dir_path(d), d.join("library"));
         assert_eq!(find_dir_path(d), d.join("library").join("find"));
+        assert_eq!(i18n_dir_path(d), d.join("i18n"));
     }
     #[test]
     fn read_token_trims_and_defaults_to_empty() {

@@ -274,6 +274,16 @@ fn set_config(
     Ok(())
 }
 
+/// Restituisce il dizionario unito per la lingua richiesta (con fallback su "it").
+///
+/// Infallibile: file assenti o non validi producono un dizionario vuoto/parziale,
+/// mai un errore che blocca la UI.
+#[tauri::command]
+fn get_i18n(lang: String, state: State<'_, ConfigDirState>) -> HashMap<String, String> {
+    let dir = config_dir::i18n_dir_path(&state.config_dir);
+    ui_lib::i18n::load_merged_dict(&dir, &lang)
+}
+
 // ---------------------------------------------------------------------------
 // Markdown window commands (ADR-013)
 // ---------------------------------------------------------------------------
@@ -763,6 +773,12 @@ fn config_file_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
     ))
 }
 
+fn i18n_dir_path(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    Ok(config_dir::i18n_dir_path(
+        &app.state::<ConfigDirState>().config_dir,
+    ))
+}
+
 /// Percorso della cartella Library: `<config_dir>/library` — stessa cartella
 /// di `config.json` (2.0: in v1 era una sottocartella della stessa directory
 /// dati applicativa di sopra, con lo stesso override; ora un solo risolutore,
@@ -1004,8 +1020,11 @@ async fn open_config_window(app: AppHandle) -> Result<(), String> {
             .map_err(|e| format!("open_config_window set_focus error: {e}"))?;
         return Ok(());
     }
+    let lang = app.state::<ConfigState>().0.lock().unwrap().language.clone();
+    let i18n_dir = i18n_dir_path(&app)?;
+    let title = format!("Lare — {}", ui_lib::i18n::t_sync(&i18n_dir, &lang, "config.title"));
     WebviewWindowBuilder::new(&app, "config", WebviewUrl::App("config.html".into()))
-        .title("Lare — Configurazione")
+        .title(&title)
         .inner_size(480.0, 600.0)
         .decorations(false)
         .transparent(true)
@@ -1429,6 +1448,7 @@ fn main() {
             get_terminal_session,
             get_config,
             set_config,
+            get_i18n,
             search_settings::get_search_settings,
             search_settings::set_search_settings,
             aichat_settings::get_aichat_settings,

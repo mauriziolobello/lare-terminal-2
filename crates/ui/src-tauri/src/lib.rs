@@ -10,3 +10,4 @@ pub mod archive;
 pub mod library_watch;
 pub mod launcher;
 pub mod pty;
+pub mod i18n;

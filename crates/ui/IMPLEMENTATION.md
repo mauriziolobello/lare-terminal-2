@@ -1,4 +1,47 @@
-# Implementation — crates/ui v2.2.3
+# Implementation — crates/ui v2.3.0
+
+## i18n Parte 1: Fondamenta e finestra /config (v2.3.0)
+
+Implementazione della prima fase dell'internazionalizzazione dell'interfaccia utente (`Docs/i18n/ita/compiti-ai-esterne/2026-09-08-i18n-programma.md`):
+
+1. **Backend Rust (`i18n.rs`)**:
+   - `load_dict(path: &Path) -> HashMap<String, String>`: caricamento infallibile da file JSON piatto.
+     Se il file non esiste, ritorna mappa vuota. Se il JSON è corrotto o si verifica un errore IO,
+     registra un avviso con `tracing::warn!` e ritorna mappa vuota senza bloccare l'applicazione.
+   - `load_merged_dict(i18n_dir: &Path, lang: &str) -> HashMap<String, String>`: carica `it.json` come
+     base e, se `lang != "it"`, sovrascrive con i valori di `<lang>.json`.
+   - `t_sync(i18n_dir: &Path, lang: &str, key: &str) -> String`: traduce sincronicamente applicando la
+     catena completa `lang -> it -> key` (se una chiave non è tradotta né in `lang` né in `it`,
+     ritorna la chiave letterale).
+   - Esportato in `lib.rs` (`pub mod i18n;`) per consentire i test unitari isolati senza runtime Tauri.
+2. **Configurazione utente (`config.rs`)**:
+   - Campo `pub language: String` su `Config`, con `#[serde(default = "default_language")]` che restituisce `"it"`.
+   - Mantenuta piena compatibilità con file `config.json` legacy che omettono il campo.
+3. **Comando Tauri IPC e titoli finestra (`main.rs`, `config_dir.rs`)**:
+   - Aggiunto `config_dir::i18n_dir_path(config_dir: &Path) -> PathBuf` (`<config_dir>/i18n`).
+   - Registrato comando `get_i18n(lang: String, state: State<'_, ConfigDirState>) -> HashMap<String, String>`
+     nell'invocazione di `generate_handler!`.
+   - `open_config_window` imposta dinamicamente il titolo finestra nativo usando `i18n::t_sync(&i18n_dir, &lang, "config.title")`
+     mantenendo `"Lare — "` prefisso. `"Lare Terminal"` resta letterale come da specifica.
+4. **Dizionari JSON (`Test Run/Configuration/i18n/`)**:
+   - `it.json` ed `en.json` contengono 34 chiavi iniziali per controlli comuni (`common.*`) e dialog `/config` (`config.*`).
+5. **Modulo Frontend (`crates/ui/frontend/i18n.mjs`)**:
+   - `t(key, params)`: traduce chiavi letterali con sostituzione parametri `{param}` via `replaceAll`.
+   - `fetchI18n(invoke, lang)`: carica dizionario via IPC `get_i18n`, con gestione fallback infallibile.
+   - `applyI18n(root)`: scansiona il DOM e applica le traduzioni per `data-i18n` (textContent),
+     `data-i18n-placeholder` (placeholder), `data-i18n-title` (title) e `data-i18n-aria-label` (aria-label).
+6. **Finestra `/config` convertita**:
+   - `config.html`: attributi `data-i18n` su titolo barra e pulsante di chiusura.
+   - `config-window.js`: all'avvio carica `get_config`, scarica il dizionario con `fetchI18n`,
+     esegue `applyI18n()` e infine apre `dlg.open()`.
+   - `config-dialog.js`: tutte le etichette, bottoni, tab, messaggi di validazione e note usano `t("...")`.
+   - Selettore lingua: dropdown aggiunto nella tab UI con opzioni fisse "Italiano" ed "English".
+     Il salvataggio persiste `language` nel `config.json`.
+7. **Test suite**:
+   - Rust: 4 unit test in `i18n.rs` (assente, corrotto, valido, fallback chain) + 4 in `config.rs`.
+   - JS: `i18n.test.mjs` (8 test unitari su `t`, `initI18n`, `fetchI18n`, `applyI18n`).
+   - Parità: `i18n-parity.test.mjs` garantisce che ogni chiave usata nel frontend o in Rust
+     esista in entrambi i file di localizzazione e che non vi siano chiavi orfane.
 
 ## Favicon (v2.2.3, fix del DA FARE lasciato da 2.2.2)
 
