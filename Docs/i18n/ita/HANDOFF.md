@@ -211,6 +211,19 @@ turno `/ai` reale, chiusura finestra, autostart di `ui.exe` dall'orchestratore, 
 
 ## DA FARE
 
+- **Idea (Maurizio, 2026-09-08) — pagina interattiva client-only generata dall'AI per un
+  argomento, con refresh via Python.** L'utente chiede una pagina interattiva su un tema;
+  istruzioni di base per l'AI: pagina **solo client** (al massimo un DB SQL leggero tipo SQLite
+  accanto), mostra i valori richiesti, può usare tutto il parco librerie disponibile; **Python di
+  appoggio** per librerie ulteriori e per rileggere i dati a richiesta (pulsante nella pagina) o a
+  schedulazione (di sistema o decisa dall'AI, da stabilire), conservandoli da qualche parte (JSON,
+  non deciso) così quando l'utente richiede di rivedere la pagina più avanti (anche se nel
+  frattempo l'ha chiusa) si riapre nel browser con i dati già noti, non vuota. Distinta dalle
+  finestre Markdown/report attuali (quelle sono un colpo solo, questa è pensata per essere
+  rivisitata nel tempo). Da brainstormare: come si aggancia all'architettura plugin/canale tool
+  esistente, cosa è tecnicamente "la pagina" (documento Library con JS incorporato? finestra
+  plugin dedicata?), chi decide la schedulazione, dove vivono i dati persistiti. Da studiare più
+  avanti.
 - **Idea (Maurizio, 2026-09-08) — `show_markdown` chiamato più volte in un turno dovrebbe
   aggiornare la STESSA finestra, non aprirne una nuova.** Bug reale trovato dal vivo (piano 3):
   un turno `/ai` lungo con ricerca web può portare il modello a richiamare `show_markdown` più
