@@ -222,8 +222,17 @@ turno `/ai` reale, chiusura finestra, autostart di `ui.exe` dall'orchestratore, 
   finestre Markdown/report attuali (quelle sono un colpo solo, questa è pensata per essere
   rivisitata nel tempo). Da brainstormare: come si aggancia all'architettura plugin/canale tool
   esistente, cosa è tecnicamente "la pagina" (documento Library con JS incorporato? finestra
-  plugin dedicata?), chi decide la schedulazione, dove vivono i dati persistiti. Da studiare più
-  avanti.
+  plugin dedicata?), chi decide la schedulazione, dove vivono i dati persistiti. **Estensione
+  (2026-09-08) — un "progetto" come entità di lavoro multi-pagina**: l'utente parte dalla
+  descrizione di un PROGETTO, non di una singola pagina — un progetto può comprendere una o più
+  pagine web client che insieme formano un'unica "unità di lavoro" (non pagine indipendenti).
+  Esempio: un progetto di monitoraggio risorse di rete, con attività in tempo reale E attività
+  schedulate nel tempo, su più pagine mostrate su più monitor contemporaneamente (un "muro" di
+  dashboard, non una pagina riaperta alla volta). Da decidere anche a livello di progetto (non
+  solo di singola pagina): un unico store dati condiviso fra le pagine del progetto; dove/come si
+  aprono le pagine di un progetto insieme (posizionamento multi-monitor, ricordato per progetto);
+  tempo reale e schedulato come due meccanismi di aggiornamento distinti dichiarati dal progetto.
+  Da studiare più avanti.
 - **Idea (Maurizio, 2026-09-08) — `show_markdown` chiamato più volte in un turno dovrebbe
   aggiornare la STESSA finestra, non aprirne una nuova.** Bug reale trovato dal vivo (piano 3):
   un turno `/ai` lungo con ricerca web può portare il modello a richiamare `show_markdown` più
