@@ -219,10 +219,31 @@ turno `/ai` reale, chiusura finestra, autostart di `ui.exe` dall'orchestratore, 
   dal fix di chiusura finestra del piano 3. `CREATE_NO_WINDOW` su 9 spawn lato orchestrator
   (mcp-server ×6 fattorizzati in un metodo, mcp-nmap, python, plugin sidecar, +2 `taskkill`), il
   loro stderr ora su file invece di `inherit()` verso il nulla. Verificato dal vivo (enumerazione
-  UIA): una sola finestra top-level "Lare Terminal" prima e dopo l'uso dell'app. Versioni
-  startup-config 2.0.3→2.0.4, orchestrator 2.2.0→2.2.1, ui 2.2.1→2.2.2.
+  UIA **senza filtro per PID** — un filtro sui soli PID `ui`/`orchestrator`/`lare-shell` non
+  vedrebbe mai una scheda spuria, che appartiene al PID di `WindowsTerminal.exe`, non a uno dei
+  tre; primo tentativo di verifica caduto in questo stesso errore, corretto rieseguendolo):
+  confronto "prima"/"dopo" di TUTTE le top-level window, solo `ui.exe` (self-heal, incluso il
+  plugin sidecar `ping.exe` già attivo) e il turno `/ai` reale (via `financial-markets`, il tool
+  Python già connesso in automatico all'avvio) producono nuove finestre — nessuna. `mcp-server.exe`
+  specificamente non è stato innescato dal vivo (gate `[Y/n]` del client di sviluppo instabile in
+  automazione non interattiva): stesso identico pattern `CREATE_NO_WINDOW`, verificato via
+  code-review + test unitario sugli argomenti del comando (`mcp_server_command`) — punto 13bis
+  aggiunto a `TESTING-e2e.md` per chi vuole chiuderlo dal vivo con un turno reale. Test-hygiene:
+  due test (`mcp_server_command_...`, `dispatch_accepts_any_injected_tool_name_...`) usavano un
+  `config_dir` letterale invece di una tempdir — `child_stderr_log_sink` fa I/O reale alla
+  costruzione del `Command`, creava davvero cartelle sul filesystem (`C:\Lare\...`,
+  `crates/orchestrator/unused/...`) a ogni `cargo test`; corretto. Versioni startup-config
+  2.0.3→2.0.4, orchestrator 2.2.0→2.2.1, ui 2.2.1→2.2.2.
 
 ## DA FARE
+
+- **Rumore `favicon.ico` in `ui.log`** (scoperto dal vivo verificando il fix finestre spurie
+  sopra) — installare un subscriber `tracing` globale per `ui.exe` (novità di quel fix) rende
+  visibili per la prima volta i log INTERNI di Tauri, incluso `ERROR tauri::manager: asset not
+  found: favicon.ico` a ogni apertura di webview (3-4 volte per avvio) — non è una regressione
+  (l'assenza del favicon era già vera prima, solo invisibile), ma sporca un log che l'utente ha
+  esplicitamente chiesto. Fix a scelta: aggiungere un favicon, o filtrare il target
+  `tauri::manager` a WARN nel subscriber. Non ancora fatto.
 
 - **Idea (Maurizio, 2026-09-08) — pagina interattiva client-only generata dall'AI per un
   argomento, con refresh via Python.** L'utente chiede una pagina interattiva su un tema;
