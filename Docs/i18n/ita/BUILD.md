@@ -143,7 +143,17 @@ Unix — `/ping` diventa `C:/Program Files/Git/ping` — prima che Node lo veda.
 ## Gotcha (Windows, validi per qualunque comando di build sopra)
 
 - **`Accesso negato (os error 5)` durante una build** = un binario è ancora in esecuzione.
-  Chiudilo prima di ricompilare:
+  Chiudilo prima di ricompilare — `.\stop_lare.ps1` (default: solo i processi dentro
+  `Test Run\`) cerca ed elimina orchestrator/ui/lare-shell/mcp-server/mcp-nmap/i plugin, così non
+  serve ricordare i nomi a mano ogni volta:
+  ```powershell
+  .\stop_lare.ps1                # solo i processi che girano da Test Run\ (il caso normale)
+  .\stop_lare.ps1 -Release        # gli stessi nomi ovunque ALTROVE sul filesystem (mai dentro
+                                  # Test Run\) — un deploy reale, non quello di sviluppo
+  ```
+  Per ping.exe/calc.exe (nomi che coincidono con la Calcolatrice e l'utility di rete di Windows)
+  il confronto è sempre sul percorso completo (`...\plugins\<id>\<id>.exe`), mai sul nome nudo —
+  un `calc.exe` che non è il nostro plugin non viene mai toccato. Equivalente manuale, se preferisci:
   ```powershell
   taskkill /F /IM orchestrator.exe /IM ui.exe /IM lare-shell.exe
   ```
