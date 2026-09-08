@@ -11,9 +11,9 @@
 //!   Inviare un messaggio = `writers[id].send(msg).await` senza alcun lock.
 //! - Un task pump separato possiede la metà "reader" (non c'è lock: proprietà esclusiva).
 //!   Legge in loop e traduce i messaggi plugin→UI via `plugin_msg_to_server`.
-//! - Il pump invia al client WS tramite `server_tx: UnboundedSender<ServerMsg>`,
-//!   clonato al momento dello spawn (può essere `None` per i plugin eager avviati
-//!   prima che la connessione WS sia stabilita; quei messaggi sono scartati silenziosamente).
+//! - Il pump consulta il sink WS corrente per ogni messaggio: uno slot `watch`
+//!   condiviso permette di sostituire la UI senza riavviare i processi plugin.
+//!   Prima della connessione il sink è `None`; quei messaggi vengono scartati.
 //!
 //! ## Design (SOLID — SRP + DIP)
 //! `PluginHost::start` riceve la lista dei plugin già scoperti (NON fa discovery da sé)
@@ -31,7 +31,7 @@
 //!     writers.insert(id, writer)
 //!
 //! set_server_tx(tx):  // chiamato da ws.rs dopo la connessione WS
-//!   server_tx = Some(tx)  // i pump futuri catturano questo tx
+//!   server_tx.send_replace(Some(tx))  // anche i pump già vivi vedono il nuovo sink
 //!
 //! activate(id, make):  // lazy-spawn al primo comando slash
 //!   if id non in writers: spawn_and_handshake(p, make) — come start
@@ -95,10 +95,11 @@ pub struct PluginHost {
     /// Conservata qui perché `activate` la usa anche dopo che `start` è ritornato.
     storage_root: PathBuf,
 
-    /// Canale verso il client WS. Impostato da ws.rs dopo la connessione.
-    /// I pump task che girano PRIMA di `set_server_tx` ricevono `None` e scartano
-    /// silenziosamente i messaggi (Ready/Log durante handshake → None, nessuna perdita).
-    server_tx: Option<UnboundedSender<ServerMsg>>,
+    /// Slot condiviso del canale WS corrente, aggiornato da ws.rs alla connessione.
+    /// `watch` conserva un solo valore (non una coda): clonarlo condivide lo slot,
+    /// anziché congelare il sender della prima UI dentro ogni pump. Non servono
+    /// notifiche: il pump legge il valore solo quando ha un messaggio da inoltrare.
+    server_tx: tokio::sync::watch::Sender<Option<UnboundedSender<ServerMsg>>>,
 }
 
 impl PluginHost {
@@ -121,7 +122,7 @@ impl PluginHost {
             windows: Arc::new(Mutex::new(HashMap::new())),
             next_window_id: 1,
             storage_root: storage_root.to_path_buf(),
-            server_tx: None, // impostato da ws.rs via set_server_tx dopo la connessione
+            server_tx: tokio::sync::watch::channel(None).0,
         };
 
         for p in &plugins {
@@ -140,11 +141,11 @@ impl PluginHost {
     /// Imposta il canale WS verso cui il pump task inoltrerà i ServerMsg dei plugin.
     ///
     /// Chiamato da ws.rs subito dopo la creazione di `out_tx` (il canale persistente).
-    /// I pump task attivati DOPO questa chiamata riceveranno una copia di `tx` e potranno
-    /// forwarding i messaggi plugin→UI. I pump già in esecuzione (eager) hanno `None`
-    /// e scartano silenziosamente (comportamento by-design, documentato nel module doc).
+    /// Tutti i pump, anche quelli già in esecuzione, useranno il nuovo sink.
+    /// `send_replace` aggiorna il valore anche senza receiver watch: qui usiamo
+    /// il canale come slot condiviso, leggibile direttamente dai suoi Sender.
     pub fn set_server_tx(&mut self, tx: UnboundedSender<ServerMsg>) {
-        self.server_tx = Some(tx);
+        self.server_tx.send_replace(Some(tx));
     }
 
     /// Numero di plugin attualmente attivi (con writer registrato).
@@ -304,11 +305,9 @@ impl PluginHost {
     ///
     /// ## Design
     /// - Funzione metodo (prende `&mut self`) perché inserisce direttamente in `writers`.
-    /// - Il pump task cattura `server_tx.clone()` al momento dello spawn. Questo significa
-    ///   che i pump degli eager (avviati in `start`, prima di `set_server_tx`) catturano
-    ///   `None`; i pump dei lazy (attivati da `activate`, dopo `set_server_tx`) catturano
-    ///   `Some(tx)`. Comportamento by-design: i plugin eager non mandano ShowWindow durante
-    ///   lo startup normale.
+    /// - Il pump cattura lo slot condiviso `server_tx`, non un sender WS immutabile.
+    ///   Così un plugin sopravvissuto alla chiusura di ui.exe può aprire finestre
+    ///   nella UI successiva, mantenendo il proprio stato.
     async fn spawn_and_handshake<F>(
         &mut self,
         p: &DiscoveredPlugin,
@@ -361,9 +360,8 @@ impl PluginHost {
 
         // Avvia il pump task: possiede `reader` (nessun lock), traduce PluginToHost → ServerMsg.
         //
-        // `server_tx` è clonato ORA: se siamo in `start()` (prima di `set_server_tx`),
-        // il clone sarà `None` e i messaggi verranno scartati. Se siamo in `activate()`
-        // (dopo `set_server_tx`), il clone sarà `Some(tx)` e i messaggi arriveranno al client.
+        // Il clone watch condivide il valore corrente: nessun pump resta legato
+        // al canale di una UI chiusa (regressione trovata nel porting plugin v1).
         let server_tx = self.server_tx.clone();
         let pid = p.manifest.id.clone();
         // Dimensione iniziale dichiarata dal plugin nel manifest (o None): la catturiamo
@@ -390,7 +388,9 @@ impl PluginHost {
                         // scartati; ShowWindow/Update/Close mappano a ServerMsg.
                         // `window_hint` è usato solo per ShowWindow → OpenPluginWindow.
                         if let Some(sm) = plugin_msg_to_server(pm, window_hint) {
-                            if let Some(ref tx) = server_tx {
+                            // Il borrow protegge lettura + send sincrona; non attraversa
+                            // alcun await e viene rilasciato prima del prossimo recv.
+                            if let Some(tx) = server_tx.borrow().as_ref() {
                                 // Se il send fallisce, il client si è disconnesso.
                                 // Il pump continua (il prossimo iter vedrà l'errore).
                                 let _ = tx.send(sm);
@@ -623,8 +623,8 @@ mod tests {
             std::path::Path::new("/tmp"),
         ).await;
 
-        // Simula il wiring di ws.rs: set_server_tx deve essere chiamato PRIMA di activate
-        // affinché il pump catturi Some(tx) e possa forwardare i messaggi.
+        // Simula il wiring di ws.rs: collega il sink prima del primo ShowWindow,
+        // affinché il messaggio trovi già una UI a cui essere inoltrato.
         host.set_server_tx(tx);
 
         let log: SentLog = Default::default();

@@ -110,7 +110,7 @@ async fn crypto_cifra_decifra_e_applica_parametri_dalla_dialog() {
     )
     .await;
     assert_eq!(host.running_count(), 0);
-    // Il pump cattura il canale all'attivazione: collegarlo DOPO perderebbe ShowWindow.
+    // Collega il sink prima dell'attivazione per ricevere il primo ShowWindow.
     let (tx, mut rx) = unbounded_channel();
     host.set_server_tx(tx);
     let mut make = |p: &DiscoveredPlugin| {
@@ -195,6 +195,27 @@ async fn crypto_cifra_decifra_e_applica_parametri_dalla_dialog() {
     host.route_ui_event(main_id, "ciphertext", Some("BCD".into()))
         .await;
     verifica_pannelli(&aggiornamento(&mut rx, main_id).await, "ABC", "BCD");
+
+    // Regressione trovata dal vivo: chiudere e riaprire ui.exe lascia il daemon
+    // e il plugin vivi. Il pump deve usare il NUOVO sink, non quello catturato
+    // alla prima attivazione. Il drop simula la vecchia connessione chiusa.
+    drop(rx);
+    let (nuovo_tx, mut nuovo_rx) = unbounded_channel();
+    host.set_server_tx(nuovo_tx);
+    let nuovo_id = host.activate("crypto", &mut make).await.unwrap();
+    assert_ne!(nuovo_id, main_id);
+    match ricevi(&mut nuovo_rx).await {
+        ServerMsg::OpenPluginWindow {
+            window_id, html, ..
+        } => {
+            assert_eq!(window_id, nuovo_id);
+            verifica_pannelli(&html, "ABC", "BCD");
+        }
+        altro => panic!("attesa finestra sulla UI riconnessa, ricevuto {altro:?}"),
+    }
+    host.route_ui_event(nuovo_id, "plaintext", Some("XYZ".into()))
+        .await;
+    verifica_pannelli(&aggiornamento(&mut nuovo_rx, nuovo_id).await, "XYZ", "YZA");
     host.shutdown().await;
     assert_eq!(host.running_count(), 0);
 }

@@ -1,6 +1,16 @@
-# Implementation — orchestrator v2.2.0 (Finestra terminale — piano 3)
+# Implementation — orchestrator v2.2.2
 
-## Copertura e2e crypto (2026-09-08, nessun cambio di versione)
+## Sink plugin aggiornabile alla riconnessione della UI (v2.2.2)
+
+`PluginHost::server_tx` è uno slot `tokio::sync::watch::Sender<Option<UnboundedSender<ServerMsg>>>`.
+I pump clonano lo slot condiviso; per ogni messaggio consultano `borrow()` e inviano sul
+sender corrente, senza mantenere il borrow attraverso un await. `set_server_tx` usa
+`send_replace`, che sostituisce il valore anche senza receiver watch: non occorre attendere
+notifiche perché la lettura avviene all'arrivo dei messaggi plugin. Prima di una UI il valore
+è None. Nessun buffering/replay: la modifica rende raggiungibili i plugin già vivi dopo
+chiusura e riapertura di ui.exe. Prima ogni pump tratteneva il sender della prima connessione.
+
+## Copertura e2e crypto (2026-09-08)
 
 `tests/plugin_crypto_e2e.rs` usa manifest sorgente e binario compilato in una `TempDir`,
 con `discover` → `PluginHost::start` → attivazione lazy e transport stdio reale.
@@ -11,6 +21,9 @@ la dialog cambia shift da 3 a 1 e Applica aggiorna principale (ABC→BCD) e dial
 Gli eventi usano l'id ricevuto in ShowWindow, esercitando la registrazione delle finestre
 secondarie nel pump. Dopo CloseWindow, la principale continua a decifrare con shift=1.
 Ogni ricezione ha timeout di 2 secondi; chiusura finale con `shutdown`.
+La parte finale simula la riconnessione: elimina la prima ricezione, registra un nuovo sink,
+riattiva lo stesso plugin e verifica apertura e cifratura con il parametro conservato.
+Questo scenario falliva per timeout prima del fix v2.2.2, come osservato dal vivo.
 
 Esecuzione: `cargo build -p plugin-crypto`, poi
 `cargo test -p orchestrator --test plugin_crypto_e2e -- --ignored`.

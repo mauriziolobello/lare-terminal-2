@@ -13,7 +13,7 @@
   condiviso + stdio chiuse + `child_stderr_log_sink`, fix finestre console spurie)
 - mcp-server 2.0.1 (da v1 0.7.1)
 - mcp-nmap 2.0.1 (da v1 0.8.2; 2.0.1 — codepage OEM per comandi nativi Win32 in network_info.rs, fix mojibake accenti)
-- orchestrator 2.2.1 (da v1 0.41.21; 2.2.1 — `CREATE_NO_WINDOW` sui figli + stderr su file)
+- orchestrator 2.2.2 (da v1 0.41.21; 2.2.2 — sink plugin aggiornato dopo riapertura UI)
 - plugin-protocol 2.0.0 (da v1 0.2.1)
 - plugin-ping 2.0.0 (da v1 0.1.0)
 - plugin-counter 2.0.0 (da v1 0.1.0)
@@ -30,8 +30,11 @@
   `deploy_test_run.ps1 -IncludePlugins` includono ping/calc/counter/crypto/lc.
   Aggiunti i manifest di counter/crypto/lc in `Test Run/plugins/`, copie dei sorgenti
   come per ping/calc. Nuova e2e reale `plugin_crypto_e2e.rs`: handshake, Cesare,
-  cifratura/decifratura e dialog parametri (Applica e chiusura). Nessun sorgente runtime
-  dei crate modificato e nessun bump di versione. Esiti e limiti delle verifiche nel
+  cifratura/decifratura e dialog parametri (Applica e chiusura). Verifica dal vivo:
+  tutte e tre le finestre si aprono, nessuna nuova console spuria. Trovato e corretto
+  nell'host il sender WS obsoleto dopo riapertura UI: slot condiviso consultato dai pump,
+  regressione e2e RED→GREEN e riapertura verificata dal vivo sugli stessi PID plugin.
+  Solo orchestrator passa a 2.2.2; plugin invariati. Esiti e limite della chiusura UI nel
   report `reports/2026-09-08-codex-plugin-porting-v1.md`; lavoro per revisione del supervisore.
 
 - 2026-09-04/05 — brainstorming, spec, due spike (`Docs/i18n/ita/spikes/`).
