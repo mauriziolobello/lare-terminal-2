@@ -414,7 +414,9 @@ Test Run\
 │                                                                NuGet Microsoft.PowerShell.SDK porta
 │                                                                l'intero motore); gitignored
 ├── install-wt-profile.ps1 / uninstall-wt-profile.ps1         ← modalità B (profilo Windows Terminal)
-├── init_orchestrator.ps1  init_tauri.ps1                     ← avvio manuale, zero env var
+├── debug_orchestrator.ps1                                    ← orchestratore con log live in
+│                                                                console, solo per debug (self-heal
+│                                                                lo copre altrimenti)
 ├── Configuration\                                            ← §6.2
 ├── plugins\ping\plugin.json  plugins\calc\plugin.json        (+ exe gitignored)
 └── pytools\                                                  ← script sì, venv no (v1)

@@ -129,15 +129,20 @@ nessuno a cui chiedere). Per un test reale (PSReadLine, prompt `[Y/n]` a tasto, 
 console interattiva vera — Windows Terminal, non il terminale di uno strumento come Claude Code —
 vedi `TESTING-e2e.md`.
 
-## Caso avanzato: avvio manuale senza self-heal
+## Caso avanzato: log dell'orchestratore live in console
 
-Se per qualche motivo vuoi controllare a mano l'ordine di avvio (debug, `autostart` disattivato in
-`startup.json`, …), da `Test Run\`:
+Per l'uso normale non serve — sia `ui.exe` (modalità A) sia `lare-shell.exe` (modalità B) avviano
+l'orchestratore da soli se manca. Ma lo fanno **staccato e silenzioso**, senza log in console (solo
+nel file giornaliero in `Configuration\logs\`). Se vuoi vedere i log dell'orchestratore live
+mentre lavori (debug, `autostart.orchestrator` disattivato in `startup.json`, …), avvialo a mano
+PRIMA di `ui.exe`/della scheda modalità B, da `Test Run\`:
 
 ```powershell
-.\init_orchestrator.ps1
-.\init_tauri.ps1
+.\debug_orchestrator.ps1
 ```
+
+Equivalente a `orchestrator.exe --console-log`. Una volta che risponde, apri `ui.exe`/la scheda
+modalità B normalmente — troveranno l'orchestratore già su e non ne avvieranno un secondo.
 
 (l'ordine non conta — ciascuno aspetta/ritenta l'altro). Per l'uso normale non serve: la modalità
 A da sola basta.

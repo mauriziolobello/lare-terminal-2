@@ -77,7 +77,9 @@ cartella) funziona senza modifiche.
 ├── install-wt-profile.ps1  uninstall-wt-profile.ps1  ← installa/rimuove il profilo Windows
 │                                                        Terminal "Lare Terminal" (modalità B —
 │                                                        vedi RUN.md, si esegue una volta sola)
-├── init_orchestrator.ps1  init_tauri.ps1            ← avvio manuale dei due processi (vedi RUN.md)
+├── debug_orchestrator.ps1                           ← orchestratore con log live in console, solo
+│                                                        per debug (self-heal lo copre altrimenti —
+│                                                        vedi RUN.md)
 ├── Configuration\
 │   ├── startup.json                                 ← template, nessun segreto
 │   ├── README.md
