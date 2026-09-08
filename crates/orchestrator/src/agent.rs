@@ -119,7 +119,7 @@ pub fn tool_defs() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "show_markdown".to_string(),
-            description: "Mostra contenuto Markdown ricco (spiegazioni lunghe, codice, tabelle) in una finestra dedicata. Usalo quando la risposta e' formattata o lunga invece di scriverla come testo semplice.".to_string(),
+            description: "Mostra contenuto Markdown ricco (spiegazioni lunghe, codice, tabelle) in una finestra dedicata. Usalo quando la risposta e' formattata o lunga invece di scriverla come testo semplice. IMPORTANTE: chiamalo una sola volta per turno, solo quando hai la risposta FINALE pronta (dopo aver eventualmente cercato/verificato tutto il necessario) — ogni chiamata apre una finestra nuova, quindi chiamarlo più volte come bozza intermedia mentre rifinisci la risposta apre più finestre ridondanti invece di una.".to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -560,6 +560,33 @@ mod tests {
     fn tool_defs_includes_set_ai_display_name() {
         let defs = tool_defs();
         assert!(defs.iter().any(|d| d.name == "set_ai_display_name"));
+    }
+
+    /// Regressione (trovata dal vivo, piano 3, 2026-09-08): un turno lungo con
+    /// ricerca web può portare il modello a richiamare `show_markdown` più
+    /// volte mentre affina la propria risposta — ogni chiamata apre una
+    /// finestra NUOVA (nessun aggiornamento in place, per design attuale),
+    /// quindi un solo turno può aprire N finestre quasi identiche. La
+    /// descrizione del tool deve dire esplicitamente al modello di chiamarlo
+    /// al più una volta per turno, solo con la risposta finale pronta.
+    #[test]
+    fn show_markdown_description_instructs_at_most_once_per_turn() {
+        let defs = tool_defs();
+        let show_markdown = defs
+            .iter()
+            .find(|d| d.name == "show_markdown")
+            .expect("show_markdown deve esistere fra i tool");
+        let lower = show_markdown.description.to_lowercase();
+        assert!(
+            lower.contains("una sola volta") || lower.contains("al massimo una volta") || lower.contains("una volta sola"),
+            "la descrizione di show_markdown deve dire di chiamarlo una sola volta per turno: {:?}",
+            show_markdown.description
+        );
+        assert!(
+            lower.contains("finale"),
+            "la descrizione di show_markdown deve dire che è per la risposta FINALE, non una bozza intermedia: {:?}",
+            show_markdown.description
+        );
     }
 
     #[test]
