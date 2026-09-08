@@ -8,7 +8,7 @@
     "pytools_dir": "pytools",
     "routines_dir": "Configuration/routines"
   },
-  "ai_model": "claude-sonnet-4-6",
+  "ai_model": "claude-sonnet-5",
   "autostart": { "orchestrator": true, "ui": true },
   "log": { "level": "info", "dir": "Configuration/logs" }
 }
