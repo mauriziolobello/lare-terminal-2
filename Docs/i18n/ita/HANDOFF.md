@@ -12,7 +12,7 @@
 - startup-config 2.0.4 (da v1 0.1.0; `spawn_detached` piano 3 Task 3; 2.0.4 — modulo `logging`
   condiviso + stdio chiuse + `child_stderr_log_sink`, fix finestre console spurie)
 - mcp-server 2.0.1 (da v1 0.7.1)
-- mcp-nmap 2.0.0 (da v1 0.8.2)
+- mcp-nmap 2.0.1 (da v1 0.8.2; 2.0.1 — codepage OEM per comandi nativi Win32 in network_info.rs, fix mojibake accenti)
 - orchestrator 2.2.1 (da v1 0.41.21; 2.2.1 — `CREATE_NO_WINDOW` sui figli + stderr su file)
 - plugin-protocol 2.0.0 (da v1 0.2.1)
 - plugin-ping 2.0.0 (da v1 0.1.0)
@@ -250,6 +250,16 @@ turno `/ai` reale, chiusura finestra, autostart di `ui.exe` dall'orchestratore, 
   WebView2 lo richiede implicitamente per ogni pagina) — richiede `cargo clean -p ui` prima del
   rebuild (`generate_context!` incorpora `frontendDist` a compile time, gotcha noto). Verificato
   dal vivo: nessuna riga `asset not found: favicon.ico` in un avvio fresco dopo il fix.
+
+- **Fix codepage OEM in `mcp-nmap` (`network_info.rs`) — recupero da v1 (2026-09-08)**:
+  risolto il mojibake delle etichette accentate italiane (`Sì` → `S`, U+FFFD) nell'output dei
+  comandi diagnostici Win32 (`ipconfig`, `arp`, `route`, `netstat`, `tracert`) invocati da
+  `local_network_info` e `traceroute`. `run_and_capture` decodifica ora stdout/stderr usando
+  il codepage reale della console (`GetConsoleOutputCP()`) o, se il processo gira senza console
+  allocata (lanciato dall'orchestratore con `CREATE_NO_WINDOW`), il codepage OEM di sistema
+  (`GetOEMCP()`), tramite tabella `DECODING_TABLE_CP_MAP` del crate `oem_cp` (`decode_oem`).
+  Fallback garantito e deterministico su `String::from_utf8_lossy` per codepage sconosciuti.
+  Versione `mcp-nmap` 2.0.0 → 2.0.1.
 
 ## DA FARE
 
