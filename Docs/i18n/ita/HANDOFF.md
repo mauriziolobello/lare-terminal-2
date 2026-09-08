@@ -211,6 +211,23 @@ turno `/ai` reale, chiusura finestra, autostart di `ui.exe` dall'orchestratore, 
 
 ## DA FARE
 
+- **Idea (Maurizio, 2026-09-08) — `show_markdown` chiamato più volte in un turno dovrebbe
+  aggiornare la STESSA finestra, non aprirne una nuova.** Bug reale trovato dal vivo (piano 3):
+  un turno `/ai` lungo con ricerca web può portare il modello a richiamare `show_markdown` più
+  volte mentre affina la risposta — oggi (`agent.rs`/`surface.rs`) ogni chiamata apre una
+  finestra Markdown NUOVA, indipendente dalle altre (comportamento voluto e testato per un altro
+  caso, l'`OpenWindow` di `/help` durante un turno — non va toccato). Riprodotto dal vivo: un
+  turno mai completato aveva già aperto 6 finestre quasi identiche. Fix immediato applicato
+  (`6e0dc85`): la descrizione del tool ora istruisce esplicitamente il modello a chiamarlo una
+  sola volta, solo con la risposta finale pronta — riduce il problema ma non lo elimina (dipende
+  dal modello). **Non implementato deliberatamente** (scelta di Maurizio, non un rinvio per
+  pigrizia): scartare le chiamate in più butterebbe via un comportamento potenzialmente
+  interessante — l'AI che rivede la propria risposta mentre cerca. L'idea da studiare in un
+  brainstorming: far sì che una seconda chiamata a `show_markdown` nello STESSO turno aggiorni
+  in place il contenuto della finestra già aperta (stesso meccanismo di `OutputWindowContent`/
+  `window_id`, oggi usato solo per il testo semplice del turno, non per le finestre aperte
+  dall'AI) invece di aprirne una nuova — l'utente vedrebbe la risposta "vivere" mentre l'AI la
+  affina, una sola finestra, non N.
 - **Idea (Maurizio, 2026-09-07) — più LLM dalla riga di comando: `/ai:<nome>`, gruppi, AI che parlano fra loro.** Oggi `/ai "…"` usa solo il provider `active` di `llms.json` (che però ha già un registro di provider con nome: `claude-direct`, `deepseek-openrouter`, …). Atteso: `/ai:Claude-sonnet "…"`, `/ai:Gemini "…"`, `/ai:Kimi "…"` per rivolgersi a una AI specifica configurata; **gruppi con nome** (es. `Coders` = quelle tre) e `/ai:Coders "…"` che interroga tutte in un colpo solo; poi, la parte più interessante, **le AI che interagiscono fra loro** sul modello di `/aichat` (chat fra due macchine Lare, ciascuna con una AI diversa). In parte esiste, andrà "aggiustato": sintassi nel pre-router della shell (`shell_slash.rs`), gruppi in `llms.json`, fan-out e aggregazione delle risposte nella finestra di output. Da studiare più avanti (dopo il piano 3).
 - **Idea (Maurizio, 2026-09-07) — interazione dell'AI "da tastiera" e descrittore di form.** La metodologia usata per l'e2e del piano 2b (tasti via `SendKeys`, screenshot letti come immagine, UI Automation per finestre e schede — `scripts/dev/e2e-driver/`, README con le lezioni) va conservata e fatta diventare un plugin o un metodo interno di interazione dell'AI dentro Lare Terminal. Estensione ancora embrionale: un **modello descrittore di form** (forma da definire) per pagine web, che faccia da "traccia" all'AI: l'utente chiede, l'AI apre la pagina e, seguendo il descrittore, inserisce i valori ricevuti. Da brainstormare quando arriva il suo turno (dopo il piano 3).
 - **E2E manuale dal vivo, modalità A (piano 3)**: `TESTING-e2e.md` Parte 7 — la parte sostanziale
