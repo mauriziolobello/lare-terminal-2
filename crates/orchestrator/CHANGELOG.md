@@ -5,6 +5,20 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), versioning: [S
 
 ---
 
+## 2.2.2 — 2026-09-08 — plugin dopo riapertura della UI
+
+- Fix trovato nella verifica dal vivo del porting: dopo chiusura e riapertura di `ui.exe`,
+  i plugin già attivi inviavano finestre al vecchio sender WS, scartando l'output.
+  Il pump consulta ora uno slot `watch` condiviso con il sink corrente per ogni messaggio.
+  Nessun riavvio del plugin necessario e stato conservato.
+- Regressione aggiunta alla e2e crypto: prima UI rimossa, nuova UI registrata, nuova Activate
+  e UiEvent sullo stesso processo plugin. RED reale prima del fix (timeout), GREEN dopo.
+
+- Nuova `plugin_crypto_e2e.rs` con processo reale: discovery, Ready con nome/versione,
+  apertura Cesare, cifratura/decifratura, dialog parametri con id distinto, Applica e chiusura.
+  Ignorata di default come le altre e2e; richiede `cargo build -p plugin-crypto`.
+  La sola aggiunta iniziale della copertura non aveva richiesto un bump; il fix lo richiede.
+
 ## 2.2.1 — 2026-09-08 — CREATE_NO_WINDOW sui figli + stderr su file (fix da uso reale)
 
 Sopprime le finestre console spurie osservate dall'utente in uso reale (Windows Terminal come
