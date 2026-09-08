@@ -235,15 +235,23 @@ turno `/ai` reale, chiusura finestra, autostart di `ui.exe` dall'orchestratore, 
   `crates/orchestrator/unused/...`) a ogni `cargo test`; corretto. Versioni startup-config
   2.0.3→2.0.4, orchestrator 2.2.0→2.2.1, ui 2.2.1→2.2.2.
 
-## DA FARE
+- **`favicon.ico` per `ui.exe`** (chiudeva il DA FARE lasciato dal fix sopra: il subscriber
+  `tracing` globale rendeva visibile per la prima volta `ERROR tauri::manager: asset not found:
+  favicon.ico`, 3-4 volte per avvio — non una regressione, solo rumore nuovo in un log che
+  Maurizio ha chiesto pulito). Generato un `.ico` multi-risoluzione (16/32/48/64/128/256, ~19KB)
+  con Pillow (venv usa-e-getta, non nel repo) — casa vittoriana stilizzata con fantasma che
+  aleggia sul tetto, su richiesta di Maurizio ("una casa fine '800 americana dove aleggia il
+  fantasma molto stilizzato di una figura umana"); due passate per la leggibilità a 16×16 (il
+  vincolo duro di un favicon): la prima versione aveva troppi dettagli sottili (luna, comignolo
+  stretto, crocette sulle finestre) e contrasto casa/cielo troppo basso, tutto si fondeva in una
+  macchia scura — tolti i dettagli sottili, alzato il contrasto, verificato estraendo i singoli
+  frame dell'ico e ingrandendoli con nearest-neighbor (non un resize morbido, che avrebbe
+  nascosto il problema). File in `crates/ui/frontend/favicon.ico` (root del `frontendDist`, dove
+  WebView2 lo richiede implicitamente per ogni pagina) — richiede `cargo clean -p ui` prima del
+  rebuild (`generate_context!` incorpora `frontendDist` a compile time, gotcha noto). Verificato
+  dal vivo: nessuna riga `asset not found: favicon.ico` in un avvio fresco dopo il fix.
 
-- **Rumore `favicon.ico` in `ui.log`** (scoperto dal vivo verificando il fix finestre spurie
-  sopra) — installare un subscriber `tracing` globale per `ui.exe` (novità di quel fix) rende
-  visibili per la prima volta i log INTERNI di Tauri, incluso `ERROR tauri::manager: asset not
-  found: favicon.ico` a ogni apertura di webview (3-4 volte per avvio) — non è una regressione
-  (l'assenza del favicon era già vera prima, solo invisibile), ma sporca un log che l'utente ha
-  esplicitamente chiesto. Fix a scelta: aggiungere un favicon, o filtrare il target
-  `tauri::manager` a WARN nel subscriber. Non ancora fatto.
+## DA FARE
 
 - **Idea (Maurizio, 2026-09-08) — pagina interattiva client-only generata dall'AI per un
   argomento, con refresh via Python.** L'utente chiede una pagina interattiva su un tema;

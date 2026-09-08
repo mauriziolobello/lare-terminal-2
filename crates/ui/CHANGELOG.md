@@ -5,6 +5,20 @@ Versioning: `major.minor.update`.
 
 ---
 
+## 2.2.3 — 2026-09-08 — favicon
+
+Chiude il DA FARE lasciato da 2.2.2: il subscriber `tracing` globale rendeva visibile per la
+prima volta `ERROR tauri::manager: asset not found: favicon.ico` (WebView2 richiede
+implicitamente `/favicon.ico` per ogni pagina) — non una regressione, solo rumore nuovo in un log
+che l'utente ha chiesto pulito.
+
+- **`crates/ui/frontend/favicon.ico`**: nuovo file, multi-risoluzione (16/32/48/64/128/256).
+  Generato con Pillow (script usa-e-getta, non nel repo) — casa vittoriana stilizzata con un
+  fantasma che aleggia sul tetto, su richiesta esplicita dell'utente. Va nella root del
+  `frontendDist` perché è lì che WebView2 lo cerca implicitamente; `generate_context!` lo
+  incorpora a compile time, quindi serve `cargo clean -p ui` prima del prossimo build perché il
+  cambiamento sia visibile (gotcha noto, `BUILD.md`).
+
 ## 2.2.2 — 2026-09-08 — niente console (nemmeno in debug), log su file, via il thread "q"
 
 Fix da uso reale: tre richieste esplicite dell'utente sulle finestre spurie e sulla diagnostica

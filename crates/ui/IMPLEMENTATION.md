@@ -1,4 +1,29 @@
-# Implementation — crates/ui v2.2.2
+# Implementation — crates/ui v2.2.3
+
+## Favicon (v2.2.3, fix del DA FARE lasciato da 2.2.2)
+
+`crates/ui/frontend/favicon.ico` — nuovo file, root del `frontendDist`. Il subscriber `tracing`
+globale aggiunto in 2.2.2 rendeva visibile per la prima volta un log interno di Tauri
+(`ERROR tauri::manager: asset not found: favicon.ico`, ripetuto a ogni apertura di webview):
+WebView2 richiede implicitamente `/favicon.ico` per ogni pagina caricata, e prima di questo file
+la richiesta risolveva sempre in 404. Non una regressione (l'assenza era già vera, solo
+invisibile prima del subscriber) ma rumore in un log che l'utente ha chiesto pulito.
+
+`.ico` multi-risoluzione (16/32/48/64/128/256, ~19KB), generato con Pillow in una venv usa-e-getta
+(non nel repo — non è un tool di progetto ricorrente, un'unica generazione). Soggetto su
+richiesta esplicita dell'utente: casa vittoriana stilizzata con un fantasma che aleggia sul
+tetto. Due passate per la leggibilità a 16×16 (il vincolo duro di un favicon — deve leggersi come
+icona di scheda, non solo come immagine grande): la prima versione aveva troppi dettagli sottili
+(luna, comignolo stretto, crocette sulle finestre) e un contrasto casa/cielo troppo basso, tutto
+si fondeva in una macchia scura a 16px; tolti i dettagli sottili, alzato il contrasto tra corpo
+casa/tetto/cielo. Verificato estraendo i singoli frame dell'`.ico` (non l'anteprima a piena
+risoluzione, che con un resize morbido avrebbe nascosto il problema) e ingrandendoli con
+nearest-neighbor per un giudizio onesto sulla leggibilità reale.
+
+Gotcha noto (`BUILD.md`): `generate_context!` incorpora `frontendDist` a compile time — serve
+`cargo clean -p ui` prima del build perché un nuovo file nella cartella frontend venga incluso,
+altrimenti la build sembra ignorarlo. Verificato dal vivo: nessuna riga `asset not found:
+favicon.ico` in un avvio fresco dopo il fix (prima: 3-4 per avvio).
 
 ## Niente console, log su file, via il thread "q" (v2.2.2, fix da uso reale)
 
