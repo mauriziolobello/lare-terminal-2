@@ -345,14 +345,27 @@ pub fn spawn_plugin(
     bin_path: &Path,
     config_dir: &Path,
 ) -> std::io::Result<(ChildPluginWriter, ChildPluginReader)> {
-    let mut child = Command::new(bin_path)
-        .arg(startup_config::CONFIG_DIR_FLAG)
+    let mut cmd = Command::new(bin_path);
+    cmd.arg(startup_config::CONFIG_DIR_FLAG)
         .arg(config_dir)
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::inherit()) // stderr del plugin → log orchestrator
-        .kill_on_drop(true)
-        .spawn()?;
+        // stderr del plugin → file di log condiviso (ora vero: prima era
+        // inherit(), che verso un orchestrator staccato senza console non
+        // andava da nessuna parte — o peggio, faceva allocare a Windows una
+        // console NUOVA, finestra spuria). Un solo file per tutti i plugin
+        // (sono pochi e a bassa frequenza, non serve uno per plugin).
+        .stderr(startup_config::child_stderr_log_sink(
+            &config_dir.join("logs"),
+            "plugins.log",
+        ))
+        .kill_on_drop(true);
+    // `tokio::process::Command::creation_flags` è un metodo inerente (a
+    // differenza di `std::process::Command`, dove servirebbe importare
+    // `CommandExt`) — nessun import extra necessario qui.
+    #[cfg(windows)]
+    cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+    let mut child = cmd.spawn()?;
     // take() estrae gli handle Option<> dal Child; dopo take() i campi sono None,
     // ma gli handle sono in nostro possesso separatamente.
     let stdin = child.stdin.take().ok_or_else(|| std::io::Error::other("no stdin"))?;

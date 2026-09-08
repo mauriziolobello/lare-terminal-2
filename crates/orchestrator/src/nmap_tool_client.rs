@@ -68,10 +68,12 @@ impl ProcessTreeKiller for RealProcessTreeKiller {
     fn kill_tree(&self, pid: u32) {
         #[cfg(windows)]
         {
+            use std::os::windows::process::CommandExt;
             match std::process::Command::new("taskkill")
                 .args(["/F", "/T", "/PID", &pid.to_string()])
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null())
+                .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
                 .spawn()
             {
                 Ok(_) => tracing::info!("killed timed-out mcp-nmap process tree (PID {pid})"),
@@ -179,9 +181,24 @@ impl NmapToolClient {
             // `--config-dir`: nessuna env var (D6) — stessa cartella
             // dell'orchestrator, passata esplicitamente.
             c.arg(startup_config::CONFIG_DIR_FLAG).arg(&self.config_dir);
+            // stderr su file invece di inherit(): l'orchestrator, quando è
+            // staccato (self-heal, piano 3), non ha una console da cui
+            // ereditare — inherit() in quel caso fa allocare a Windows una
+            // console NUOVA (finestra spuria). CREATE_NO_WINDOW la sopprime;
+            // il file di log sostituisce la visibilità che l'utente perde.
+            // usa la stessa cartella "logs" di default dell'orchestrator; se
+            // log.dir e' personalizzato in startup.json questo file resta comunque qui
             c.stdin(std::process::Stdio::piped())
                 .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::inherit());
+                .stderr(startup_config::child_stderr_log_sink(
+                    &self.config_dir.join("logs"),
+                    "mcp-nmap.log",
+                ));
+            // `tokio::process::Command::creation_flags` è un metodo inerente
+            // (a differenza di `std::process::Command`, dove serve importare
+            // `CommandExt` — vedi `RealProcessTreeKiller::kill_tree` sopra).
+            #[cfg(windows)]
+            c.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
             c
         };
 

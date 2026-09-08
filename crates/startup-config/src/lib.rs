@@ -19,6 +19,8 @@ use serde::{Deserialize, Serialize};
 use std::io;
 use std::path::{Path, PathBuf};
 
+pub mod logging;
+
 pub const CONFIG_DIR_FLAG: &str = "--config-dir";
 pub const DEFAULT_CONFIG_DIR_NAME: &str = "Configuration";
 pub const STARTUP_FILE_NAME: &str = "startup.json";
@@ -123,11 +125,14 @@ pub fn deploy_root(config_dir: &Path) -> PathBuf {
 }
 
 /// Avvia `exe` con `args`, staccato dal processo corrente (spec §6.4):
-/// nessuna console ereditata, un Ctrl+C nel padre non lo abbatte. Un solo
-/// posto che sa COME staccare un processo su Windows — riusato sia da
-/// `ui.exe` (self-heal dell'orchestratore, `launcher::ensure_orchestrator`)
-/// sia dall'orchestratore stesso (autostart di `ui.exe`, piano 3 Task 6),
-/// invece di duplicare la logica nei due crate.
+/// nessuna console ereditata, un Ctrl+C nel padre non lo abbatte, e le tre
+/// stdio (stdin/stdout/stderr) sono chiuse esplicitamente (`Stdio::null()`)
+/// invece di essere lasciate ereditare qualcosa di indefinito dal padre — è
+/// un'azione esplicita di questa funzione, non solo un effetto collaterale
+/// di `DETACHED_PROCESS`. Un solo posto che sa COME staccare un processo su
+/// Windows — riusato sia da `ui.exe` (self-heal dell'orchestratore,
+/// `launcher::ensure_orchestrator`) sia dall'orchestratore stesso (autostart
+/// di `ui.exe`, piano 3 Task 6), invece di duplicare la logica nei due crate.
 #[cfg(windows)]
 pub fn spawn_detached(exe: &Path, args: &[String]) -> std::io::Result<std::process::Child> {
     use std::os::windows::process::CommandExt;
@@ -139,6 +144,9 @@ pub fn spawn_detached(exe: &Path, args: &[String]) -> std::io::Result<std::proce
     std::process::Command::new(exe)
         .args(args)
         .creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
         .spawn()
 }
 
@@ -148,6 +156,26 @@ pub fn spawn_detached(exe: &Path, args: &[String]) -> std::io::Result<std::proce
 #[cfg(not(windows))]
 pub fn spawn_detached(exe: &Path, args: &[String]) -> std::io::Result<std::process::Child> {
     std::process::Command::new(exe).args(args).spawn()
+}
+
+/// Apre (creando la cartella se serve) un file di log in append per lo
+/// stderr di un processo figlio console-subsystem spawnato senza console
+/// (vedi `CREATE_NO_WINDOW` nei chiamanti) — altrimenti quello stderr non
+/// andrebbe da nessuna parte di osservabile. Best-effort: se il file non si
+/// apre (permessi, disco pieno, ...) ritorna `Stdio::null()` — perdere il
+/// log dello stderr di un tool non deve MAI impedire al tool di partire.
+pub fn child_stderr_log_sink(log_dir: &Path, file_name: &str) -> std::process::Stdio {
+    if std::fs::create_dir_all(log_dir).is_err() {
+        return std::process::Stdio::null();
+    }
+    match std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_dir.join(file_name))
+    {
+        Ok(f) => std::process::Stdio::from(f),
+        Err(_) => std::process::Stdio::null(),
+    }
 }
 
 /// Schema di `startup.json` (spec §6.3). Ogni campo ha un default: file

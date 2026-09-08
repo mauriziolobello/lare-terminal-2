@@ -5,6 +5,34 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), versioning: [S
 
 ---
 
+## 2.0.4 — 2026-09-08 — modulo logging condiviso + `spawn_detached`: stdio chiuse + `child_stderr_log_sink`
+
+Fix da uso reale (finestre console spurie con Windows Terminal come default): due crate
+consumatori (`orchestrator`, `ui`) avevano bisogno della stessa infrastruttura, spostata qui.
+
+- **`pub mod logging`** (nuovo `src/logging.rs`): l'init di `tracing` panic-free, prima duplicato
+  solo in `orchestrator/src/logging.rs`, ora condiviso — parametrizzato su `filename_prefix`
+  invece di avere `"orchestrator.log"` hardcoded (`open_log_file(log_dir, filename_prefix)`,
+  `init_logging(log_dir, filename_prefix, level, console)`). Usato da `orchestrator` (prefisso
+  `"orchestrator.log"`, invariato) e per la prima volta da `ui.exe` (prefisso `"ui.log"`, che prima
+  non aveva alcun log su file). Nuovo test `open_log_file_usa_il_prefisso_passato_nel_nome_del_file`
+  (verifica che il prefisso sia davvero usato, non solo che *un* file venga creato). Dipendenze
+  nuove: `tracing`, `tracing-subscriber` (feature `env-filter`), `tracing-appender` (stesse
+  versioni già usate da `orchestrator`).
+- **`spawn_detached`**: chiude ora esplicitamente le tre stdio del figlio (`Stdio::null()` su
+  stdin/stdout/stderr) — richiesto da spec §6.4 ("stdio chiusi"), prima non implementato (il
+  processo ereditava qualcosa di indefinito dal padre). `DETACHED_PROCESS` resta invariato: per
+  documentazione Microsoft ignora `CREATE_NO_WINDOW` se combinato, quindi non serviva né andava
+  aggiunto qui — non è la causa delle finestre console spurie (quella è nei figli console-subsystem
+  spawnati SENZA `DETACHED_PROCESS`, lato `orchestrator`, vedi il suo CHANGELOG 2.2.1).
+- **`child_stderr_log_sink(log_dir, file_name) -> Stdio`** (nuova funzione pubblica): apre
+  (creando la cartella se serve) un file di log in append per lo stderr di un processo figlio
+  console-subsystem spawnato senza console — altrimenti quello stderr non andrebbe da nessuna
+  parte di osservabile. Best-effort: `Stdio::null()` su qualunque errore (permessi, disco pieno,
+  ...) — perdere il log di un tool non deve mai impedirgli di partire. Un solo posto riusato dai 4
+  punti di spawn in `orchestrator` che prima usavano `Stdio::inherit()` verso il nulla
+  (mcp-server, mcp-nmap, python, plugin sidecar).
+
 ## 2.0.3 — 2026-09-07 — `spawn_detached` (piano 3, Task 3)
 
 Aggiunta `spawn_detached(exe, args)`: avvia un processo staccato dal corrente

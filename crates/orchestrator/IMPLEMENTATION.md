@@ -270,6 +270,17 @@ questo task: **nessun punto del crate rilegge `--config-dir`/ricostruisce
   d'integrazione "run_in_session" ma falliva ancora quello "save_routine", proprio
   perché quel metodo spawna dal SUO blocco duplicato, non da quello di
   `run_in_session`.
+  **2.2.1**: i sei blocchi duplicati (identici carattere per carattere tranne il
+  primo, che aveva un commento in più) sono ora fattorizzati in un solo metodo
+  privato, `McpToolClient::mcp_server_command(&self) -> tokio::process::Command` —
+  ogni chiamante fa solo `let child_cmd = self.mcp_server_command();`. Lo stesso
+  metodo aggiunge `CREATE_NO_WINDOW` (0x0800_0000, solo `#[cfg(windows)]`) e
+  redirige `stderr` su file (`startup_config::child_stderr_log_sink`) invece di
+  `inherit()` — vedi CHANGELOG 2.2.1 per il perché (console spuria quando
+  l'orchestrator è staccato). Stesso trattamento in `nmap_tool_client.rs`
+  (`ensure_connected`), `python_mcp_tool_client.rs` (`ensure_connected`) e
+  `plugins/transport.rs` (`spawn_plugin`), più `CREATE_NO_WINDOW` sui due
+  `taskkill` di `RealProcessTreeKiller`/`RealProcessKiller`.
 - `NmapToolClient::resolve(config_dir, cfg)` — mirror esatto, un solo punto di spawn.
 - `PythonMcpToolClient::resolve(config_dir, cfg, domain_id, script_relpath,
   tool_specs, call_timeout_secs)` — `pytools_root` da `cfg.paths.pytools_dir`

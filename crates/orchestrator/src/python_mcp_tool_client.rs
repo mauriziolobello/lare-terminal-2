@@ -90,10 +90,12 @@ impl ProcessKiller for RealProcessKiller {
     fn kill(&self, pid: u32) {
         #[cfg(windows)]
         {
+            use std::os::windows::process::CommandExt;
             match std::process::Command::new("taskkill")
                 .args(["/F", "/PID", &pid.to_string()])
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null())
+                .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
                 .spawn()
             {
                 Ok(_) => tracing::info!("killed python tool process (PID {pid})"),
@@ -249,12 +251,27 @@ impl PythonMcpToolClient {
             let mut c = tokio::process::Command::new(&self.python_path);
             // `--config-dir`: nessuna env var (D6) — stessa cartella
             // dell'orchestrator, passata esplicitamente allo script.
+            // stderr su file invece di inherit(): l'orchestrator, quando è
+            // staccato (self-heal, piano 3), non ha una console da cui
+            // ereditare — inherit() in quel caso fa allocare a Windows una
+            // console NUOVA (finestra spuria). CREATE_NO_WINDOW la sopprime;
+            // il file di log sostituisce la visibilità che l'utente perde.
+            // usa la stessa cartella "logs" di default dell'orchestrator; se
+            // log.dir e' personalizzato in startup.json questo file resta comunque qui
             c.arg(&self.script_path)
                 .arg(startup_config::CONFIG_DIR_FLAG)
                 .arg(&self.config_dir)
                 .stdin(std::process::Stdio::piped())
                 .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::inherit());
+                .stderr(startup_config::child_stderr_log_sink(
+                    &self.config_dir.join("logs"),
+                    "python-tools.log",
+                ));
+            // `tokio::process::Command::creation_flags` è un metodo inerente
+            // (a differenza di `std::process::Command`, dove serve importare
+            // `CommandExt` — vedi `RealProcessKiller::kill` sopra).
+            #[cfg(windows)]
+            c.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
             c
         };
 
@@ -802,10 +819,20 @@ mod tests {
         // Nome arbitrario, mai "pyping": prova che la validazione ora si basa
         // sui tool_defs iniettati, non su un literal hardcoded. python_path
         // inesistente forza un fallimento di spawn (mai un vero processo).
+        //
+        // `config_dir` DEVE essere una tempdir reale, non il solito literal
+        // "unused": `ensure_connected()` costruisce il `Command` (incluso lo
+        // stderr sink su file, `child_stderr_log_sink`) PRIMA di tentare lo
+        // spawn — quella costruzione fa I/O reale su `config_dir/logs/...`
+        // anche se lo spawn poi fallisce. Con "unused" (path relativo)
+        // finiva per creare `crates/orchestrator/unused/logs/python-tools.log`
+        // sul filesystem vero a ogni `cargo test` — bug scoperto dal vivo
+        // rieseguendo la suite dopo il fix `CREATE_NO_WINDOW`/stderr-su-file.
+        let tmp = tempfile::tempdir().expect("tempdir");
         let client = PythonMcpToolClient {
             python_path: "does-not-exist.exe".into(),
             script_path: "does-not-exist.py".into(),
-            config_dir: "unused".into(),
+            config_dir: tmp.path().to_path_buf(),
             peer: Arc::new(Mutex::new(None)),
             child_pid: Arc::new(Mutex::new(None)),
             killer: Arc::new(FakeProcessKiller::default()),

@@ -32,25 +32,25 @@ pub fn ensure_orchestrator(
     };
 
     if !autostart {
-        eprintln!(
+        tracing::warn!(
             "[ui] orchestratore non raggiungibile ({reason}); autostart disattivo in startup.json"
         );
         return false;
     }
     if !orchestrator_exe.exists() {
-        eprintln!(
+        tracing::warn!(
             "[ui] orchestratore non raggiungibile ({reason}) e {orchestrator_exe:?} non esiste"
         );
         return false;
     }
 
-    eprintln!("[ui] orchestratore non raggiungibile ({reason}): avvio {orchestrator_exe:?}");
+    tracing::warn!("[ui] orchestratore non raggiungibile ({reason}): avvio {orchestrator_exe:?}");
     let args = vec![
         "--config-dir".to_string(),
         config_dir.to_string_lossy().into_owned(),
     ];
     if let Err(e) = spawn_detached(orchestrator_exe, &args) {
-        eprintln!("[ui] avvio orchestratore fallito: {e}");
+        tracing::warn!("[ui] avvio orchestratore fallito: {e}");
         return false;
     }
 
@@ -58,12 +58,15 @@ pub fn ensure_orchestrator(
     while Instant::now() < deadline {
         std::thread::sleep(retry);
         if connect().is_none() {
-            eprintln!("[ui] orchestratore avviato e connesso");
+            // Esito positivo del self-heal, non un avviso — a differenza
+            // degli altri messaggi di questa funzione (tutti percorsi di
+            // fallimento), questo è "ha funzionato".
+            tracing::info!("[ui] orchestratore avviato e connesso");
             return true;
         }
     }
 
-    eprintln!("[ui] orchestratore non raggiungibile dopo {window:?}: i comandi non funzioneranno finché non risponde");
+    tracing::warn!("[ui] orchestratore non raggiungibile dopo {window:?}: i comandi non funzioneranno finché non risponde");
     false
 }
 

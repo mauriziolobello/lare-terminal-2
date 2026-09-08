@@ -40,6 +40,14 @@ impl ConfigDirState {
     pub fn shell_exe(&self) -> PathBuf {
         StartupConfig::resolve_path(&self.config_dir, &self.startup.paths.shell)
     }
+    /// Cartella dei log (`Configuration/logs/` di default) — stesso schema di
+    /// `RuntimeConfig::log_dir()` nell'orchestrator (`startup.log.dir`
+    /// risolto contro la radice del deploy). `ui.exe` non aveva alcun log su
+    /// file prima di questo fix: solo `println!`/`eprintln!`, invisibili in
+    /// release perché senza console.
+    pub fn log_dir(&self) -> PathBuf {
+        StartupConfig::resolve_path(&self.config_dir, &self.startup.log.dir)
+    }
 }
 
 pub fn token_path(config_dir: &Path) -> PathBuf {

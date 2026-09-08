@@ -17,8 +17,13 @@
 //   - This avoids URL query-param size limits and race conditions; the content
 //     is always present when the new window's JS executes.
 //
-// Prevents a console window from appearing on Windows in release builds.
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+// `ui.exe` non ha MAI una console propria, in nessuna build (debug incluso,
+// non solo release): i processi figli console-subsystem che spawna (self-heal
+// dell'orchestrator, e a cascata i suoi lazy-connect a mcp-server/mcp-nmap/
+// python) erediterebbero altrimenti quella console — coerente col fix su
+// CREATE_NO_WINDOW lato orchestrator. Prima di questo fix la console appariva
+// solo in debug (`cfg_attr(not(debug_assertions), ...)`); ora è incondizionata.
+#![windows_subsystem = "windows"]
 
 mod aichat_settings;
 mod config_dir;
@@ -26,16 +31,6 @@ mod llm_settings;
 mod market_data_settings;
 mod plugins_view;
 mod search_settings;
-
-/// Riconosce il comando di uscita pulita digitato sullo stdin interattivo ("Q"/"quit",
-/// case-insensitive, spazi ai bordi ignorati). Vedi il thread stdin-reader in `.setup()`:
-/// senza un modo esplicito di chiedere l'uscita, l'unica opzione era Ctrl+C/chiudere il
-/// terminale — interruzione brusca che lascia WebView2 a metà teardown (log "Failed to
-/// unregister class Chrome_WidgetWin_0", innocuo ma rumoroso). Quando i processi
-/// gireranno come servizi, l'uscita pulita sarà innescata dallo stop del servizio.
-fn is_quit_command(line: &str) -> bool {
-    matches!(line.trim().to_lowercase().as_str(), "q" | "quit")
-}
 
 use config_dir::ConfigDirState;
 use std::collections::HashMap;
@@ -1205,7 +1200,7 @@ fn archive_list(app: AppHandle) -> Vec<archive::ArchiveEntry> {
     match documents_dir_path(&app) {
         Ok(dir) => archive::list(&dir),
         Err(e) => {
-            eprintln!("[archive] archive_list: cannot resolve documents dir: {e}");
+            tracing::warn!("[archive] archive_list: cannot resolve documents dir: {e}");
             vec![]
         }
     }
@@ -1248,7 +1243,7 @@ fn list_find(app: AppHandle) -> Result<Vec<archive::FindEntry>, String> {
     match library_find_dir_path(&app) {
         Ok(dir) => Ok(archive::list_find(&dir)),
         Err(e) => {
-            eprintln!("[archive] list_find: cannot resolve find dir: {e}");
+            tracing::warn!("[archive] list_find: cannot resolve find dir: {e}");
             Ok(vec![])
         }
     }
@@ -1355,10 +1350,28 @@ fn main() {
     //    `startup.json` esiste ma è illeggibile/malformato (file assente →
     //    default silenzioso, non è un errore).
     let (cfg_state, warn) = config_dir::ConfigDirState::from_process();
+
+    // ── Tracing su file (Configuration/logs/ui.log, rotazione giornaliera) —
+    // stesso modulo condiviso con l'orchestrator (`startup_config::logging`,
+    // panic-free: vedi il doc-comment del modulo per il perché). `ui.exe` non
+    // ha mai una console (Task 3c sopra, `windows_subsystem = "windows"`
+    // incondizionato) quindi `console: false` sempre — nessuna opzione
+    // "anche su console" ha senso qui, a differenza dell'orchestrator con
+    // `--console-log`. `_log_guard` deve restare vivo per TUTTA la durata di
+    // `main()` (non spostarlo dentro `.setup()`: quella closure ritorna
+    // prima che `app.run(...)` finisca, droppando il guard troppo presto e
+    // interrompendo il flush del writer non bloccante del file di log).
+    let _log_guard = startup_config::logging::init_logging(
+        &cfg_state.log_dir(),
+        "ui.log",
+        &cfg_state.startup.log.level,
+        false, // ui.exe non ha mai una console (Task 3c): nessuna opzione "anche su console"
+    );
+
     if let Some(w) = warn {
-        eprintln!("[ui] {w}");
+        tracing::warn!("{w}");
     }
-    println!("[ui] config dir: {}", cfg_state.config_dir.display());
+    tracing::info!("[ui] config dir: {}", cfg_state.config_dir.display());
 
     // ── Flag `--no-terminal` (piano 3): usato da chi avvia `ui.exe` in
     //    ruolo "solo host" — la host C# in modalità B (`Launcher.EnsureUi`,
@@ -1469,13 +1482,13 @@ fn main() {
 
             // ── Load config from disk (or defaults on first run). ──────────
             let config_path = config_file_path(app.handle()).unwrap_or_else(|e| {
-                eprintln!("[ui] config path error: {e} — using defaults");
+                tracing::warn!("[ui] config path error: {e} — using defaults");
                 // A non-persistent fallback path (writes will fail silently).
                 std::path::PathBuf::from("lare-terminal-config.json")
             });
 
             let cfg = config::load_from(&config_path);
-            println!(
+            tracing::info!(
                 "[ui] Loaded config: web_search_enabled={:?} window_alpha={:?}",
                 cfg.web_search_enabled, cfg.window_alpha
             );
@@ -1494,7 +1507,7 @@ fn main() {
             match library_dir_path(app.handle()) {
                 Ok(dir) => {
                     if let Err(e) = std::fs::create_dir_all(&dir) {
-                        eprintln!("[ui] cannot create library dir {dir:?}: {e}");
+                        tracing::warn!("[ui] cannot create library dir {dir:?}: {e}");
                     }
                     // ── Migra il vecchio layout (.md sciolti in library/) al nuovo
                     //    (library/documents/). v0.26.0.
@@ -1503,10 +1516,10 @@ fn main() {
                     //    Ordine: PRIMA della creazione di find/ e del watch (documents/
                     //    deve esistere prima che il watcher vi si attacchi).
                     if let Err(e) = archive::migrate_to_documents_layout(&dir) {
-                        eprintln!("[ui] migrate_to_documents_layout: {e} (best-effort)");
+                        tracing::warn!("[ui] migrate_to_documents_layout: {e} (best-effort)");
                     }
                 }
-                Err(e) => eprintln!("[ui] library dir path error: {e}"),
+                Err(e) => tracing::warn!("[ui] library dir path error: {e}"),
             }
 
             // ── Ensure the Find archive subdirectory exists (library/find/).
@@ -1515,10 +1528,10 @@ fn main() {
             match library_find_dir_path(app.handle()) {
                 Ok(dir) => {
                     if let Err(e) = std::fs::create_dir_all(&dir) {
-                        eprintln!("[ui] cannot create library/find dir {dir:?}: {e}");
+                        tracing::warn!("[ui] cannot create library/find dir {dir:?}: {e}");
                     }
                 }
-                Err(e) => eprintln!("[ui] library/find dir path error: {e}"),
+                Err(e) => tracing::warn!("[ui] library/find dir path error: {e}"),
             }
 
             // ── Avvia il watcher fs sulla cartella documents/ (v0.26.0).
@@ -1557,45 +1570,16 @@ fn main() {
                     ) {
                         Ok(guard) => {
                             app.manage(LibraryWatchGuard(Mutex::new(guard)));
-                            println!("[ui] Library fs-watch avviato su {docs_dir:?} (documents/)");
+                            tracing::info!("[ui] Library fs-watch avviato su {docs_dir:?} (documents/)");
                         }
                         Err(e) => {
                             // Best-effort: il watch non è critico per l'app.
                             // L'utente può sempre ricaricare manualmente con 🔄.
-                            eprintln!("[ui] library watch non avviato: {e}");
+                            tracing::warn!("[ui] library watch non avviato: {e}");
                         }
                     }
                 }
-                Err(e) => eprintln!("[ui] library watch: path error: {e}"),
-            }
-
-            // ── Uscita pulita interattiva ("Q" + invio) ─────────────────────
-            // Solo in debug (dev): in release la console è staccata (vedi
-            // `windows_subsystem = "windows"` in cima al file), quindi non c'è
-            // stdin da leggere — il thread sarebbe inerte, non lo spawniamo.
-            // `cleanup_before_exit()` + `std::process::exit` (non più API Tauri
-            // dopo, per documentazione ufficiale) lascia a WebView2 il tempo di
-            // chiudere le sue finestre interne PRIMA che il processo termini —
-            // a differenza di Ctrl+C (interruzione brusca) o del solo `app.exit()`
-            // (verificato dal vivo: entrambi possono comunque lasciare il log
-            // "Failed to unregister class Chrome_WidgetWin_0" — innocuo, quirk
-            // noto di Chromium/WebView2 in chiusura, non un bug di Lare Terminal).
-            #[cfg(debug_assertions)]
-            {
-                let app_handle = app.handle().clone();
-                std::thread::spawn(move || {
-                    use std::io::BufRead;
-                    println!("[ui] Digita 'q' e invio per uscire pulito.");
-                    let stdin = std::io::stdin();
-                    for line in stdin.lock().lines() {
-                        let Ok(line) = line else { break }; // stdin chiuso (EOF)
-                        if is_quit_command(&line) {
-                            println!("[ui] uscita pulita richiesta...");
-                            app_handle.cleanup_before_exit();
-                            std::process::exit(0);
-                        }
-                    }
-                });
+                Err(e) => tracing::warn!("[ui] library watch: path error: {e}"),
             }
 
             // ── Finestra terminale (piano 3, modalità A) ────────────────────
@@ -1618,7 +1602,7 @@ fn main() {
                 .resizable(true)
                 .build()
                 .map_err(|e| format!("finestra terminale: {e}"))?;
-                println!("[ui] finestra terminale aperta (sessione {session_id})");
+                tracing::info!("[ui] finestra terminale aperta (sessione {session_id})");
 
                 // "Una finestra, una sessione" (spec §5, §10): in modalità A
                 // la finestra terminale è l'UNICA ragione per cui `ui.exe`
@@ -1645,7 +1629,7 @@ fn main() {
                         // errore nel kill del pty — logghiamo e procediamo
                         // comunque a terminare il processo.
                         if let Err(e) = ui_lib::pty::kill(&pty_state_for_close) {
-                            eprintln!("[ui] kill pty alla chiusura finestra terminale: {e}");
+                            tracing::warn!("[ui] kill pty alla chiusura finestra terminale: {e}");
                         }
                         app_handle_for_close.exit(0);
                     }
@@ -1654,33 +1638,9 @@ fn main() {
 
             // Niente più "Press <tasto> to toggle": l'overlay F2 è sparito, la
             // finestra host è nascosta per tutta la vita del processo.
-            println!("[ui] Lare Terminal v{} started.", env!("CARGO_PKG_VERSION"));
+            tracing::info!("[ui] Lare Terminal v{} started.", env!("CARGO_PKG_VERSION"));
             Ok(())
         })
         .run(tauri::generate_context!())
         .expect("[ui] Tauri runtime error");
-}
-
-#[cfg(test)]
-mod quit_command_tests {
-    use super::*;
-
-    #[test]
-    fn is_quit_command_recognizes_q_and_quit_case_insensitive() {
-        assert!(is_quit_command("q"));
-        assert!(is_quit_command("Q"));
-        assert!(is_quit_command("quit"));
-        assert!(is_quit_command("QUIT"));
-        assert!(
-            is_quit_command("  q  "),
-            "gli spazi ai bordi vanno ignorati"
-        );
-    }
-
-    #[test]
-    fn is_quit_command_rejects_everything_else() {
-        assert!(!is_quit_command(""));
-        assert!(!is_quit_command("quitter"));
-        assert!(!is_quit_command("dir"));
-    }
 }

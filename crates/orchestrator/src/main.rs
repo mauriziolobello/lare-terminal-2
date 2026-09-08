@@ -39,7 +39,6 @@ use orchestrator::{
     claude_backend::ClaudeBackend,
     cwd_tracking::CwdTrackingToolClient,
     llms_config,
-    logging,
     messages_client::HttpMessagesClient,
     runtime_config::RuntimeConfig,
     search::{
@@ -136,7 +135,8 @@ async fn main() -> Result<()> {
     let (startup, startup_warn) = startup_config::StartupConfig::load(&config_dir);
     let rt = Arc::new(RuntimeConfig { config_dir: config_dir.clone(), startup });
 
-    // ── Tracing (2.0; panic-free dal fix round 1, vedi `logging`): sempre su
+    // ── Tracing (2.0; panic-free dal fix round 1, vedi
+    // `startup_config::logging`, modulo condiviso con `ui.exe`): sempre su
     // file (Configuration/logs/orchestrator.log, rotazione giornaliera);
     // ANCHE su console solo con --console-log (usato da init_*.ps1 per il
     // debug interattivo). Un orchestrator avviato in autostart non deve
@@ -145,7 +145,12 @@ async fn main() -> Result<()> {
     // (`logging::init_logging` ripiega sulla sola console in quel caso,
     // non va mai in panic: vedi il doc-comment del modulo per il perché).
     let console = startup_config::has_flag(&args, "--console-log");
-    let _log_guard = logging::init_logging(&rt.log_dir(), &rt.startup.log.level, console);
+    let _log_guard = startup_config::logging::init_logging(
+        &rt.log_dir(),
+        "orchestrator.log",
+        &rt.startup.log.level,
+        console,
+    );
     // `_log_guard` deve vivere fino alla fine di `main`: droppandolo si
     // interrompe il flush del writer non bloccante del file di log — tenuto
     // vivo per tutta la funzione semplicemente non spostandolo/droppandolo mai.

@@ -1,7 +1,7 @@
 [package]
 # Name must be "ui" so that `cargo build -p ui` (from the repo root) works.
 name = "ui"
-version = "2.2.1"
+version = "2.2.2"
 edition = "2021"
 publish = false
 
@@ -45,6 +45,15 @@ base64 = "0.22"
 # Generazione di identificatori casuali (es. id di sessione terminale,
 # piano 3, Task 5+).
 rand = "0.8"
+
+# Logging su file (Configuration/logs/ui.log) — modulo condiviso con
+# l'orchestrator, vedi startup_config::logging. Prima di questo fix ui.exe
+# non aveva NESSUN log su file (solo println!/eprintln!, invisibili in
+# release perché ui.exe non ha mai stdout/stderr con windows_subsystem =
+# "windows").
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"
 
 [dev-dependencies]
 # Used in config tests: create temp files/dirs with auto-cleanup.

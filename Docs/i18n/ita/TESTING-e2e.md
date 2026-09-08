@@ -38,16 +38,22 @@ plugin-calc`) e `.\deploy_test_run.ps1 -IncludePlugins` eseguito — vedi `BUILD
 
 ## Parte 3 — `ui.exe` SENZA orchestrator
 
+Aggiornata per riflettere due fix successivi al piano 1: il self-heal (piano 3, spec §6.4 —
+`ui.exe` ORA verifica la raggiungibilità dell'orchestrator all'avvio e lo avvia da sé se serve) e
+questo fix (`ui.exe` non ha più stdout/stderr visibile in NESSUNA build — `windows_subsystem =
+"windows"` incondizionato — ma logga su file, `Configuration\logs\ui.log.<data>`).
+
 | # | Passo | Atteso | Esito |
 |---|---|---|---|
-| 13 | Assicurati che l'orchestrator NON sia in esecuzione, poi da `Test Run\`: `.\ui.exe --open library` | Il processo si avvia e resta vivo (nessun crash, nessun panic); stdout mostra comunque `[ui] config dir: ...` e `[ui] Lare Terminal v2.0.x started.` — `ui.exe` non verifica la raggiungibilità dell'orchestrator prima di avviarsi | |
-| 14 | Osserva la finestra Library appena aperta per qualche secondo | La finestra resta aperta e reattiva (il fallimento della connessione WS è gestito lato JS in `host.js`/`ws-client.js`: retry automatico con backoff crescente, **visibile solo aprendo i DevTools della webview** — non nello stdout/stderr del processo `ui.exe`, verificato dal vivo durante il piano 1) | |
+| 13 | Assicurati che l'orchestrator NON sia in esecuzione, poi da `Test Run\`: `.\ui.exe` (uno scenario semplice va bene, non serve `--open library`) | Il self-heal lo avvia da solo (nessun crash): il processo `orchestrator.exe` compare via `Get-Process` entro pochi secondi, la finestra "Lare Terminal" appare. Enumerazione UIA delle top-level window per i PID di `ui`/`orchestrator`/`lare-shell` (`[System.Windows.Automation.AutomationElement]::RootElement.FindAll(...)` filtrato su quei PID): **una sola finestra visibile, `Name = "Lare Terminal"`** (un elemento aggiuntivo con `Class = "Tao Thread Event Target"`, 16×16px offscreen, è un dettaglio interno del framework Tao/wry — nessuna finestra Windows Terminal/console spuria) | |
+| 14 | Apri `Test Run\Configuration\logs\ui.log.<data-di-oggi>` | Contiene le righe di avvio: `[ui] config dir: ...\Test Run\Configuration` e `[ui] Lare Terminal v2.2.x started.` — sostituisce l'osservazione su stdout, che non esiste più (`ui.exe` non ha mai una console, in nessuna build) | |
 | 15 | Chiudi `ui.exe` | Il processo termina senza lasciare residui (`Get-Process` come al passo 12) | |
 
-> Nota: il comportamento "nessun crash" è l'unica cosa verificabile da terminale in questo piano.
-> Un log applicativo esplicito tipo "orchestratore non raggiungibile" non esiste ancora: la UI
-> (pagina host nascosta) non ha oggi un percorso che lo stampi su stdout — solo il retry di
-> `ws-client.js`, osservabile in DevTools. Rifinire questo segnale è lavoro dei piani successivi.
+> Nota: prima di questi due fix, "nessun crash" era l'unica cosa verificabile da terminale in
+> questo scenario, e un log applicativo esplicito tipo "orchestratore non raggiungibile" non
+> esisteva. Ora esiste: il self-heal logga il tentativo (`tracing::warn!`, via
+> `startup_config::logging`, modulo condiviso con l'orchestrator) su `ui.log.<data>` — visibile
+> anche in release, dove prima (prima di questo fix) `ui.exe` non aveva stderr da cui vederlo.
 
 ## Parte 4 — Deploy portabile
 

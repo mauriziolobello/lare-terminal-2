@@ -5,6 +5,32 @@ Versioning: `major.minor.update`.
 
 ---
 
+## 2.2.2 — 2026-09-08 — niente console (nemmeno in debug), log su file, via il thread "q"
+
+Fix da uso reale: tre richieste esplicite dell'utente sulle finestre spurie e sulla diagnostica
+di `ui.exe`.
+
+- **`windows_subsystem = "windows"` incondizionato** (`main.rs`, prima
+  `#[cfg_attr(not(debug_assertions), ...)]`): `ui.exe` non ha MAI una console propria, in nessuna
+  build. Motivo: i processi figli console-subsystem che spawna (self-heal dell'orchestrator, che a
+  cascata spawna mcp-server/mcp-nmap/python) erediterebbero altrimenti quella console — coerente
+  col fix `CREATE_NO_WINDOW` lato orchestrator (vedi CHANGELOG di `orchestrator` 2.2.1).
+- **Log su file** (`Configuration/logs/ui.log.<data>`, rotazione giornaliera): `ui.exe` non aveva
+  PRIMA nessun log su file, solo `println!`/`eprintln!` — invisibili in release per l'assenza di
+  console. Ora usa `startup_config::logging` (modulo condiviso con l'orchestrator, spostato lì in
+  questo stesso fix — vedi CHANGELOG di `startup-config` 2.0.4), inizializzato in `main()` subito
+  dopo `ConfigDirState::from_process()`, sempre con `console: false`. Nuovo `ConfigDirState::log_dir()`
+  (`config_dir.rs`), stesso schema di `RuntimeConfig::log_dir()` nell'orchestrator. Ogni
+  `println!`/`eprintln!` rimasto in `main.rs` e `launcher.rs` convertito meccanicamente
+  (`println!` → `tracing::info!`, `eprintln!` → `tracing::warn!`, testo del messaggio invariato) —
+  effetto collaterale positivo: un fallimento del self-heal, prima invisibile in release, ora
+  arriva nel log su file, sempre.
+- **Via il thread "digita 'q' per uscire"** (`main.rs`, blocco `#[cfg(debug_assertions)]` +
+  funzione `is_quit_command` + i suoi 2 test): obsoleto dal fix precedente (2.2.1) che lega già la
+  chiusura della finestra terminale alla terminazione pulita del processo — un secondo modo di
+  uscire (stdin interattivo) non serve più, e in ogni caso `ui.exe` non ha più stdin da leggere
+  (nessuna console, vedi sopra).
+
 ## 2.2.1 — 2026-09-07 — fix: chiusura finestra terminale termina pty child + intero processo
 
 Difetto trovato dal controllore con e2e dal vivo (screenshot): chiudendo la finestra terminale

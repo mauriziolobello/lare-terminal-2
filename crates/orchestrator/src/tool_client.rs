@@ -667,6 +667,38 @@ impl McpToolClient {
         let mcp_server_path = startup_config::StartupConfig::resolve_path(config_dir, &cfg.paths.mcp_server);
         Self::new(mcp_server_path, config_dir.to_path_buf())
     }
+
+    /// Costruisce il `Command` per lanciare `mcp-server.exe` (lazy-connect al
+    /// primo uso di un qualsiasi tool). Un solo posto che sa come si spawna
+    /// mcp-server — prima erano 6 copie quasi identiche, una per ogni punto di
+    /// lazy-connect (`run_in_session`, `open_target`, `search_routines`,
+    /// `run_routine`, `get_routine_content`, `save_routine`).
+    ///
+    /// `stderr` va su file (`<config_dir>/logs/mcp-server.log`, append) invece
+    /// che ereditata dal genitore: l'orchestrator, quando è staccato (self-heal,
+    /// piano 3), non ha una console da cui `inherit()` possa ereditare qualcosa
+    /// di utile — un `inherit()` in quel caso o non va da nessuna parte, o (fix
+    /// di questo task) fa allocare a Windows una console NUOVA, visibile
+    /// all'utente come finestra spuria. `CREATE_NO_WINDOW` sopprime quella
+    /// finestra; il file di log sostituisce la visibilità che l'utente perde.
+    fn mcp_server_command(&self) -> tokio::process::Command {
+        let mut c = tokio::process::Command::new(&self.mcp_server_path);
+        c.arg(startup_config::CONFIG_DIR_FLAG).arg(&self.config_dir);
+        // usa la stessa cartella "logs" di default dell'orchestrator; se
+        // log.dir e' personalizzato in startup.json questo file resta comunque qui
+        c.stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(startup_config::child_stderr_log_sink(
+                &self.config_dir.join("logs"),
+                "mcp-server.log",
+            ));
+        // `tokio::process::Command::creation_flags` è un metodo inerente (a
+        // differenza di `std::process::Command`, dove serve importare
+        // `CommandExt`) — nessun import extra necessario qui.
+        #[cfg(windows)]
+        c.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+        c
+    }
 }
 
 #[async_trait]
@@ -689,18 +721,7 @@ impl ToolClient for McpToolClient {
 
         // ── Lazy-connect on first call ─────────────────────────────────────────
         if peer_guard.is_none() {
-            let child_cmd = {
-                let mut c = tokio::process::Command::new(&self.mcp_server_path);
-                // `--config-dir`: nessuna env var (D6) — mcp-server risolve la
-                // sua config dalla STESSA cartella dell'orchestrator, passata
-                // esplicitamente come argomento (Task 3/Task 4 dello spec 2.0).
-                c.arg(startup_config::CONFIG_DIR_FLAG).arg(&self.config_dir);
-                // Stdin/stdout are the MCP wire; stderr is for logs (inherited).
-                c.stdin(std::process::Stdio::piped())
-                    .stdout(std::process::Stdio::piped())
-                    .stderr(std::process::Stdio::inherit());
-                c
-            };
+            let child_cmd = self.mcp_server_command();
 
             let transport = match TokioChildProcess::new(child_cmd) {
                 Ok(t) => t,
@@ -910,14 +931,7 @@ impl ToolClient for McpToolClient {
 
         // ── Lazy-connect (mirrors run_in_session) ─────────────────────────────
         if peer_guard.is_none() {
-            let child_cmd = {
-                let mut c = tokio::process::Command::new(&self.mcp_server_path);
-                c.arg(startup_config::CONFIG_DIR_FLAG).arg(&self.config_dir);
-                c.stdin(std::process::Stdio::piped())
-                    .stdout(std::process::Stdio::piped())
-                    .stderr(std::process::Stdio::inherit());
-                c
-            };
+            let child_cmd = self.mcp_server_command();
 
             let transport = match TokioChildProcess::new(child_cmd) {
                 Ok(t) => t,
@@ -1007,14 +1021,7 @@ impl ToolClient for McpToolClient {
         let mut handler_guard = self.handler.lock().await;
 
         if peer_guard.is_none() {
-            let child_cmd = {
-                let mut c = tokio::process::Command::new(&self.mcp_server_path);
-                c.arg(startup_config::CONFIG_DIR_FLAG).arg(&self.config_dir);
-                c.stdin(std::process::Stdio::piped())
-                    .stdout(std::process::Stdio::piped())
-                    .stderr(std::process::Stdio::inherit());
-                c
-            };
+            let child_cmd = self.mcp_server_command();
 
             let transport = match TokioChildProcess::new(child_cmd) {
                 Ok(t) => t,
@@ -1098,14 +1105,7 @@ impl ToolClient for McpToolClient {
         let mut handler_guard = self.handler.lock().await;
 
         if peer_guard.is_none() {
-            let child_cmd = {
-                let mut c = tokio::process::Command::new(&self.mcp_server_path);
-                c.arg(startup_config::CONFIG_DIR_FLAG).arg(&self.config_dir);
-                c.stdin(std::process::Stdio::piped())
-                    .stdout(std::process::Stdio::piped())
-                    .stderr(std::process::Stdio::inherit());
-                c
-            };
+            let child_cmd = self.mcp_server_command();
 
             let transport = match TokioChildProcess::new(child_cmd) {
                 Ok(t) => t,
@@ -1243,14 +1243,7 @@ impl ToolClient for McpToolClient {
         let mut handler_guard = self.handler.lock().await;
 
         if peer_guard.is_none() {
-            let child_cmd = {
-                let mut c = tokio::process::Command::new(&self.mcp_server_path);
-                c.arg(startup_config::CONFIG_DIR_FLAG).arg(&self.config_dir);
-                c.stdin(std::process::Stdio::piped())
-                    .stdout(std::process::Stdio::piped())
-                    .stderr(std::process::Stdio::inherit());
-                c
-            };
+            let child_cmd = self.mcp_server_command();
 
             let transport = match TokioChildProcess::new(child_cmd) {
                 Ok(t) => t,
@@ -1379,14 +1372,7 @@ impl ToolClient for McpToolClient {
         let mut handler_guard = self.handler.lock().await;
 
         if peer_guard.is_none() {
-            let child_cmd = {
-                let mut c = tokio::process::Command::new(&self.mcp_server_path);
-                c.arg(startup_config::CONFIG_DIR_FLAG).arg(&self.config_dir);
-                c.stdin(std::process::Stdio::piped())
-                    .stdout(std::process::Stdio::piped())
-                    .stderr(std::process::Stdio::inherit());
-                c
-            };
+            let child_cmd = self.mcp_server_command();
 
             let transport = match TokioChildProcess::new(child_cmd) {
                 Ok(t) => t,
@@ -1494,6 +1480,34 @@ mod tests {
         let c = McpToolClient::resolve(std::path::Path::new("C:/Lare/Configuration"), &cfg);
         assert_eq!(c.mcp_server_path, std::path::Path::new("C:/Lare").join("mcp-server.exe"));
         assert_eq!(c.config_dir, std::path::PathBuf::from("C:/Lare/Configuration"));
+    }
+
+    /// `mcp_server_command()` fattorizza i 6 spawn identici (uno per punto di
+    /// lazy-connect) in un solo metodo. `creation_flags`/`Stdio` non sono
+    /// ispezionabili da un test (nessuna API pubblica di `std`/`tokio` li
+    /// espone in lettura) — questo test si limita a ciò che è ispezionabile:
+    /// eseguibile e argomenti.
+    ///
+    /// `config_dir` DEVE essere una tempdir reale, non un literal fisso tipo
+    /// "C:/Lare/Configuration": costruire il `Command` chiama
+    /// `child_stderr_log_sink`, che fa I/O reale (`create_dir_all` + apre un
+    /// file) su `config_dir/logs/mcp-server.log` — con un literal creava
+    /// davvero quella cartella sul filesystem del dev/CI a ogni test run
+    /// (bug scoperto dal vivo rieseguendo la suite dopo questo fix).
+    #[test]
+    fn mcp_server_command_usa_l_eseguibile_e_il_config_dir_giusti() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let c = McpToolClient::new(
+            std::path::PathBuf::from("C:/Lare/mcp-server.exe"),
+            tmp.path().to_path_buf(),
+        );
+        let cmd = c.mcp_server_command();
+        assert_eq!(cmd.as_std().get_program(), "C:/Lare/mcp-server.exe");
+        let args: Vec<_> = cmd.as_std().get_args().collect();
+        assert_eq!(
+            args,
+            vec![std::ffi::OsStr::new(startup_config::CONFIG_DIR_FLAG), tmp.path().as_os_str()]
+        );
     }
 
     // ── FakeToolClient: progress_tx forwarding ───────────────────────────────

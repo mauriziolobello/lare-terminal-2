@@ -9,18 +9,18 @@
 2.1.0, non toccato da questo piano)
 
 - protocol 2.1.0 (da v1 0.15.4)
-- startup-config 2.0.3 (da v1 0.1.0; `spawn_detached` piano 3 Task 3 — bump chiuso in Task 7,
-  era rimasto `[Unreleased]` nel CHANGELOG)
+- startup-config 2.0.4 (da v1 0.1.0; `spawn_detached` piano 3 Task 3; 2.0.4 — modulo `logging`
+  condiviso + stdio chiuse + `child_stderr_log_sink`, fix finestre console spurie)
 - mcp-server 2.0.1 (da v1 0.7.1)
 - mcp-nmap 2.0.0 (da v1 0.8.2)
-- orchestrator 2.2.0 (da v1 0.41.21)
+- orchestrator 2.2.1 (da v1 0.41.21; 2.2.1 — `CREATE_NO_WINDOW` sui figli + stderr su file)
 - plugin-protocol 2.0.0 (da v1 0.2.1)
 - plugin-ping 2.0.0 (da v1 0.1.0)
 - plugin-counter 2.0.0 (da v1 0.1.0)
 - plugin-calc 2.0.0 (da v1 0.2.0)
 - plugin-lc 2.0.0 (da v1 0.4.5)
 - plugin-crypto 2.0.0 (da v1 1.0.1)
-- ui 2.2.1 (da v1 0.47.1)
+- ui 2.2.2 (da v1 0.47.1; 2.2.2 — niente console mai, log su file, via il thread "q")
 - lare-shell 2.0.1 (piano 2b 2.0.0 → 2.0.1 nel piano 3, Task 3: `Launcher.EnsureUi()` passa
   `--no-terminal` — non un crate Cargo: `shell/lare-shell/`, .NET/C#)
 
@@ -208,6 +208,19 @@ di `TESTING-e2e.md` (`/calc`, `/config`/`/library` e i pulsanti della barra, `/a
 avvio senza autostart, resize) — la parte sostanziale (self-heal, OSC 9001, ActivityIndicator, un
 turno `/ai` reale, chiusura finestra, autostart di `ui.exe` dall'orchestratore, bottone "riavvia")
 è stata eseguita dal vivo dal controller ed è OK, vedi la nota in testa a quella sezione.
+
+- **Fix finestre console spurie + log su file (dopo il piano 3, richiesta diretta di Maurizio da
+  uso reale)** — tre richieste: (1) niente più finestre console spurie né all'avvio (plugin
+  sidecar) né al primo uso di un tool (`mcp-server`/`mcp-nmap`/python), né la console di debug di
+  `ui.exe` (ora incondizionata via `windows_subsystem = "windows"`, prima solo in release); (2) log
+  di `ui.exe` su file (`Configuration/logs/ui.log.<data>`, prima assente — solo `println!`/
+  `eprintln!`), stesso modulo `startup_config::logging` condiviso con l'orchestrator (spostato lì
+  da `orchestrator/src/logging.rs`); (3) via il thread di debug "digita 'q' per uscire", obsoleto
+  dal fix di chiusura finestra del piano 3. `CREATE_NO_WINDOW` su 9 spawn lato orchestrator
+  (mcp-server ×6 fattorizzati in un metodo, mcp-nmap, python, plugin sidecar, +2 `taskkill`), il
+  loro stderr ora su file invece di `inherit()` verso il nulla. Verificato dal vivo (enumerazione
+  UIA): una sola finestra top-level "Lare Terminal" prima e dopo l'uso dell'app. Versioni
+  startup-config 2.0.3→2.0.4, orchestrator 2.2.0→2.2.1, ui 2.2.1→2.2.2.
 
 ## DA FARE
 

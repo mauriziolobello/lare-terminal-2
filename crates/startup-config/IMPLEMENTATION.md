@@ -1,6 +1,31 @@
-# Implementation — startup-config v2.0.3
+# Implementation — startup-config v2.0.4
 
-## `spawn_detached` — un solo posto che sa staccare un processo (v2.0.3)
+## Modulo `logging` condiviso + `child_stderr_log_sink` (v2.0.4, fix da uso reale)
+
+Spostato qui da `orchestrator/src/logging.rs` (unico consumatore all'epoca): `ui.exe` aveva
+bisogno della stessa infrastruttura (init di `tracing` panic-free su file, mai un `.expect()`
+interno che potrebbe far crashare un demone avviato in autostart) e `startup-config` è già
+dipendenza di entrambi. Unico cambio all'API: `open_log_file`/`init_logging` prendono ora un
+`filename_prefix: &str` esplicito invece di avere `"orchestrator.log"` hardcoded — ogni chiamante
+ottiene il proprio file (`orchestrator.log.<data>`, `ui.log.<data>`) nella stessa cartella
+`Configuration/logs/`. Il resto del ragionamento (perché `open_log_file` è pura rispetto al
+subscriber globale, perché `RollingFileAppender::builder().build()` invece di
+`rolling::daily(...)` per evitare il panic interno) è invariato, vedi il doc-comment del modulo.
+
+`child_stderr_log_sink(log_dir: &Path, file_name: &str) -> std::process::Stdio`: apre (creando la
+cartella se serve) un file di log in append, best-effort (`Stdio::null()` su qualunque errore —
+perdere il log dello stderr di un figlio non deve mai impedirgli di partire). Riusata da 4 punti
+di spawn in `orchestrator` (`tool_client.rs`, `nmap_tool_client.rs`,
+`python_mcp_tool_client.rs`, `plugins/transport.rs`) che prima usavano `Stdio::inherit()` — verso
+un orchestrator staccato (self-heal), `inherit()` non andava da nessuna parte di osservabile, o
+(la causa delle finestre console spurie che questo fix elimina) faceva allocare a Windows una
+console NUOVA per il figlio. Vedi il CHANGELOG di `orchestrator` 2.2.1 per il quadro completo.
+
+## `spawn_detached` — un solo posto che sa staccare un processo (v2.0.3, stdio chiuse dal v2.0.4)
+
+`spawn_detached` chiude ora esplicitamente le tre stdio del figlio (`Stdio::null()`) — richiesto
+da spec §6.4 ("stdio chiusi"), mancante fino al v2.0.4. Il branch `#[cfg(not(windows))]` resta
+invariato (non verificato fuori Windows, ADR-019).
 
 Piano `Docs/i18n/ita/superpowers/plans/2026-09-07-piano-3-finestra-terminale.md` Task 3, spec
 §6.4. `spawn_detached(exe: &Path, args: &[String]) -> std::io::Result<Child>`: su Windows,

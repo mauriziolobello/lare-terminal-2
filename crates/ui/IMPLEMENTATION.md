@@ -1,4 +1,33 @@
-# Implementation — crates/ui v2.2.1
+# Implementation — crates/ui v2.2.2
+
+## Niente console, log su file, via il thread "q" (v2.2.2, fix da uso reale)
+
+Tre cambiamenti in `main.rs`/`config_dir.rs`/`launcher.rs`, vedi CHANGELOG 2.2.2 per il perché
+(finestre console spurie osservate in uso reale con Windows Terminal come terminale predefinito):
+
+- **`#![windows_subsystem = "windows"]` incondizionato** (prima `#[cfg_attr(not(debug_assertions),
+  ...)]`, quindi presente solo in release): ora `ui.exe` non ha mai una console, nemmeno in debug.
+  Necessario perché i processi figli console-subsystem che l'orchestrator spawna in self-heal
+  (mcp-server/mcp-nmap/python, vedi il fix `CREATE_NO_WINDOW` gemello in `orchestrator` 2.2.1)
+  erediterebbero altrimenti la console di `ui.exe` se ne avesse una.
+- **Logging su file**: `startup_config::logging::init_logging(&cfg_state.log_dir(), "ui.log",
+  &cfg_state.startup.log.level, false)` chiamato in `main()` subito dopo
+  `ConfigDirState::from_process()`, PRIMA di ogni altro uso di `println!`/`eprintln!` (che infatti
+  non esistono più in questo file — vedi sotto). `_log_guard` è una variabile locale di `main()`,
+  viva per tutta la funzione (spostarla dentro `.setup()` la farebbe droppare troppo presto,
+  interrompendo il flush del writer non bloccante — la closure di `.setup()` ritorna prima che
+  `app.run(...)` finisca). `console: false` sempre (a differenza dell'orchestrator, che con
+  `--console-log` logga anche su stderr): `ui.exe` non ha mai una console da cui farlo. Nuovo
+  `ConfigDirState::log_dir()` in `config_dir.rs`, stesso schema di `RuntimeConfig::log_dir()`
+  nell'orchestrator (`StartupConfig::resolve_path(&self.config_dir, &self.startup.log.dir)`).
+  Ogni `println!`/`eprintln!` rimasto in `main.rs` e `launcher.rs` (16 punti in `main.rs`, 6 in
+  `launcher.rs`) convertito meccanicamente: `println!` → `tracing::info!`, `eprintln!` →
+  `tracing::warn!`, testo del messaggio invariato (incluso il prefisso `[ui]`/`[archive]`).
+- **Via il thread "digita 'q' per uscire"** (era `#[cfg(debug_assertions)]`, vedi il blockquote
+  v0.36.3 più sotto, ora superato): obsoleto dal fix v2.2.1 (chiudere la finestra terminale già
+  termina il processo pulito) — un secondo modo di uscire da stdin non serve più, e comunque
+  `ui.exe` non ha più stdin da leggere (nessuna console, punto sopra). Rimossi `is_quit_command` e
+  i suoi 2 test insieme al blocco.
 
 ## Finestra terminale: `pty.rs`, `launcher.rs`, `terminal.js` (v2.2.0, fix v2.2.1)
 
@@ -2189,6 +2218,9 @@ cooldown + re-request, timeout → ammesso, un pending non riesce a mandare mess
 > `"Failed to unregister class Chrome_WidgetWin_0"` che appariva interrompendo con
 > Ctrl+C. Backend: `orchestrator` 0.25.6 (stesso affordance, via `CancellationToken`
 > su `ws::serve`).
+>
+> **RIMOSSO in v2.2.2**: obsoleto dal fix v2.2.1 (chiudere la finestra terminale già
+> termina il processo pulito) — vedi la sezione in cima a questo file.
 
 > v0.36.2: **Titolo finestra-chat con la propria etichetta.** `aichat-view.mjs`:
 > `chatWindowTitle(selfLabel)` (pura, 2 test `node:test`) — `"AICHAT - <label>"` o solo
@@ -3965,6 +3997,9 @@ stesso pattern di `orchestrator/src/main.rs`'s `tracing::info!("Lare
 Terminal orchestrator v{} starting", ws::VERSION)`, ma senza introdurre un
 `VERSION` const dedicato (usato in un solo punto qui, a differenza di
 `ws::VERSION` che alimenta anche `ServerMsg::ServerInfo`).
+
+> Dal v2.2.2: quel `println!` è diventato `tracing::info!` (log su file, vedi la
+> sezione in cima a questo file) — stesso testo, stessa posizione in `setup()`.
 
 ## `archive::update` — sovrascrittura in-place (0.45.20)
 

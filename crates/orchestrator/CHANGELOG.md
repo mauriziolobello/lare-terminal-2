@@ -5,6 +5,41 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), versioning: [S
 
 ---
 
+## 2.2.1 — 2026-09-08 — CREATE_NO_WINDOW sui figli + stderr su file (fix da uso reale)
+
+Sopprime le finestre console spurie osservate dall'utente in uso reale (Windows Terminal come
+terminale predefinito: un processo console-subsystem senza console da ereditare — sempre il caso
+dei figli spawnati da un orchestrator staccato, self-heal — si vede allocare da Windows una
+console NUOVA, che con WT come default finisce come scheda/finestra WT spuria).
+
+- **Modulo `logging` spostato in `startup-config`** (`startup_config::logging`), parametrizzato
+  sul prefisso del nome file (`filename_prefix`) invece di `"orchestrator.log"` hardcoded — riusato
+  ora anche da `ui.exe` (vedi CHANGELOG di `ui` 2.2.2). `crates/orchestrator/src/logging.rs`
+  eliminato; `main.rs` chiama `startup_config::logging::init_logging(&rt.log_dir(),
+  "orchestrator.log", &rt.startup.log.level, console)`.
+- **`CREATE_NO_WINDOW` (0x0800_0000)** su tutti gli spawn di processi figli console-subsystem:
+  `mcp-server.exe` (6 punti di lazy-connect in `tool_client.rs`, fattorizzati in un solo metodo
+  privato `McpToolClient::mcp_server_command()`), `mcp-nmap.exe` (`nmap_tool_client.rs`), i tool
+  Python (`python_mcp_tool_client.rs`), i plugin sidecar (`plugins/transport.rs::spawn_plugin`) —
+  più i due `taskkill` di `RealProcessTreeKiller`/`RealProcessKiller` nello stesso stile. 9 spawn
+  in tutto.
+- **Stderr di questi figli ora su file** (`<config_dir>/logs/mcp-server.log`, `mcp-nmap.log`,
+  `python-tools.log`, `plugins.log` — append, best-effort) invece di `inherit()`: verso un
+  orchestrator staccato, `inherit()` non andava da nessuna parte di osservabile (o, prima di
+  questo fix, causava l'allocazione della console spuria). Nuova funzione pubblica
+  `startup_config::child_stderr_log_sink(log_dir, file_name) -> Stdio`, un solo posto per i 4
+  punti di spawn che ne avevano bisogno.
+- `spawn_detached` (`startup-config`, invariato nella causa del bug — vedi sopra: `DETACHED_PROCESS`
+  ignora `CREATE_NO_WINDOW` per documentazione Microsoft, non andava toccato): ora chiude
+  esplicitamente le tre stdio del figlio (`Stdio::null()`), come richiesto da spec §6.4 ("stdio
+  chiusi") — prima le lasciava ereditare qualcosa di indefinito dal padre.
+- Nuovi test: `mcp_server_command_usa_l_eseguibile_e_il_config_dir_giusti` (tool_client.rs);
+  `open_log_file_usa_il_prefisso_passato_nel_nome_del_file` (startup-config, verifica che il
+  prefisso sia davvero usato nel nome del file, non solo che *un* file venga creato).
+- Verifica dal vivo (non automatizzabile — vedi `Docs/i18n/ita/TESTING-e2e.md` Parte 3): enumerazione
+  UIA delle top-level window prima/dopo l'avvio e prima/dopo l'uso di un tool — una sola finestra
+  "Lare Terminal", nessuna finestra/scheda WT/console aggiuntiva.
+
 ## 2.2.0 — 2026-09-07 — autostart di `ui.exe` quando manca il sink (piano 3, Task 6)
 
 Chiude l'ultimo lato dell'autostart reciproco previsto dallo spec §6.4: fino a questo task solo
