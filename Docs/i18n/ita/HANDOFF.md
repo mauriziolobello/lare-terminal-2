@@ -232,7 +232,17 @@ turno `/ai` reale, chiusura finestra, autostart di `ui.exe` dall'orchestratore, 
   solo di singola pagina): un unico store dati condiviso fra le pagine del progetto; dove/come si
   aprono le pagine di un progetto insieme (posizionamento multi-monitor, ricordato per progetto);
   tempo reale e schedulato come due meccanismi di aggiornamento distinti dichiarati dal progetto.
-  Da studiare più avanti.
+  **Estensione (2026-09-08, più avanti nella giornata) — descritto da un prompt, consapevole
+  degli strumenti, versionato a "release"**: il progetto nasce da un PROMPT; l'AI conosce il
+  proprio parco strumenti (pagine web client, SQLite, Python, lo scheduler — "altro?", elenco
+  ancora da fare) e deve risolvere il progetto solo con quelli, avvisando esplicitamente
+  l'utente di cosa manca se non ci riesce, invece di fare un lavoro parziale in silenzio. Il
+  prompt è pensato per crescere nel tempo: in place, oppure come nuova "release" del progetto
+  (parola di Maurizio) quando modificare il progetto base è impraticabile/rischioso — a
+  richiesta dell'utente o su suggerimento della AI stessa. Meccanismo: l'AI ha il vecchio
+  prompt, l'utente aggiunge le nuove caratteristiche desiderate, l'AI combina i due e costruisce
+  il nuovo progetto pescando dal vecchio tutto quello che può ancora servire (dati, pagine, job
+  schedulati ancora validi), non da zero. Da studiare più avanti.
 - **Idea (Maurizio, 2026-09-08) — `show_markdown` chiamato più volte in un turno dovrebbe
   aggiornare la STESSA finestra, non aprirne una nuova.** Bug reale trovato dal vivo (piano 3):
   un turno `/ai` lungo con ricerca web può portare il modello a richiamare `show_markdown` più
