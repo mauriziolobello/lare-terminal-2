@@ -10,7 +10,8 @@ vince — segnala il conflitto nel tuo report finale (sezione 9) invece di ignor
 
 ## TL;DR (se riesci a leggere solo questo)
 
-1. Lavora sempre su un branch dedicato, mai su `main`.
+1. Lavora sempre in una **worktree dedicata** (mai nel checkout principale) su un branch dedicato,
+   mai su `main` — altre AI possono lavorare in parallelo sullo stesso repository (sezione 6).
 2. TDD vero: test che fallisce PRIMA del codice, eseguito davvero, non a memoria.
 3. Commenti prodighi, didattici, **in italiano**.
 4. `CHANGELOG.md` + `IMPLEMENTATION.md` del crate + `HANDOFF.md` aggiornati nello **stesso commit**
@@ -44,7 +45,11 @@ del progetto) sta operando è:
 
 Questo significa concretamente:
 
-- **Non lavori mai su `main`.** Crea sempre un branch dedicato al tuo compito (sezione 6).
+- **Non lavori mai su `main`, e non lavori mai nel checkout principale del repository.** Crea
+  sempre una worktree dedicata + branch dedicato al tuo compito, PRIMA di toccare qualunque file
+  (sezione 6) — altre AI possono lavorare in parallelo sullo stesso repository nello stesso
+  momento, e senza una worktree separata i vostri lavori si mescolano per davvero (è già successo
+  in questo stesso progetto).
 - **I tuoi commit sono materiale di lavoro, non la parola definitiva.** Committa spesso, in
   passi piccoli e leggibili — è quello che rende possibile la revisione, non un problema da
   evitare.
@@ -82,6 +87,9 @@ disposizione, perché cambiano come lavori:
   eseguire comandi, fare commit senza limiti artificiali. Segui tutte le sezioni seguenti alla
   lettera, e ricorda che "accesso pieno" non vuol dire "scope pieno" — resta comunque dentro il
   compito assegnato (sezione 7), l'accesso ampio serve per CAPIRE il contesto, non per estenderlo.
+  **Prima cosa da fare, prima di leggere qualunque altra sezione**: crea la tua worktree dedicata
+  (sezione 6) — Maurizio può aver assegnato un compito diverso a un'altra AI nello stesso momento,
+  sullo stesso repository, e senza una worktree separata i vostri checkout si sovrappongono.
 - **Accesso al repository ma NON a una shell/git** (puoi leggere e scrivere file, ma non eseguire
   comandi). Fai lo stesso lavoro di lettura/scrittura file descritto sotto; per tutto ciò che
   richiederebbe un comando (build, test, commit), scrivi nel report finale (sezione 9) esattamente
@@ -290,9 +298,36 @@ davvero.** Se il tuo ambiente non ti permette di eseguire uno di questi comandi 
 niente accesso shell, niente Rust/dotnet/Python installato), scrivilo esplicitamente nel report
 finale — il supervisore eseguirà lui quella verifica, ma deve sapere che non l'hai fatta tu.
 
-## 6. Git — branch, commit, cosa non fare mai
+## 6. Git — worktree, branch, commit, cosa non fare mai
 
-- **Crea sempre un branch dedicato** prima di modificare qualunque file, con un nome descrittivo
+- **Crea sempre una worktree dedicata, PRIMA di toccare qualunque file — mai lavorare nel
+  checkout principale del repository.** Motivo concreto, non teorico: Maurizio può assegnare
+  compiti diversi a più AI nello stesso momento, sullo stesso repository. Un checkout ha UN solo
+  branch attivo alla volta — se lavori nel checkout principale (o in una worktree che non è solo
+  tua), un `git checkout`/`git switch` tuo o di un'altra AI sposta la working directory di
+  chiunque altro ci stia lavorando sotto un branch che non è il suo, e un `git commit` (specie
+  `git add -A`/`git commit -a`) può finire per inglobare file modificati da un compito che non è
+  il tuo — è già successo per davvero in questo stesso repository, al supervisore stesso, due
+  volte nella stessa giornata. Comandi (adatta se il tuo strumento richiede sintassi diversa):
+  ```bash
+  git worktree add .worktrees/<nome-branch> -b <tipo>/<nome-branch>
+  cd .worktrees/<nome-branch>
+  ```
+  (`.worktrees/` è già nel `.gitignore` di questo repository — verificato). Usa come `<nome-branch>`
+  qualcosa di univoco per il TUO compito, non un nome generico che un'altra AI potrebbe scegliere
+  anche lei (es. `fix/nome-breve-del-problema`, `feat/nome-breve-della-feature` — lo stesso nome
+  che useresti comunque per il branch, sezione successiva). Lavora ESCLUSIVAMENTE dentro quella
+  cartella per l'intera durata del compito: build, test, commit, tutto lì, mai risalendo alla
+  cartella del repository principale. Nel report finale (sezione 9), indica il percorso della tua
+  worktree, non solo il nome del branch.
+- Se il tuo strumento non supporta `git worktree` (o non hai una shell — vedi sezione 1, secondo
+  caso), non puoi creare una worktree: dillo esplicitamente nel report finale, e limitati a
+  descrivere le modifiche di file senza eseguire comandi git — NON lavorare nel checkout
+  principale come ripiego silenzioso.
+- **Non rimuovere la tua worktree a compito finito** (`git worktree remove`) — la rimuove il
+  supervisore dopo aver revisionato e mergiato (o scartato) il tuo lavoro, così può ispezionarla
+  com'era senza doverla ricreare.
+- **Crea sempre un branch dedicato** (dentro la worktree appena creata) con un nome descrittivo
   del compito (es. `fix/nome-breve-del-problema`, `feat/nome-breve-della-feature`). Non lavorare
   mai direttamente su `main`.
 - **Commit piccoli e frequenti**, uno per passo logico completato e verificato (test verde dopo
@@ -390,8 +425,9 @@ riscontro utile in più, ma va incollato ANCHE quello, non al posto dell'elenco.
 pieno alle cartelle del progetto, includi qui anche qualunque file toccato fuori dall'area
 principale del compito, con una riga sul perché)
 
-### Branch e commit
-(nome del branch; `git log --oneline <branch-base>..<tuo-branch>`)
+### Worktree, branch e commit
+(percorso della tua worktree dedicata; nome del branch;
+`git log --oneline <branch-base>..<tuo-branch>`)
 
 ### Esito reale dei comandi di verifica
 (incolla l'output VERO dei comandi di sezione 5 che hai davvero eseguito — non un riassunto.
@@ -422,6 +458,8 @@ concentrare la propria verifica)
       finto per qualcosa che fa I/O reale.
 - [ ] Codice specifico di Windows è sotto `#[cfg(windows)]` con un ramo `#[cfg(not(windows))]`.
 - [ ] Ho eseguito DAVVERO i comandi di build/test/lint pertinenti e ne riporto l'esito vero.
+- [ ] Ho creato una worktree dedicata PRIMA di toccare qualunque file, e ho lavorato solo lì
+      dentro — mai nel checkout principale del repository.
 - [ ] Ho lavorato su un branch dedicato, mai su `main`.
 - [ ] I miei commit sono piccoli, frequenti, con un trailer (o tag `[NomeAI]`) che mi identifica
       come AI non-Claude.
@@ -442,6 +480,16 @@ Questa sezione non è per l'AI che riceve il compito — è un promemoria per te
 compito e cosa allegare, perché il documento da solo non basta: un'AI senza il contesto giusto
 produrrà codice corretto nelle regole ma cieco alle convenzioni specifiche del punto che tocca, e
 questo si traduce in più lavoro di revisione per Claude, non meno — che è l'opposto dell'obiettivo.
+
+**Lavoro concorrente di più AI (confermato 2026-09-09):** puoi assegnare compiti diversi a più AI
+esterne nello stesso momento, sullo stesso repository — il documento ora lo prevede esplicitamente
+(sezione 1/6): ogni AI crea la propria worktree dedicata (`.worktrees/<nome-branch>`, già nel
+`.gitignore`) prima di toccare qualunque file, e lavora solo lì dentro. Senza questa regola i
+checkout si sovrappongono per davvero (già successo in questo stesso repository al supervisore
+due volte in una giornata: un `git checkout` o un `git commit -a` di un lavoro finisce per
+inglobare i file non ancora committati di un altro). Quando revisioni/mergi il lavoro di un'AI,
+la worktree resta lì finché non la rimuovi tu (`git worktree remove <percorso>`) — non è l'AI a
+pulirla.
 
 **Processo che stai usando (confermato 2026-09-08):** dai all'AI esterna accesso pieno alle
 cartelle del progetto (non solo all'area del compito — glielo dici esplicitamente, è quello che
