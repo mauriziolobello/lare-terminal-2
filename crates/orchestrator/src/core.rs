@@ -107,7 +107,7 @@ pub const WINDOW_SLASHES: &[&str] = &["help", "show"];
 //
 // Keep in sync with the actual commands supported by handle_slash + shell_slash (2.0).
 
-const HELP_MARKDOWN: &str = r#"# Lare — Comandi
+const HELP_MARKDOWN_IT: &str = r#"# Lare — Comandi
 
 Scrivi i comandi `/…` nella riga di comando di Lare Terminal (la tua sessione PowerShell).
 L'esito di ogni comando slash compare in una finestra; nel terminale resta una riga di conferma.
@@ -135,6 +135,36 @@ L'esito di ogni comando slash compare in una finestra; nel terminale resta una r
 ## Tutto il resto
 - Qualunque riga che non inizia con `/` è PowerShell, come sempre.
 - Uno slash sconosciuto viene ignorato in silenzio.
+"#;
+
+const HELP_MARKDOWN_EN: &str = r#"# Lare — Commands
+
+Type `/…` commands in the Lare Terminal command line (your PowerShell session).
+The result of each slash command appears in a window; a confirmation line remains in the terminal.
+
+## AI
+- `/ai "prompt"` or `/ "prompt"` — AI answers and executes commands **in your shell**
+  (each proposed command asks for `[Y/n]` confirmation before running). Quotes are required.
+
+## Commands
+- `/help` — this window.
+- `/ping` — check Lare layers (lare-shell, orchestrator, plugin-ping, ui.exe).
+- `/config` — configuration (appearance, web search, AI, markets).
+- `/library` — archive of saved documents (reopenable).
+- `/aichat` — AI Chat (communication between networked Lare machines, with AI participation).
+- `/open <target>` — open a URL, folder, or file with the default app.
+- `/web <query>` — search the query in the default browser.
+- `/show <markdown>` — open a window with the given Markdown.
+- `/calc` — calculator (plugin).
+
+## External tools (dedicated window)
+- `/markets` — financial market tools (ticker search, stock report, symbol list, screener).
+- `/nmap` — network scanning tools (quick scan, OS/version detection, host discovery, vulnerability scan).
+- `/pyping` — test channel for the Python tool infrastructure (message echo).
+
+## Everything else
+- Any line that does not start with `/` is PowerShell, as always.
+- An unknown slash command is silently ignored.
 "#;
 
 /// Handle a single client `Command`, emitting all response messages on `tx`.
@@ -197,7 +227,7 @@ pub async fn handle_command(
             // `cwd.unwrap_or("")` → empty string when cwd is unknown, which
             // makes `resolve_open_target` leave relative targets verbatim
             // (safe for URLs and absolute paths; same as pre-Task-4 for relative).
-            for m in handle_slash(id, input, tools, cwd.unwrap_or("")).await {
+            for m in handle_slash(id, input, tools, cwd.unwrap_or(""), lang.as_deref()).await {
                 if tx.send(m).is_err() {
                     return;
                 }
@@ -238,7 +268,8 @@ pub async fn handle_command(
 /// orchestrator process directory.  Pass `""` when the cwd is unknown (no
 /// resolution performed — relative targets are passed verbatim, which is the
 /// pre-Task-4 behaviour and is safe for URLs and absolute paths).
-async fn handle_slash(id: &str, input: &str, tools: &dyn ToolClient, cwd: &str) -> Vec<ServerMsg> {
+/// * `lang` — Optional language preference ("it", "en").
+async fn handle_slash(id: &str, input: &str, tools: &dyn ToolClient, cwd: &str, lang: Option<&str>) -> Vec<ServerMsg> {
     // Strip leading `/` (after trim).
     let trimmed = input.trim();
     let without_slash = trimmed.strip_prefix('/').unwrap_or(trimmed);
@@ -376,11 +407,15 @@ async fn handle_slash(id: &str, input: &str, tools: &dyn ToolClient, cwd: &str) 
         // every Command must terminate with Done/Error to close the UI spinner.
         // NOT emitting Done would reintroduce the "spinner bloccato" regression.
         "help" => {
+            let (title, content) = match lang {
+                Some("en") => ("Lare \u{2014} Commands", HELP_MARKDOWN_EN),
+                _ => ("Lare \u{2014} Comandi", HELP_MARKDOWN_IT),
+            };
             vec![
                 ServerMsg::OpenWindow {
-                    title: "Lare \u{2014} Comandi".to_string(),
+                    title: title.to_string(),
                     kind: WindowKind::Help,
-                    content: HELP_MARKDOWN.to_string(),
+                    content: content.to_string(),
                 },
                 ServerMsg::Done {
                     id: id.to_string(),
@@ -1884,9 +1919,78 @@ mod tests {
                 "web" => "/web gatti".to_string(),
                 other => format!("/{other}"),
             };
-            let out = handle_slash("id", &input, &tools, "").await;
+            let out = handle_slash("id", &input, &tools, "", None).await;
             let unknown = out.iter().any(|m| matches!(m, ServerMsg::Error { message, .. } if message.contains("sconosciuto")));
             assert!(!unknown, "/{cmd} risulta sconosciuto a handle_slash: {out:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn slash_help_respects_language_directive() {
+        use protocol::WindowKind;
+
+        async fn run_help_with_lang(lang: Option<&str>) -> Vec<ServerMsg> {
+            let ai = StubAdapter;
+            let tools = FakeToolClient::success("");
+            let mut history = crate::messages_client::ConversationHistory::new();
+            crate::test_support::collect(|tx| {
+                handle_command(
+                    "help-test",
+                    "/help",
+                    CommandKind::Auto,
+                    None,
+                    &mut history,
+                    &ai,
+                    &tools,
+                    None,
+                    None,
+                    false,
+                    lang.map(str::to_string),
+                    None,
+                    None,
+                    tx,
+                )
+            })
+            .await
+        }
+
+        // 1. With lang: Some("en") -> English title and content, NOT Italian
+        let msgs_en = run_help_with_lang(Some("en")).await;
+        assert_eq!(msgs_en.len(), 2);
+        if let ServerMsg::OpenWindow { title, content, kind } = &msgs_en[0] {
+            assert_eq!(*kind, WindowKind::Help);
+            assert!(title.contains("Commands"), "title should contain 'Commands', got {title:?}");
+            assert!(!title.contains("Comandi"), "title should NOT contain 'Comandi', got {title:?}");
+            assert!(content.contains("Commands"), "content should contain 'Commands', got {content:?}");
+            assert!(!content.contains("Comandi"), "content should NOT contain 'Comandi', got {content:?}");
+        } else {
+            panic!("expected OpenWindow at index 0, got {:?}", msgs_en[0]);
+        }
+
+        // 2. With lang: Some("it") -> Italian title and content, NOT English
+        let msgs_it = run_help_with_lang(Some("it")).await;
+        assert_eq!(msgs_it.len(), 2);
+        if let ServerMsg::OpenWindow { title, content, kind } = &msgs_it[0] {
+            assert_eq!(*kind, WindowKind::Help);
+            assert!(title.contains("Comandi"), "title should contain 'Comandi', got {title:?}");
+            assert!(!title.contains("Commands"), "title should NOT contain 'Commands', got {title:?}");
+            assert!(content.contains("Comandi"), "content should contain 'Comandi', got {content:?}");
+            assert!(!content.contains("Commands"), "content should NOT contain 'Commands', got {content:?}");
+        } else {
+            panic!("expected OpenWindow at index 0, got {:?}", msgs_it[0]);
+        }
+
+        // 3. With lang: None -> default Italian
+        let msgs_none = run_help_with_lang(None).await;
+        assert_eq!(msgs_none.len(), 2);
+        if let ServerMsg::OpenWindow { title, content, kind } = &msgs_none[0] {
+            assert_eq!(*kind, WindowKind::Help);
+            assert!(title.contains("Comandi"), "title should contain 'Comandi', got {title:?}");
+            assert!(!title.contains("Commands"), "title should NOT contain 'Commands', got {title:?}");
+            assert!(content.contains("Comandi"), "content should contain 'Comandi', got {content:?}");
+            assert!(!content.contains("Commands"), "content should NOT contain 'Commands', got {content:?}");
+        } else {
+            panic!("expected OpenWindow at index 0, got {:?}", msgs_none[0]);
         }
     }
 }

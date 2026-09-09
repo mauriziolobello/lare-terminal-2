@@ -3,6 +3,17 @@
 All notable changes to this crate are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), versioning: [SemVer](https://semver.org/).
 
+## 2.2.4 — 2026-09-09 — fix: /help ora rispetta la lingua selezionata
+
+- **Comando `/help` internazionalizzato** (`crates/orchestrator/src/core.rs`):
+  - Sdoppiato il contenuto Markdown dell'help nelle costanti `HELP_MARKDOWN_IT` e `HELP_MARKDOWN_EN`,
+    mantenendo esattamente la stessa struttura, i comandi e le sezioni in entrambe le lingue.
+  - Aggiunto il parametro `lang: Option<&str>` a `handle_slash`.
+  - In `handle_command`, propagato `lang.as_deref()` alla chiamata di `handle_slash`.
+  - Nel ramo `"help"` di `handle_slash`, selezionati titolo (`"Lare \u{2014} Commands"` vs `"Lare \u{2014} Comandi"`)
+    e contenuto in base a `lang` con lo stesso criterio di `agent::system_prompt` (`Some("en") => EN, _ => IT`).
+  - Nuovo test TDD `slash_help_respects_language_directive` (verifica RED→GREEN su `en`, `it` e `None`).
+
 ## 2.2.3 — 2026-09-09 — lingua AI e cablaggio lang (i18n Parte 3)
 
 - **Direttiva lingua su `TurnOptions` e `system_prompt()`** (`crates/orchestrator/src/agent.rs`):

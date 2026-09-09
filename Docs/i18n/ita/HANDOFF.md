@@ -12,7 +12,7 @@
   condiviso + stdio chiuse + `child_stderr_log_sink`, fix finestre console spurie)
 - mcp-server 2.0.1 (da v1 0.7.1)
 - mcp-nmap 2.0.1 (da v1 0.8.2; 2.0.1 — codepage OEM per comandi nativi Win32 in network_info.rs, fix mojibake accenti)
-- orchestrator 2.2.3 (da v1 0.41.21; 2.2.3 — direttiva lingua AI su `TurnOptions` e `system_prompt`, cablaggio `lang` da WS e fallback su `config.json`)
+- orchestrator 2.2.4 (da v1 0.41.21; 2.2.4 — fix: /help ora rispetta la lingua selezionata con HELP_MARKDOWN_IT / HELP_MARKDOWN_EN)
 - plugin-protocol 2.0.0 (da v1 0.2.1)
 - plugin-ping 2.0.0 (da v1 0.1.0)
 - plugin-counter 2.0.0 (da v1 0.1.0)
@@ -24,6 +24,14 @@
   `--no-terminal` — non un crate Cargo: `shell/lare-shell/`, .NET/C#)
 
 ## FATTO
+
+- **i18n Fix: /help rispetta la lingua selezionata (2026-09-09)** —
+  Risolto il difetto riscontrato dal vivo in cui `/help` rimaneva in italiano con l'interfaccia in inglese (`Docs/i18n/ita/compiti-ai-esterne/2026-09-09-i18n-fix-help.md`).
+  Sdoppiato il contenuto statico in `HELP_MARKDOWN_IT` e `HELP_MARKDOWN_EN` in `crates/orchestrator/src/core.rs`.
+  Aggiunto parametro `lang: Option<&str>` a `handle_slash` e propagato da `handle_command` (`lang.as_deref()`).
+  Nel ramo `"help"`, selezionati titolo e testo tradotto (`Commands` vs `Comandi`).
+  Nuovo test TDD `slash_help_respects_language_directive` (ciclo RED→GREEN completato e verificato).
+  Tutti i 969 test dell'orchestrator passano; clippy senza warning. Orchestrator bump a 2.2.4.
 
 - **i18n Parte 3 — Lingua dell'AI sul canale cursore (2026-09-09)** —
   Terza fase del piano `Docs/i18n/ita/compiti-ai-esterne/2026-09-08-i18n-programma.md`:
