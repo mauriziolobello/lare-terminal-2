@@ -54,7 +54,7 @@ pub(crate) struct ShellTurnDeps {
 /// Timeout del gate `[Y/n]` sulla shell: come la UI locale v1 (180 s).
 const CONFIRM_TIMEOUT: Duration = Duration::from_secs(180);
 
-/// Punto d'ingresso: consuma il `Command{id, input, cwd, web_search}` di una
+/// Punto d'ingresso: consuma il `Command{id, input, cwd, web_search, lang}` di una
 /// sessione shell. Ritorna appena il lavoro è avviato (i turni girano in
 /// task spawnati): `ws.rs` lo chiama dentro `tokio::spawn`, quindi il loop
 /// della connessione resta libero per `CancelCommand`/`ExecResult`.
@@ -64,6 +64,7 @@ pub(crate) async fn run_shell_command(
     input: String,
     cwd: Option<String>,
     web_search: bool,
+    lang: String,
     cancel: CancellationToken,
 ) {
     // `Command.cwd` = `$PWD` del runspace al momento dell'invio (spec §4.6).
@@ -128,7 +129,7 @@ pub(crate) async fn run_shell_command(
         ShellInput::Nl(text) => {
             let turn_tx = start_turn(&deps, &id, &input).await;
             tokio::spawn(async move {
-                run_ai_turn(deps, id, text, CommandKind::Nl, web_search, cancel, turn_tx).await
+                run_ai_turn(deps, id, text, CommandKind::Nl, web_search, lang, cancel, turn_tx).await
             });
         }
         ShellInput::Backend => {
@@ -140,6 +141,7 @@ pub(crate) async fn run_shell_command(
                     input,
                     CommandKind::Auto,
                     web_search,
+                    lang,
                     cancel,
                     turn_tx,
                 )
@@ -191,12 +193,14 @@ async fn start_turn(deps: &ShellTurnDeps, id: &str, input: &str) -> UnboundedSen
 /// `/ai "…"` (Nl) o comando backend (Auto): `core::handle_command` con il
 /// `ToolClient` della sessione e il gate della shell. La ricerca web vale se
 /// il client l'ha chiesta O se l'utente l'ha attivata in `/config`.
+#[allow(clippy::too_many_arguments)]
 async fn run_ai_turn(
     deps: ShellTurnDeps,
     id: String,
     input: String,
     kind: CommandKind,
     web_search: bool,
+    lang: String,
     cancel: CancellationToken,
     turn_tx: UnboundedSender<ServerMsg>,
 ) {
@@ -209,6 +213,11 @@ async fn run_ai_turn(
     );
     let cwd = deps.shell.cwd().await;
     let web_search = web_search || read_web_search_enabled(&deps.rt.config_dir);
+    let lang = if !lang.trim().is_empty() {
+        Some(lang)
+    } else {
+        crate::shell_slash::read_language(&deps.rt.config_dir)
+    };
     let mut guard = deps.history.lock().await;
     crate::core::handle_command(
         &id,
@@ -221,6 +230,7 @@ async fn run_ai_turn(
         None,
         None,
         web_search,
+        lang,
         Some(&confirmer),
         Some(cancel),
         turn_tx,
@@ -395,6 +405,7 @@ mod tests {
             "/nonesiste".into(),
             None,
             false,
+            String::new(),
             CancellationToken::new(),
         )
         .await;
@@ -420,6 +431,7 @@ mod tests {
             "/ai ciao".into(),
             None,
             false,
+            String::new(),
             CancellationToken::new(),
         )
         .await;
@@ -445,6 +457,7 @@ mod tests {
             "/reset".into(),
             None,
             false,
+            String::new(),
             CancellationToken::new(),
         )
         .await;
@@ -472,6 +485,7 @@ mod tests {
             "/config".into(),
             None,
             false,
+            String::new(),
             CancellationToken::new(),
         )
         .await;
@@ -496,6 +510,7 @@ mod tests {
             "/library".into(),
             None,
             false,
+            String::new(),
             CancellationToken::new(),
         )
         .await;
@@ -532,6 +547,7 @@ mod tests {
             "/ai \"ciao\"".into(),
             Some("C:\\nuova".into()),
             false,
+            String::new(),
             CancellationToken::new(),
         )
         .await;
@@ -572,6 +588,7 @@ mod tests {
             "/help".into(),
             None,
             false,
+            String::new(),
             CancellationToken::new(),
         )
         .await;
@@ -619,6 +636,7 @@ mod tests {
             "/ping".into(),
             None,
             false,
+            String::new(),
             CancellationToken::new(),
         )
         .await;

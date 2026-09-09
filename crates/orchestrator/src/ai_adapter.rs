@@ -620,11 +620,11 @@ impl AiAdapter for LlmAdapter {
             // `self.config_dir` (2.0, D6): niente ri-derivazione qui, stesso
             // `config_dir` risolto una volta in `main()` via `RuntimeConfig`.
             let system = apply_ai_name_addendum(
-                agent::system_prompt(opts),
+                agent::system_prompt(opts.clone()),
                 opts.system_prompt_override.is_some(),
                 needs_ai_name_prompt_at(&self.config_dir.join("network.json")),
             );
-            let turn_tools = agent::tools_for(opts, tools.tool_defs());
+            let turn_tools = agent::tools_for(opts.clone(), tools.tool_defs());
             let snapshot_history = history.to_vec();
 
             let turn = match self
@@ -1289,7 +1289,7 @@ mod tests {
         let mut hist = ConversationHistory::new();
         let tools = FakeToolClient::success("");
 
-        let msgs = collect(|tx| adapter.respond("c1", "storia", &mut hist, &tools, TurnOptions { allow_windows: false, web_search: false, format_invocation: None, system_prompt_override: None }, None, None, tx)).await;
+        let msgs = collect(|tx| adapter.respond("c1", "storia", &mut hist, &tools, TurnOptions { allow_windows: false, web_search: false, format_invocation: None, system_prompt_override: None, lang: None }, None, None, tx)).await;
 
         // (a) NESSUN OpenWindow.
         assert!(
@@ -1315,7 +1315,7 @@ mod tests {
         let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string(), std::path::PathBuf::from("/test-config"));
         let mut hist = ConversationHistory::new();
         let tools = FakeToolClient::success("");
-        collect(|tx| adapter.respond("c1", "storia lunga", &mut hist, &tools, TurnOptions { allow_windows: false, web_search: false, format_invocation: None, system_prompt_override: None }, None, None, tx)).await;
+        collect(|tx| adapter.respond("c1", "storia lunga", &mut hist, &tools, TurnOptions { allow_windows: false, web_search: false, format_invocation: None, system_prompt_override: None, lang: None }, None, None, tx)).await;
         let req = fake.recorded();
         assert!(!req.tools.iter().any(|t| t.name() == "show_markdown"),
             "/nowin deve escludere show_markdown");
@@ -1355,7 +1355,7 @@ mod tests {
         let mut hist = ConversationHistory::new();
         let tools = FakeToolClient::success("");
         collect(|tx| adapter.respond("c1", "che ore sono a Tokyo", &mut hist, &tools,
-            TurnOptions { allow_windows: true, web_search: true, format_invocation: None, system_prompt_override: None }, None, None, tx)).await;
+            TurnOptions { allow_windows: true, web_search: true, format_invocation: None, system_prompt_override: None, lang: None }, None, None, tx)).await;
         let req = fake.recorded();
         assert!(req.tools.iter().any(|t| t.name() == "web_search"));
         assert!(req.tools.iter().any(|t| t.name() == "web_fetch"));
@@ -1378,7 +1378,7 @@ mod tests {
         let mut hist = ConversationHistory::new();
         let tools = FakeToolClient::success("");
         collect(|tx| adapter.respond("c1", "che ore sono a Tokyo", &mut hist, &tools,
-            TurnOptions { allow_windows: true, web_search: true, format_invocation: None, system_prompt_override: None }, None, None, tx)).await;
+            TurnOptions { allow_windows: true, web_search: true, format_invocation: None, system_prompt_override: None, lang: None }, None, None, tx)).await;
         let req = fake.recorded();
         assert!(
             !req.tools.iter().any(|t| t.name() == "web_search"),
@@ -1490,7 +1490,7 @@ mod tests {
 
         let msgs = collect(|tx| adapter.respond(
             "c1", "fai qualcosa", &mut hist, &tools,
-            TurnOptions { allow_windows: true, web_search: false, format_invocation: Some(fixture_format), system_prompt_override: None },
+            TurnOptions { allow_windows: true, web_search: false, format_invocation: Some(fixture_format), system_prompt_override: None, lang: None },
             None, None, tx,
         )).await;
 
@@ -2337,6 +2337,7 @@ mod tests {
                 web_search: false,
                 format_invocation: None,
                 system_prompt_override: Some("SEI IL CANALE FIXTURE, hai solo fixture_tool_a/b"),
+                lang: None,
             },
             None, None, tx,
         )).await;
@@ -2384,7 +2385,7 @@ mod tests {
 
         collect(|tx| adapter.respond(
             "c1", "fai qualcosa", &mut hist, &tools,
-            TurnOptions { allow_windows: true, web_search: false, format_invocation: None, system_prompt_override: None },
+            TurnOptions { allow_windows: true, web_search: false, format_invocation: None, system_prompt_override: None, lang: None },
             None, None, tx,
         )).await;
 

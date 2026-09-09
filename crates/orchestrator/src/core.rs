@@ -149,7 +149,7 @@ L'esito di ogni comando slash compare in una finestra; nel terminale resta una r
 /// * `ai`           — AI adapter (dyn: test → stub, prod → Claude).
 /// * `tools`        — Tool client (dyn: test → fake, prod → McpToolClient).
 /// * `tx`           — Unbounded sender; owned (dropped at end → channel closes).
-// Argomenti fissi da contratto (Slice 4 / Task 3 + Task 2 + stop button): id, input, kind, cwd, history, ai, tools, web_search, confirmer, cancel, tx.
+// Argomenti fissi da contratto (Slice 4 / Task 3 + Task 2 + stop button + lang): id, input, kind, cwd, history, ai, tools, web_search, lang, confirmer, cancel, tx.
 #[allow(clippy::too_many_arguments)]
 pub async fn handle_command(
     id: &str,
@@ -162,6 +162,7 @@ pub async fn handle_command(
     format_invocation: Option<fn(&str, &serde_json::Value) -> String>,
     system_prompt_override: Option<&'static str>,
     web_search: bool,
+    lang: Option<String>,
     confirmer: Option<&dyn ToolConfirmer>,
     cancel: Option<CancellationToken>,
     tx: UnboundedSender<ServerMsg>,
@@ -180,9 +181,9 @@ pub async fn handle_command(
             });
             return;
         }
-        // /nowin: niente finestre. web_search è propagato dal Command del client.
+        // /nowin: niente finestre. web_search e lang sono propagati dal Command del client.
         handle_nl(id, rest, history, ai, tools,
-            crate::agent::TurnOptions { allow_windows: false, web_search, format_invocation, system_prompt_override }, confirmer, cancel, tx).await;
+            crate::agent::TurnOptions { allow_windows: false, web_search, format_invocation, system_prompt_override, lang }, confirmer, cancel, tx).await;
         return;
     }
 
@@ -207,7 +208,7 @@ pub async fn handle_command(
         }
         // Nl: `tx` spostato per valore in `handle_nl` → `respond`.
         router::Route::Nl => handle_nl(id, input, history, ai, tools,
-            crate::agent::TurnOptions { allow_windows: true, web_search, format_invocation, system_prompt_override }, confirmer, cancel, tx).await,
+            crate::agent::TurnOptions { allow_windows: true, web_search, format_invocation, system_prompt_override, lang }, confirmer, cancel, tx).await,
     }
 }
 
@@ -596,7 +597,7 @@ mod tests {
         let ai = StubAdapter;
         let mut history = crate::messages_client::ConversationHistory::new();
         crate::test_support::collect(|tx| {
-            handle_command(id, input, kind, cwd, &mut history, &ai, &tools, None, None, false, None, None, tx)
+            handle_command(id, input, kind, cwd, &mut history, &ai, &tools, None, None, false, None, None, None, tx)
         })
         .await
     }
@@ -1430,6 +1431,7 @@ mod tests {
                 false,
                 None,
                 None,
+                None,
                 tx,
             )
         })
@@ -1462,6 +1464,7 @@ mod tests {
                 None,
                 None,
                 false,
+                None,
                 None,
                 None,
                 tx,
@@ -1715,6 +1718,7 @@ mod tests {
                 true,
                 None,
                 None,
+                None,
                 tx,
             )
         })
@@ -1795,6 +1799,7 @@ mod tests {
                 None,
                 false,
                 None,
+                None,
                 Some(token),
                 tx,
             )
@@ -1824,7 +1829,7 @@ mod tests {
         let msgs = crate::test_support::collect(|tx| {
             handle_command(
                 "chan-os-1", "dir", CommandKind::Os, None,
-                &mut history, &ai, &tools, None, None, false, None, None, tx,
+                &mut history, &ai, &tools, None, None, false, None, None, None, tx,
             )
         })
         .await;
@@ -1849,7 +1854,7 @@ mod tests {
         let msgs = crate::test_support::collect(|tx| {
             handle_command(
                 "chan-open-1", "/open C:\\Users", CommandKind::Auto, None,
-                &mut history, &ai, &tools, None, None, false, None, None, tx,
+                &mut history, &ai, &tools, None, None, false, None, None, None, tx,
             )
         })
         .await;

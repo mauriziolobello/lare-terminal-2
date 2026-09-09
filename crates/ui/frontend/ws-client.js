@@ -7,7 +7,7 @@
 //   ClientMsg::Hello       → {"type":"hello","token":"...","channel":null|"..."}
 //   ClientMsg::Command     → {"type":"command","id":"...","input":"...",
 //                             "input_mode":"keyboard","command_type":"auto",
-//                             "cwd":null,"web_search":false}
+//                             "cwd":null,"web_search":false,"lang":""}
 //   ServerMsg::ServerInfo  → {"type":"server_info","version":"...","ai_provider":"...","capabilities":[...]}
 //   ServerMsg::Chunk       → {"type":"chunk","id":"...","content":"..."}
 //   ServerMsg::Done        → {"type":"done","id":"...","exit_code":...}
@@ -42,9 +42,9 @@ const RETRY_MAX_MS = 8000;
  */
 export class LareWsClient {
   /**
-   * @param {{ url: string, token: string, onStatus: function, onMessage: function, channel?: string }} opts
+   * @param {{ url: string, token: string, onStatus: function, onMessage: function, channel?: string, lang?: string }} opts
    */
-  constructor({ url, token, onStatus, onMessage, channel }) {
+  constructor({ url, token, onStatus, onMessage, channel, lang }) {
     /** @type {string} */
     this._url = url;
     /** @type {string} */
@@ -55,6 +55,8 @@ export class LareWsClient {
     this._onMessage = onMessage || (() => {});
     /** @type {string|undefined} */
     this._channel = channel;
+    /** @type {string} */
+    this._lang = lang || "";
 
     /** @type {WebSocket|null} */
     this._ws = null;
@@ -67,6 +69,14 @@ export class LareWsClient {
   }
 
   // ── Public API ─────────────────────────────────────────────────────────
+
+  /**
+   * Aggiorna la lingua per i turni AI inviati da questo client.
+   * @param {string} lang
+   */
+  setLanguage(lang) {
+    this._lang = lang || "";
+  }
 
   /** Open the connection (with automatic retry on failure). */
   connect() {
@@ -94,9 +104,10 @@ export class LareWsClient {
    * @param {string}  id        - A UUID that correlates Chunk/Done/Error responses.
    * @param {boolean} [webSearch=false] - If true, the orchestrator is authorised to
    *                              run server-side web search tools for this turn.
+   * @param {string}  [lang]    - Optional language directive (e.g. "it", "en"). Defaults to this._lang.
    * @returns {boolean}    - false if the socket is not open.
    */
-  sendCommand(input, id, webSearch = false) {
+  sendCommand(input, id, webSearch = false, lang = this._lang) {
     if (!this._isOpen()) return false;
     /** @type {import('./ws-client.js').ClientCommandMsg} */
     const msg = {
@@ -107,6 +118,7 @@ export class LareWsClient {
       command_type: "auto",
       cwd: null,            // Known Slice A limit: each command starts a fresh shell.
       web_search: !!webSearch,
+      lang: (typeof lang === "string" ? lang : this._lang) || "",
     };
     this._send(msg);
     return true;

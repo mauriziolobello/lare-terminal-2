@@ -247,6 +247,7 @@ fn command(id: &str, input: &str) -> ClientMsg {
     ClientMsg::Command {
         id: id.into(), input: input.into(), input_mode: InputMode::Keyboard,
         command_type: CommandKind::Auto, cwd: Some("C:\\w".into()), web_search: false,
+        lang: String::new(),
     }
 }
 
@@ -305,6 +306,7 @@ async fn correct_token_gets_server_info_then_command_response() {
             command_type: CommandKind::Os,
             cwd: None,
             web_search: false,
+            lang: String::new(),
         },
     )
     .await;
@@ -514,6 +516,7 @@ async fn nl_command_returns_stub_response() {
             command_type: CommandKind::Nl,
             cwd: None,
             web_search: false,
+            lang: String::new(),
         },
     )
     .await;
@@ -569,6 +572,7 @@ async fn find_command_streams_search_results() {
             command_type: CommandKind::Auto,
             cwd: Some(cwd),
             web_search: false,
+            lang: String::new(),
         },
     )
     .await;
@@ -623,6 +627,7 @@ async fn find_folder_invalid_value_errors_before_opening_search_window() {
             command_type: CommandKind::Auto,
             cwd: None,
             web_search: false,
+            lang: String::new(),
         },
     )
     .await;
@@ -682,8 +687,9 @@ async fn loop_stays_responsive_during_find() {
             input: "/find *.txt".to_string(),
             input_mode: InputMode::Keyboard,
             command_type: CommandKind::Auto,
-            cwd: Some(cwd),
+            cwd: Some(cwd.clone()),
             web_search: false,
+            lang: String::new(),
         },
     )
     .await;
@@ -733,6 +739,7 @@ async fn cancel_search_keeps_connection_alive() {
             command_type: CommandKind::Auto,
             cwd: Some(cwd),
             web_search: false,
+            lang: String::new(),
         },
     )
     .await;
@@ -879,6 +886,7 @@ async fn command_that_changes_cwd_emits_new_cwd() {
             command_type: CommandKind::Os,
             cwd: None,
             web_search: false,
+            lang: String::new(),
         },
     )
     .await;
@@ -939,6 +947,7 @@ async fn find_uses_tracked_cwd() {
             command_type: CommandKind::Auto,
             cwd: None, // no cwd from client — server must use tracked cwd
             web_search: false,
+            lang: String::new(),
         },
     )
     .await;
@@ -1003,6 +1012,7 @@ async fn pause_resume_search_loop_stays_responsive() {
             command_type: CommandKind::Auto,
             cwd: Some(cwd),
             web_search: false,
+            lang: String::new(),
         },
     )
     .await;

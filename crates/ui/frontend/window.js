@@ -43,6 +43,8 @@ async function invokeCmd(cmd, args) {
 // hanno un myOutputId non nullo.
 const myOutputId = outputWindowIdFromLabel(window.__TAURI__?.window?.getCurrentWindow?.()?.label);
 
+let currentLanguage = "it";
+
 // ---------------------------------------------------------------------------
 // DOM references
 // ---------------------------------------------------------------------------
@@ -169,6 +171,9 @@ async function bootstrap() {
     }
     if (cfg && typeof cfg.web_search_enabled === "boolean") {
       webSearchEnabled = cfg.web_search_enabled;
+    }
+    if (cfg?.language) {
+      currentLanguage = cfg.language;
     }
     await fetchI18n(invokeCmd, cfg?.language);
   } catch (e) {
@@ -328,6 +333,7 @@ async function bootstrap() {
       url,
       token,
       channel: "library-expand",
+      lang: currentLanguage,
       // LareWsClient retries indefinitely on drop (exponential backoff, no
       // cap) — fine for the main cursor connection, wrong here: this is a
       // one-shot request, and without this handler a lost connection would
@@ -344,7 +350,7 @@ async function bootstrap() {
       onMessage: (msg) => {
         if (msg.id !== requestId && msg.type !== "server_info") return;
         if (msg.type === "server_info") {
-          client.sendCommand(buildExpandPrompt(currentContent, request), requestId, webSearchEnabled);
+          client.sendCommand(buildExpandPrompt(currentContent, request), requestId, webSearchEnabled, currentLanguage);
           return;
         }
         if (msg.type === "chunk") {
@@ -446,6 +452,7 @@ tauriEvent?.listen("config:saved", async (ev) => {
     document.documentElement.style.setProperty("--window-alpha", alpha);
   }
   if (ev.payload?.language) {
+    currentLanguage = ev.payload.language;
     await fetchI18n(invokeCmd, ev.payload.language);
     applyI18n(document);
   }

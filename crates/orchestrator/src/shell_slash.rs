@@ -143,6 +143,17 @@ pub fn read_web_search_enabled(config_dir: &Path) -> bool {
         .unwrap_or(false)
 }
 
+/// Legge `language` dal `config.json` utente. Usato dalla shell (`lare-shell`)
+/// o dai turni WS per rispettare la lingua scelta in `/config`. Assente, vuoto
+/// o illeggibile → `None`.
+pub fn read_language(config_dir: &Path) -> Option<String> {
+    std::fs::read_to_string(config_dir.join("config.json"))
+        .ok()
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+        .and_then(|v| v.get("language").and_then(|l| l.as_str().map(|s| s.to_string())))
+        .filter(|s| !s.trim().is_empty())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -288,6 +299,28 @@ mod tests {
         assert!(read_web_search_enabled(&dir));
         std::fs::write(dir.join("config.json"), "{ non json").unwrap();
         assert!(!read_web_search_enabled(&dir), "corrotto → false");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn language_is_read_from_config_json_default_none() {
+        let dir = std::env::temp_dir().join(format!("lare-shell-lang-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(read_language(&dir), None, "file assente → None");
+        std::fs::write(
+            dir.join("config.json"),
+            r#"{"window_alpha":0.9,"language":"en"}"#,
+        )
+        .unwrap();
+        assert_eq!(read_language(&dir), Some("en".to_string()));
+        std::fs::write(
+            dir.join("config.json"),
+            r#"{"language":""}"#,
+        )
+        .unwrap();
+        assert_eq!(read_language(&dir), None, "stringa vuota → None");
+        std::fs::write(dir.join("config.json"), "{ non json").unwrap();
+        assert_eq!(read_language(&dir), None, "corrotto → None");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

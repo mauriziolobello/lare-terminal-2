@@ -504,6 +504,7 @@ async fn handle_connection(
                 command_type,
                 cwd,
                 web_search,
+                lang,
             } => {
                 // ── Plugin command dispatch (Task 5) ─────────────────────────────
                 // Controlla se l'input corrisponde a un comando slash di plugin
@@ -539,8 +540,8 @@ async fn handle_connection(
                             None => {
                                 let _ = out.send(ServerMsg::Error {
                                     id: id_for_task.clone(),
-                                    code: protocol::ErrCode::RoutingError,
-                                    message: format!("plugin '{pid}' non disponibile"),
+                                    code: protocol::ErrCode::OsError,
+                                    message: format!("avvio fallito per il plugin '{pid}'"),
                                 });
                                 let _ = out.send(ServerMsg::Done { id: id_for_task, exit_code: Some(1) });
                             }
@@ -549,9 +550,9 @@ async fn handle_connection(
                     continue; // Salto il resto del Command arm: id e' già mosso nel task.
                 }
 
-                // ── Sessione shell (2.0, spec §3/§4): pre-router + turno con finestra ──
-                // Tutto in `shell_turn.rs`; qui solo il cancel token (per
-                // `CancelCommand`, come i comandi v1) e lo spawn.
+                // Canale shell (2.0, spec §3.2/§4): la sessione dell'utente esegue
+                // i comandi nel proprio runspace, gestisce i comandi slash con
+                // output su finestre dedicate (`ui`), ed emette indicatori.
                 if let Some(shell) = &shell {
                     let cancel = CancellationToken::new();
                     commands.insert(id.clone(), cancel.clone());
@@ -566,7 +567,7 @@ async fn handle_connection(
                         out_tx: out_tx.clone(),
                         shell_version: hello.version.clone(),
                     };
-                    tokio::spawn(crate::shell_turn::run_shell_command(deps, id, input, cwd, web_search, cancel));
+                    tokio::spawn(crate::shell_turn::run_shell_command(deps, id, input, cwd, web_search, lang, cancel));
                     continue;
                 }
 
@@ -661,6 +662,7 @@ async fn handle_connection(
                     // tool in SENSITIVE_TOOLS (local_confirm.rs) — oggi i cinque tool nmap;
                     // ogni altro tool (run_in_session, open_target, ...) resta autonomo.
                     let pending_confirms_clone = pending_confirms.clone();
+                    let config_dir = rt.config_dir.clone();
 
                     tokio::spawn(async move {
                         let local_confirmer = crate::local_confirm::LocalUiConfirmer::new(
@@ -674,18 +676,24 @@ async fn handle_connection(
                             // save_routine, finding I3).
                             id.clone(),
                         );
+                        let effective_lang = if !lang.trim().is_empty() {
+                            Some(lang)
+                        } else {
+                            crate::shell_slash::read_language(&config_dir)
+                        };
                         let mut guard = hist.lock().await;
                         crate::core::handle_command(
                             &id,
                             &input,
                             command_type,
                             if effective_cwd.is_empty() { None } else { Some(&effective_cwd) },
-                            &mut *guard,
+                            &mut guard,
                             ai_clone.as_ref(),
                             tools_clone.as_ref(),
                             format_invocation_clone,
                             system_prompt_override_clone,
                             web_search,
+                            effective_lang,
                             Some(&local_confirmer),
                             Some(cancel),
                             out,
