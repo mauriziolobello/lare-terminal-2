@@ -58,6 +58,7 @@ pub mod connections;
 pub mod core;
 pub mod cwd_tracking;
 pub mod external_channel;
+pub mod help;
 pub mod llms_config;
 pub mod local_confirm;
 pub mod messages_client;

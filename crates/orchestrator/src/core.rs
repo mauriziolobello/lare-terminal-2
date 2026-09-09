@@ -101,41 +101,13 @@ pub const WINDOW_SLASHES: &[&str] = &["help", "show"];
 
 // ── Help content ─────────────────────────────────────────────────────────────
 //
-// Markdown reference for the `/help` command. Rendered in a special "Help"
-// window (WindowKind::Help) so the UI can style it differently from regular
-// `/show` output.
-//
-// Keep in sync with the actual commands supported by handle_slash + shell_slash (2.0).
+// Titoli della finestra speciale di `/help` (WindowKind::Help).
+// Il corpo Markdown vive in file esterni sotto <config_dir>/help/<lang>.md
+// ed è caricato da crate::help::load_help_body.
 
-const HELP_MARKDOWN: &str = r#"# Lare — Comandi
-
-Scrivi i comandi `/…` nella riga di comando di Lare Terminal (la tua sessione PowerShell).
-L'esito di ogni comando slash compare in una finestra; nel terminale resta una riga di conferma.
-
-## AI
-- `/ai "richiesta"` oppure `/ "richiesta"` — l'AI risponde ed esegue comandi **nella tua shell**
-  (ogni comando proposto chiede conferma `[Y/n]` prima di partire). Le virgolette sono obbligatorie.
-
-## Comandi
-- `/help` — questa finestra.
-- `/ping` — verifica gli strati di Lare (lare-shell, orchestratore, plugin-ping, ui.exe).
-- `/config` — configurazione (aspetto, ricerca web, AI, mercati).
-- `/library` — archivio dei documenti salvati (riapribili).
-- `/aichat` — AI Chat (comunicazione fra macchine Lare in rete, con partecipazione dell'AI).
-- `/open <target>` — apri un URL, una cartella o un file con l'app di default.
-- `/web <query>` — cerca la query nel browser di default.
-- `/show <markdown>` — apri una finestra con il Markdown indicato.
-- `/calc` — calcolatrice (plugin).
-
-## Strumenti esterni (finestra dedicata)
-- `/markets` — strumenti sui mercati finanziari (ricerca ticker, report azionario, elenco titoli, screener).
-- `/nmap` — strumenti di scansione di rete (quick scan, rilevamento OS/versioni, host discovery, ricerca vulnerabilità).
-- `/pyping` — canale di prova per l'infrastruttura dei tool Python (eco di un messaggio).
-
-## Tutto il resto
-- Qualunque riga che non inizia con `/` è PowerShell, come sempre.
-- Uno slash sconosciuto viene ignorato in silenzio.
-"#;
+const HELP_TITLE_IT: &str = "Lare \u{2014} Comandi";
+const HELP_TITLE_EN: &str = "Lare \u{2014} Commands";
+const HELP_TITLE_SPANISH: &str = "Lare \u{2014} Comandos";
 
 /// Handle a single client `Command`, emitting all response messages on `tx`.
 ///
@@ -163,6 +135,7 @@ pub async fn handle_command(
     system_prompt_override: Option<&'static str>,
     web_search: bool,
     lang: Option<String>,
+    config_dir: &std::path::Path,
     confirmer: Option<&dyn ToolConfirmer>,
     cancel: Option<CancellationToken>,
     tx: UnboundedSender<ServerMsg>,
@@ -197,7 +170,7 @@ pub async fn handle_command(
             // `cwd.unwrap_or("")` → empty string when cwd is unknown, which
             // makes `resolve_open_target` leave relative targets verbatim
             // (safe for URLs and absolute paths; same as pre-Task-4 for relative).
-            for m in handle_slash(id, input, tools, cwd.unwrap_or("")).await {
+            for m in handle_slash(id, input, tools, cwd.unwrap_or(""), lang.as_deref(), config_dir).await {
                 if tx.send(m).is_err() {
                     return;
                 }
@@ -238,7 +211,15 @@ pub async fn handle_command(
 /// orchestrator process directory.  Pass `""` when the cwd is unknown (no
 /// resolution performed — relative targets are passed verbatim, which is the
 /// pre-Task-4 behaviour and is safe for URLs and absolute paths).
-async fn handle_slash(id: &str, input: &str, tools: &dyn ToolClient, cwd: &str) -> Vec<ServerMsg> {
+/// * `config_dir` — Path della directory di configurazione, usata per individuare `help/`.
+async fn handle_slash(
+    id: &str,
+    input: &str,
+    tools: &dyn ToolClient,
+    cwd: &str,
+    lang: Option<&str>,
+    config_dir: &std::path::Path,
+) -> Vec<ServerMsg> {
     // Strip leading `/` (after trim).
     let trimmed = input.trim();
     let without_slash = trimmed.strip_prefix('/').unwrap_or(trimmed);
@@ -376,11 +357,17 @@ async fn handle_slash(id: &str, input: &str, tools: &dyn ToolClient, cwd: &str) 
         // every Command must terminate with Done/Error to close the UI spinner.
         // NOT emitting Done would reintroduce the "spinner bloccato" regression.
         "help" => {
+            let (title, lang_code) = match lang {
+                Some("en") => (HELP_TITLE_EN, "en"),
+                Some("es") => (HELP_TITLE_SPANISH, "es"),
+                _ => (HELP_TITLE_IT, "it"),
+            };
+            let help_dir = crate::help::help_dir_path(config_dir);
             vec![
                 ServerMsg::OpenWindow {
-                    title: "Lare \u{2014} Comandi".to_string(),
+                    title: title.to_string(),
                     kind: WindowKind::Help,
-                    content: HELP_MARKDOWN.to_string(),
+                    content: crate::help::load_help_body(&help_dir, lang_code),
                 },
                 ServerMsg::Done {
                     id: id.to_string(),
@@ -596,8 +583,14 @@ mod tests {
     ) -> Vec<ServerMsg> {
         let ai = StubAdapter;
         let mut history = crate::messages_client::ConversationHistory::new();
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let help_dir = tmp.path().join("help");
+        let _ = std::fs::create_dir_all(&help_dir);
+        let it_content = "# Lare \u{2014} Comandi\n\n## Comandi\n- /help\n- /ping\n- /config\n- /library\n- /aichat\n- /markets\n- /nmap\n- /pyping\n";
+        let _ = std::fs::write(help_dir.join("it.md"), it_content);
+        let _ = std::fs::write(help_dir.join("en.md"), "# Lare \u{2014} Commands\n\n## Commands\n- /help\n- /config\n");
         crate::test_support::collect(|tx| {
-            handle_command(id, input, kind, cwd, &mut history, &ai, &tools, None, None, false, None, None, None, tx)
+            handle_command(id, input, kind, cwd, &mut history, &ai, &tools, None, None, false, None, tmp.path(), None, None, tx)
         })
         .await
     }
@@ -1416,6 +1409,7 @@ mod tests {
             fake_nowin.clone(), "claude-sonnet-4-6".to_string(), 16000,
         ));
         let ai_nowin = LlmAdapter::new(backend_nowin, "claude-sonnet-4-6".to_string(), std::path::PathBuf::from("/test-config"));
+        let tmp = tempfile::tempdir().expect("tempdir");
         let mut hist = ConversationHistory::new();
         crate::test_support::collect(|tx| {
             handle_command(
@@ -1430,6 +1424,7 @@ mod tests {
                 None,
                 false,
                 None,
+                tmp.path(),
                 None,
                 None,
                 tx,
@@ -1465,6 +1460,7 @@ mod tests {
                 None,
                 false,
                 None,
+                tmp.path(),
                 None,
                 None,
                 tx,
@@ -1703,6 +1699,7 @@ mod tests {
         ));
         let ai = LlmAdapter::new(backend, "claude-sonnet-4-6".to_string(), std::path::PathBuf::from("/test-config"));
         let tools = FakeToolClient::success("");
+        let tmp = tempfile::tempdir().expect("tempdir");
         let mut hist = ConversationHistory::new();
         crate::test_support::collect(|tx| {
             handle_command(
@@ -1717,6 +1714,7 @@ mod tests {
                 None,
                 true,
                 None,
+                tmp.path(),
                 None,
                 None,
                 tx,
@@ -1786,6 +1784,7 @@ mod tests {
         let ai = StubAdapter;
         let tools = FakeToolClient::success("ok");
         let mut history = crate::messages_client::ConversationHistory::new();
+        let tmp = tempfile::tempdir().expect("tempdir");
         let msgs = crate::test_support::collect(|tx| {
             handle_command(
                 "cancel-test",
@@ -1799,6 +1798,7 @@ mod tests {
                 None,
                 false,
                 None,
+                tmp.path(),
                 None,
                 Some(token),
                 tx,
@@ -1826,10 +1826,11 @@ mod tests {
         let ai = StubAdapter;
         let tools = FixtureChannelToolClient;
         let mut history = crate::messages_client::ConversationHistory::new();
+        let tmp = tempfile::tempdir().expect("tempdir");
         let msgs = crate::test_support::collect(|tx| {
             handle_command(
                 "chan-os-1", "dir", CommandKind::Os, None,
-                &mut history, &ai, &tools, None, None, false, None, None, None, tx,
+                &mut history, &ai, &tools, None, None, false, None, tmp.path(), None, None, tx,
             )
         })
         .await;
@@ -1851,10 +1852,11 @@ mod tests {
         let ai = StubAdapter;
         let tools = FixtureChannelToolClient;
         let mut history = crate::messages_client::ConversationHistory::new();
+        let tmp = tempfile::tempdir().expect("tempdir");
         let msgs = crate::test_support::collect(|tx| {
             handle_command(
                 "chan-open-1", "/open C:\\Users", CommandKind::Auto, None,
-                &mut history, &ai, &tools, None, None, false, None, None, None, tx,
+                &mut history, &ai, &tools, None, None, false, None, tmp.path(), None, None, tx,
             )
         })
         .await;
@@ -1876,6 +1878,10 @@ mod tests {
     /// davvero rispondere senza `Error{RoutingError, "sconosciuto"}`.
     #[tokio::test]
     async fn known_backend_slashes_are_all_dispatched_by_handle_slash() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let help_dir = tmp.path().join("help");
+        let _ = std::fs::create_dir_all(&help_dir);
+        let _ = std::fs::write(help_dir.join("it.md"), "# Lare \u{2014} Comandi\nTest IT");
         let tools = FakeToolClient::success("ok");
         for cmd in KNOWN_BACKEND_SLASHES {
             let input = match *cmd {
@@ -1884,9 +1890,111 @@ mod tests {
                 "web" => "/web gatti".to_string(),
                 other => format!("/{other}"),
             };
-            let out = handle_slash("id", &input, &tools, "").await;
+            let out = handle_slash("id", &input, &tools, "", None, tmp.path()).await;
             let unknown = out.iter().any(|m| matches!(m, ServerMsg::Error { message, .. } if message.contains("sconosciuto")));
             assert!(!unknown, "/{cmd} risulta sconosciuto a handle_slash: {out:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn slash_help_respects_language_directive() {
+        use protocol::WindowKind;
+
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let help_dir = tmp.path().join("help");
+        std::fs::create_dir_all(&help_dir).expect("create_dir_all");
+        std::fs::write(
+            help_dir.join("it.md"),
+            "# Lare \u{2014} Comandi\n\nTesto di aiuto in italiano con comandi.",
+        )
+        .expect("write it.md");
+        std::fs::write(
+            help_dir.join("en.md"),
+            "# Lare \u{2014} Commands\n\nHelp text in English with commands.",
+        )
+        .expect("write en.md");
+        std::fs::write(
+            help_dir.join("es.md"),
+            "# Lare \u{2014} Comandos\n\nTexto de ayuda en español con comandos.",
+        )
+        .expect("write es.md");
+
+        async fn run_help_with_lang(lang: Option<&str>, config_dir: &std::path::Path) -> Vec<ServerMsg> {
+            let ai = StubAdapter;
+            let tools = FakeToolClient::success("");
+            let mut history = crate::messages_client::ConversationHistory::new();
+            crate::test_support::collect(|tx| {
+                handle_command(
+                    "help-test",
+                    "/help",
+                    CommandKind::Auto,
+                    None,
+                    &mut history,
+                    &ai,
+                    &tools,
+                    None,
+                    None,
+                    false,
+                    lang.map(str::to_string),
+                    config_dir,
+                    None,
+                    None,
+                    tx,
+                )
+            })
+            .await
+        }
+
+        // 1. With lang: Some("en") -> English title and content, NOT Italian
+        let msgs_en = run_help_with_lang(Some("en"), tmp.path()).await;
+        assert_eq!(msgs_en.len(), 2);
+        if let ServerMsg::OpenWindow { title, content, kind } = &msgs_en[0] {
+            assert_eq!(*kind, WindowKind::Help);
+            assert!(title.contains("Commands"), "title should contain 'Commands', got {title:?}");
+            assert!(!title.contains("Comandi"), "title should NOT contain 'Comandi', got {title:?}");
+            assert!(content.contains("Commands"), "content should contain 'Commands', got {content:?}");
+            assert!(!content.contains("Comandi"), "content should NOT contain 'Comandi', got {content:?}");
+        } else {
+            panic!("expected OpenWindow at index 0, got {:?}", msgs_en[0]);
+        }
+
+        // 2. With lang: Some("it") -> Italian title and content, NOT English
+        let msgs_it = run_help_with_lang(Some("it"), tmp.path()).await;
+        assert_eq!(msgs_it.len(), 2);
+        if let ServerMsg::OpenWindow { title, content, kind } = &msgs_it[0] {
+            assert_eq!(*kind, WindowKind::Help);
+            assert!(title.contains("Comandi"), "title should contain 'Comandi', got {title:?}");
+            assert!(!title.contains("Commands"), "title should NOT contain 'Commands', got {title:?}");
+            assert!(content.contains("Comandi"), "content should contain 'Comandi', got {content:?}");
+            assert!(!content.contains("Commands"), "content should NOT contain 'Commands', got {content:?}");
+        } else {
+            panic!("expected OpenWindow at index 0, got {:?}", msgs_it[0]);
+        }
+
+        // 3. With lang: None -> default Italian
+        let msgs_none = run_help_with_lang(None, tmp.path()).await;
+        assert_eq!(msgs_none.len(), 2);
+        if let ServerMsg::OpenWindow { title, content, kind } = &msgs_none[0] {
+            assert_eq!(*kind, WindowKind::Help);
+            assert!(title.contains("Comandi"), "title should contain 'Comandi', got {title:?}");
+            assert!(!title.contains("Commands"), "title should NOT contain 'Commands', got {title:?}");
+            assert!(content.contains("Comandi"), "content should contain 'Comandi', got {content:?}");
+            assert!(!content.contains("Commands"), "content should NOT contain 'Commands', got {content:?}");
+        } else {
+            panic!("expected OpenWindow at index 0, got {:?}", msgs_none[0]);
+        }
+
+        // 4. With lang: Some("es") -> Spanish title and content
+        let msgs_es = run_help_with_lang(Some("es"), tmp.path()).await;
+        assert_eq!(msgs_es.len(), 2);
+        if let ServerMsg::OpenWindow { title, content, kind } = &msgs_es[0] {
+            assert_eq!(*kind, WindowKind::Help);
+            assert!(title.contains("Comandos"), "title should contain 'Comandos', got {title:?}");
+            assert!(!title.contains("Commands"), "title should NOT contain 'Commands', got {title:?}");
+            assert!(content.contains("Comandos"), "content should contain 'Comandos', got {content:?}");
+            assert!(!content.contains("Commands"), "content should NOT contain 'Commands', got {content:?}");
+        } else {
+            panic!("expected OpenWindow at index 0, got {:?}", msgs_es[0]);
         }
     }
 }

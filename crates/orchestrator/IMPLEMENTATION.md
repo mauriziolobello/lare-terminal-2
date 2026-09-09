@@ -1,4 +1,44 @@
-# Implementation — orchestrator v2.2.3
+# Implementation — orchestrator v2.2.6
+
+## Terza lingua: spagnolo (es) per AI e /help (v2.2.6)
+
+Nel piano `Docs/i18n/ita/compiti-ai-esterne/2026-09-09-i18n-help-esterno-e-spagnolo.md` (Parte B):
+1. **Direttiva AI (`crates/orchestrator/src/agent.rs`)**:
+   - Aggiunta costante `RESPOND_SPANISH = " Responde en español, de forma concisa."`.
+   - `system_prompt` seleziona `RESPOND_SPANISH` quando `opts.lang.as_deref() == Some("es")`.
+   - `system_prompt_override` preservato intatto per i canali specializzati.
+2. **Finestra /help (`crates/orchestrator/src/core.rs`)**:
+   - Costante `HELP_TITLE_SPANISH = "Lare \u{2014} Comandos"`.
+   - Ramo `"help"` mappa `Some("es") => (HELP_TITLE_SPANISH, "es")`, delegando a `help::load_help_body`
+     il caricamento di `Configuration/help/es.md`.
+
+## Refactor: migrazione /help su file esterni (v2.2.5)
+
+Nel piano `Docs/i18n/ita/compiti-ai-esterne/2026-09-09-i18n-help-esterno-e-spagnolo.md` (Parte A),
+il corpo Markdown di `/help` è stato migrato da costanti statiche Rust a file esterni dedicati sotto
+`<config_dir>/help/<lang>.md`. Questo allinea l'architettura dei testi di help a quella già adottata
+per i dizionari UI (`<config_dir>/i18n/<lang>.json`), prevenendo la crescita incontrollata di `core.rs`.
+
+### Componenti e flusso:
+1. **Modulo `help` (`crates/orchestrator/src/help.rs`)**:
+   - Fornisce `help_dir_path(config_dir: &Path) -> PathBuf` per comporre `<config_dir>/help`.
+   - Fornisce `load_help_body(help_dir: &Path, lang: &str) -> String` che carica `<lang>.md` con
+     catena di fallback: file della lingua richiesta -> `it.md` -> stringa di sicurezza minima
+     (`"Aiuto non disponibile: file mancante."`).
+2. **File Markdown esterni**:
+   - `Test Run/Configuration/help/it.md`: contenuto italiano originale di `HELP_MARKDOWN_IT`.
+   - `Test Run/Configuration/help/en.md`: contenuto inglese originale di `HELP_MARKDOWN_EN`.
+3. **Propagazione di `config_dir`**:
+   - Esteso `handle_slash` e `handle_command` con `config_dir: &Path`.
+   - Aggiornati i chiamanti `ws.rs`, `shell_turn.rs` e `telegram::channel`.
+   - I titoli della finestra restano costanti compatte in `core.rs` (`HELP_TITLE_IT` ed `HELP_TITLE_EN`).
+
+## Fix: /help rispetta la lingua selezionata (v2.2.4)
+
+Risolto il difetto riscontrato dal vivo in cui `/help` rimaneva in italiano con l'interfaccia in inglese (`Docs/i18n/ita/compiti-ai-esterne/2026-09-09-i18n-fix-help.md`).
+Il testo dell'help è stato suddiviso nelle costanti statiche `HELP_MARKDOWN_IT` e `HELP_MARKDOWN_EN` in `crates/orchestrator/src/core.rs`.
+La funzione `handle_slash` riceve ora il parametro `lang: Option<&str>`, inoltrato da `handle_command` (`lang.as_deref()`).
+Nel ramo `"help"`, il titolo ("Lare — Commands" / "Lare — Comandi") e il markdown visualizzato vengono selezionati con lo stesso pattern di `agent::system_prompt`: `Some("en") => EN, _ => IT`.
 
 ## Lingua AI e cablaggio direttiva lang (v2.2.3, i18n Parte 3)
 

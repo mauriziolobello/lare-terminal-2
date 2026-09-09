@@ -95,35 +95,45 @@ function extractUsedKeys() {
   return usedKeys;
 }
 
-test("Parità chiavi i18n: it.json ed en.json sono sincronizzati e coprono tutte le chiavi usate", () => {
+test("Parità chiavi i18n: tutti i file di lingua sono sincronizzati con it.json e coprono tutte le chiavi usate", () => {
   const itFile = path.join(i18nDir, "it.json");
-  const enFile = path.join(i18nDir, "en.json");
-
-  assert.ok(fs.existsSync(itFile), `File non trovato: ${itFile}`);
-  assert.ok(fs.existsSync(enFile), `File non trovato: ${enFile}`);
+  assert.ok(fs.existsSync(itFile), `File di riferimento non trovato: ${itFile}`);
 
   const itDict = JSON.parse(fs.readFileSync(itFile, "utf-8"));
-  const enDict = JSON.parse(fs.readFileSync(enFile, "utf-8"));
-
   const itKeys = Object.keys(itDict).sort();
-  const enKeys = Object.keys(enDict).sort();
 
-  // 1. Verifica che it.json ed en.json abbiano esattamente le stesse chiavi
-  const missingInEn = itKeys.filter((k) => !(k in enDict));
-  const missingInIt = enKeys.filter((k) => !(k in itDict));
+  // Trova tutti i file *.json nella cartella i18n escluso it.json
+  const otherJsonFiles = fs
+    .readdirSync(i18nDir)
+    .filter((f) => f.endsWith(".json") && f !== "it.json");
 
-  assert.deepEqual(
-    missingInEn,
-    [],
-    `Chiavi presenti in it.json ma mancanti in en.json: ${missingInEn.join(", ")}`
-  );
-  assert.deepEqual(
-    missingInIt,
-    [],
-    `Chiavi presenti in en.json ma mancanti in it.json: ${missingInIt.join(", ")}`
+  assert.ok(
+    otherJsonFiles.length > 0,
+    "Almeno una lingua aggiuntiva oltre a 'it' deve essere presente in i18nDir"
   );
 
-  // 2. Verifica che ogni chiave usata nel codice esista in it.json ed en.json
+  // 1. Verifica che ogni dizionario aggiuntivo abbia esattamente le stesse chiavi di it.json
+  for (const file of otherJsonFiles) {
+    const langFilePath = path.join(i18nDir, file);
+    const langDict = JSON.parse(fs.readFileSync(langFilePath, "utf-8"));
+    const langKeys = Object.keys(langDict).sort();
+
+    const missingInLang = itKeys.filter((k) => !(k in langDict));
+    const missingInIt = langKeys.filter((k) => !(k in itDict));
+
+    assert.deepEqual(
+      missingInLang,
+      [],
+      `Chiavi presenti in it.json ma mancanti in ${file}: ${missingInLang.join(", ")}`
+    );
+    assert.deepEqual(
+      missingInIt,
+      [],
+      `Chiavi presenti in ${file} ma mancanti in it.json: ${missingInIt.join(", ")}`
+    );
+  }
+
+  // 2. Verifica che ogni chiave usata nel codice esista in it.json
   const usedKeys = extractUsedKeys();
   const itKeySet = new Set(itKeys);
 

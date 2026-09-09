@@ -3,6 +3,40 @@
 All notable changes to this crate are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), versioning: [SemVer](https://semver.org/).
 
+## 2.2.6 — 2026-09-09 — terza lingua: spagnolo (es) per AI e /help
+
+- **Supporto lingua spagnola per l'AI** (`crates/orchestrator/src/agent.rs`):
+  - Aggiunta costante `RESPOND_SPANISH = " Responde en español, de forma concisa."`.
+  - In `system_prompt()`, aggiunto ramo `Some("es") => RESPOND_SPANISH` prima del fallback italiano.
+  - Test unitario esteso per validare la direttiva spagnola sia in turno normale sia con ricerca web attiva.
+- **Titolo e caricamento help per lo spagnolo** (`crates/orchestrator/src/core.rs`):
+  - Definita la costante `HELP_TITLE_SPANISH = "Lare \u{2014} Comandos"`.
+  - In `handle_slash` ramo `"help"`, mappato `Some("es") => (HELP_TITLE_SPANISH, "es")` per caricare `help/es.md`.
+  - Esteso test TDD `slash_help_respects_language_directive` per verificare il comportamento con `Some("es")`.
+
+## 2.2.5 — 2026-09-09 — refactor: migra /help su file esterni help/<lang>.md
+
+- **Migrazione corpo di `/help` su file esterni Markdown** (`crates/orchestrator/src/help.rs`):
+  - Creato il nuovo modulo `help` con le funzioni `help_dir_path(config_dir: &Path) -> PathBuf`
+    e `load_help_body(help_dir: &Path, lang: &str) -> String`.
+  - Catena di fallback infallibile: `<lang>.md` assente/illeggibile -> `it.md` -> stringa di sicurezza
+    `"Aiuto non disponibile: file mancante."` (nessun errore o panic).
+  - Rimossi i blocchi statici `HELP_MARKDOWN_IT` e `HELP_MARKDOWN_EN` da `core.rs` ed esternalizzati
+    in `Test Run/Configuration/help/it.md` e `Test Run/Configuration/help/en.md`.
+  - Mantenute le costanti brevi per i titoli di finestra (`HELP_TITLE_IT` e `HELP_TITLE_EN`).
+  - Propagato `config_dir: &Path` in `handle_command` e `handle_slash` con cablaggio in `ws.rs`,
+    `shell_turn.rs` e canale `telegram`.
+  - Test unitari TDD in `help.rs` che coprono il fallback su `it.md`, il fallback di sicurezza e la lingua presente.
+
+- **Comando `/help` internazionalizzato** (`crates/orchestrator/src/core.rs`):
+  - Sdoppiato il contenuto Markdown dell'help nelle costanti `HELP_MARKDOWN_IT` e `HELP_MARKDOWN_EN`,
+    mantenendo esattamente la stessa struttura, i comandi e le sezioni in entrambe le lingue.
+  - Aggiunto il parametro `lang: Option<&str>` a `handle_slash`.
+  - In `handle_command`, propagato `lang.as_deref()` alla chiamata di `handle_slash`.
+  - Nel ramo `"help"` di `handle_slash`, selezionati titolo (`"Lare \u{2014} Commands"` vs `"Lare \u{2014} Comandi"`)
+    e contenuto in base a `lang` con lo stesso criterio di `agent::system_prompt` (`Some("en") => EN, _ => IT`).
+  - Nuovo test TDD `slash_help_respects_language_directive` (verifica RED→GREEN su `en`, `it` e `None`).
+
 ## 2.2.3 — 2026-09-09 — lingua AI e cablaggio lang (i18n Parte 3)
 
 - **Direttiva lingua su `TurnOptions` e `system_prompt()`** (`crates/orchestrator/src/agent.rs`):

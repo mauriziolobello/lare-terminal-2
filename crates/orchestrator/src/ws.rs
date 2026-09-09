@@ -694,6 +694,7 @@ async fn handle_connection(
                             system_prompt_override_clone,
                             web_search,
                             effective_lang,
+                            &config_dir,
                             Some(&local_confirmer),
                             Some(cancel),
                             out,

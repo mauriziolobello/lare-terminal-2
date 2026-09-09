@@ -12,18 +12,47 @@
   condiviso + stdio chiuse + `child_stderr_log_sink`, fix finestre console spurie)
 - mcp-server 2.0.1 (da v1 0.7.1)
 - mcp-nmap 2.0.1 (da v1 0.8.2; 2.0.1 — codepage OEM per comandi nativi Win32 in network_info.rs, fix mojibake accenti)
-- orchestrator 2.2.3 (da v1 0.41.21; 2.2.3 — direttiva lingua AI su `TurnOptions` e `system_prompt`, cablaggio `lang` da WS e fallback su `config.json`)
+- orchestrator 2.2.6 (da v1 0.41.21; 2.2.6 — terza lingua: spagnolo es per AI e /help)
 - plugin-protocol 2.0.0 (da v1 0.2.1)
 - plugin-ping 2.0.0 (da v1 0.1.0)
 - plugin-counter 2.0.0 (da v1 0.1.0)
 - plugin-calc 2.0.0 (da v1 0.2.0)
 - plugin-lc 2.0.0 (da v1 0.4.5)
 - plugin-crypto 2.0.0 (da v1 1.0.1)
-- ui 2.3.1 (da v1 0.47.1; 2.3.1 — i18n Parte 2: cascata finestre e titoli nativi)
+- ui 2.3.2 (da v1 0.47.1; 2.3.2 — supporto terza lingua: spagnolo es e parità generalizzata)
 - lare-shell 2.0.1 (piano 2b 2.0.0 → 2.0.1 nel piano 3, Task 3: `Launcher.EnsureUi()` passa
   `--no-terminal` — non un crate Cargo: `shell/lare-shell/`, .NET/C#)
 
 ## FATTO
+
+- **i18n Terza lingua: spagnolo per AI, UI e /help (2026-09-09)** —
+  Parte B del piano `Docs/i18n/ita/compiti-ai-esterne/2026-09-09-i18n-help-esterno-e-spagnolo.md`:
+  introdotta la terza lingua (`es`, spagnolo). Aggiunta costante `RESPOND_SPANISH` in `crates/orchestrator/src/agent.rs`
+  e gestito `Some("es")` in `system_prompt()`. Aggiunta costante `HELP_TITLE_SPANISH` e ramo `Some("es")` per `/help`
+  in `crates/orchestrator/src/core.rs`. Creato il corpo Markdown esterno `Test Run/Configuration/help/es.md`.
+  Aggiunta opzione `"Español"` al menu di selezione lingua in `crates/ui/frontend/config-dialog.js`.
+  Generalizzato `crates/ui/frontend/i18n-parity.test.mjs` per la verifica dinamica di tutti i dizionari `*.json`.
+  Creato `Test Run/Configuration/i18n/es.json` con 209 chiavi interamente tradotte. Test frontend (255 passati),
+  test Rust orchestrator (948 lib + 2 bin + 23 int) e test ui (100 lib + 47 bin) tutti verdi; clippy senza warning.
+  Orchestrator bump a 2.2.6, UI bump a 2.3.2.
+
+- **i18n /help su file esterni help/<lang>.md (2026-09-09)** —
+  Parte A del piano `Docs/i18n/ita/compiti-ai-esterne/2026-09-09-i18n-help-esterno-e-spagnolo.md`:
+  migrato il corpo Markdown di `/help` da costanti Rust a file esterni sotto `Configuration/help/<lang>.md`.
+  Nuovo modulo `crates/orchestrator/src/help.rs` (`help_dir_path`, `load_help_body`) con catena di fallback
+  `<lang>.md` -> `it.md` -> stringa minima di sicurezza. Creati `Test Run/Configuration/help/it.md` ed `en.md`.
+  Rimossi `HELP_MARKDOWN_IT` e `HELP_MARKDOWN_EN` da `core.rs`. Propagato `config_dir: &Path` a `handle_command`
+  e `handle_slash` con cablaggio in `ws.rs`, `shell_turn.rs` e `telegram::channel`. Test unitari TDD in `help.rs`
+  e aggiornamento test in `core.rs` con `tempfile::tempdir()`. Tutti i test dell'orchestrator passano,
+  clippy senza nuovi warning. Orchestrator bump a 2.2.5.
+
+- **i18n Fix: /help rispetta la lingua selezionata (2026-09-09)** —
+  Risolto il difetto riscontrato dal vivo in cui `/help` rimaneva in italiano con l'interfaccia in inglese (`Docs/i18n/ita/compiti-ai-esterne/2026-09-09-i18n-fix-help.md`).
+  Sdoppiato il contenuto statico in `HELP_MARKDOWN_IT` e `HELP_MARKDOWN_EN` in `crates/orchestrator/src/core.rs`.
+  Aggiunto parametro `lang: Option<&str>` a `handle_slash` e propagato da `handle_command` (`lang.as_deref()`).
+  Nel ramo `"help"`, selezionati titolo e testo tradotto (`Commands` vs `Comandi`).
+  Nuovo test TDD `slash_help_respects_language_directive` (ciclo RED→GREEN completato e verificato).
+  Tutti i 969 test dell'orchestrator passano; clippy senza warning. Orchestrator bump a 2.2.4.
 
 - **i18n Parte 3 — Lingua dell'AI sul canale cursore (2026-09-09)** —
   Terza fase del piano `Docs/i18n/ita/compiti-ai-esterne/2026-09-08-i18n-programma.md`:
