@@ -3,6 +3,17 @@
 All notable changes to this crate are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), versioning: [SemVer](https://semver.org/).
 
+## 2.2.6 — 2026-09-09 — terza lingua: spagnolo (es) per AI e /help
+
+- **Supporto lingua spagnola per l'AI** (`crates/orchestrator/src/agent.rs`):
+  - Aggiunta costante `RESPOND_SPANISH = " Responde en español, de forma concisa."`.
+  - In `system_prompt()`, aggiunto ramo `Some("es") => RESPOND_SPANISH` prima del fallback italiano.
+  - Test unitario esteso per validare la direttiva spagnola sia in turno normale sia con ricerca web attiva.
+- **Titolo e caricamento help per lo spagnolo** (`crates/orchestrator/src/core.rs`):
+  - Definita la costante `HELP_TITLE_SPANISH = "Lare \u{2014} Comandos"`.
+  - In `handle_slash` ramo `"help"`, mappato `Some("es") => (HELP_TITLE_SPANISH, "es")` per caricare `help/es.md`.
+  - Esteso test TDD `slash_help_respects_language_directive` per verificare il comportamento con `Some("es")`.
+
 ## 2.2.5 — 2026-09-09 — refactor: migra /help su file esterni help/<lang>.md
 
 - **Migrazione corpo di `/help` su file esterni Markdown** (`crates/orchestrator/src/help.rs`):

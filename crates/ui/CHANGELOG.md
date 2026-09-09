@@ -3,6 +3,17 @@
 All notable changes to this package follow [Keep a Changelog](https://keepachangelog.com/) format.
 Versioning: `major.minor.update`.
 
+## 2.3.2 — 2026-09-09 — supporto terza lingua (spagnolo es) e parità generalizzata
+
+- **Opzione lingua Español in `/config`** (`crates/ui/frontend/config-dialog.js`):
+  - Aggiunta l'opzione `{ value: "es", label: "Español" }` al selettore della lingua.
+- **Test di parità chiavi generalizzato** (`crates/ui/frontend/i18n-parity.test.mjs`):
+  - Il test di parità ora scansiona dinamicamente tutti i file `*.json` in `Configuration/i18n/`,
+    verificando la conformità biunivoca contro `it.json` e la copertura delle chiavi usate nel codice.
+- **Dizionario spagnolo** (`Test Run/Configuration/i18n/es.json`):
+  - 209 chiavi interamente tradotte in spagnolo naturale, con placeholder `{param}` preservati
+    e chiavi ordinate alfabeticamente.
+
 ## 2.3.1 — 2026-09-09 — i18n Parte 2: internazionalizzazione a cascata di tutte le finestre
 
 Seconda parte del piano di internazionalizzazione di Lare Terminal (`Docs/i18n/ita/compiti-ai-esterne/2026-09-08-i18n-programma.md`):

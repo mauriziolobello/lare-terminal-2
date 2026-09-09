@@ -1,4 +1,15 @@
-# Implementation — crates/ui v2.3.1
+# Implementation — crates/ui v2.3.2
+
+## Supporto terza lingua: spagnolo (v2.3.2)
+
+Nel piano `Docs/i18n/ita/compiti-ai-esterne/2026-09-09-i18n-help-esterno-e-spagnolo.md` (Parte B):
+1. **Dropdown Lingua (`crates/ui/frontend/config-dialog.js`)**:
+   - Aggiunta voce `{ value: "es", label: "Español" }` al menu a tendina di `/config`.
+2. **Test di Parità Generalizzato (`crates/ui/frontend/i18n-parity.test.mjs`)**:
+   - Automatizzata la scansione di tutti i dizionari `*.json` in `Configuration/i18n/` per verificare
+     la corrispondenza completa con le 209 chiavi di `it.json`.
+3. **Dizionario Spagnolo (`Test Run/Configuration/i18n/es.json`)**:
+   - Completo di tutte le 209 chiavi tradotte in spagnolo, con parametri dinamici preservati.
 
 ## i18n Parte 2: Cascata di tutte le finestre frontend e titoli nativi (v2.3.1)
 

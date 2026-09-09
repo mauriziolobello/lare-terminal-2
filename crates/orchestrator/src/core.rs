@@ -107,6 +107,7 @@ pub const WINDOW_SLASHES: &[&str] = &["help", "show"];
 
 const HELP_TITLE_IT: &str = "Lare \u{2014} Comandi";
 const HELP_TITLE_EN: &str = "Lare \u{2014} Commands";
+const HELP_TITLE_SPANISH: &str = "Lare \u{2014} Comandos";
 
 /// Handle a single client `Command`, emitting all response messages on `tx`.
 ///
@@ -358,6 +359,7 @@ async fn handle_slash(
         "help" => {
             let (title, lang_code) = match lang {
                 Some("en") => (HELP_TITLE_EN, "en"),
+                Some("es") => (HELP_TITLE_SPANISH, "es"),
                 _ => (HELP_TITLE_IT, "it"),
             };
             let help_dir = crate::help::help_dir_path(config_dir);
@@ -1911,6 +1913,11 @@ mod tests {
             "# Lare \u{2014} Commands\n\nHelp text in English with commands.",
         )
         .expect("write en.md");
+        std::fs::write(
+            help_dir.join("es.md"),
+            "# Lare \u{2014} Comandos\n\nTexto de ayuda en español con comandos.",
+        )
+        .expect("write es.md");
 
         async fn run_help_with_lang(lang: Option<&str>, config_dir: &std::path::Path) -> Vec<ServerMsg> {
             let ai = StubAdapter;
@@ -1975,6 +1982,19 @@ mod tests {
             assert!(!content.contains("Commands"), "content should NOT contain 'Commands', got {content:?}");
         } else {
             panic!("expected OpenWindow at index 0, got {:?}", msgs_none[0]);
+        }
+
+        // 4. With lang: Some("es") -> Spanish title and content
+        let msgs_es = run_help_with_lang(Some("es"), tmp.path()).await;
+        assert_eq!(msgs_es.len(), 2);
+        if let ServerMsg::OpenWindow { title, content, kind } = &msgs_es[0] {
+            assert_eq!(*kind, WindowKind::Help);
+            assert!(title.contains("Comandos"), "title should contain 'Comandos', got {title:?}");
+            assert!(!title.contains("Commands"), "title should NOT contain 'Commands', got {title:?}");
+            assert!(content.contains("Comandos"), "content should contain 'Comandos', got {content:?}");
+            assert!(!content.contains("Commands"), "content should NOT contain 'Commands', got {content:?}");
+        } else {
+            panic!("expected OpenWindow at index 0, got {:?}", msgs_es[0]);
         }
     }
 }

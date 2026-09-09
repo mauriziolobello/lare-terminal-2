@@ -1,4 +1,16 @@
-# Implementation — orchestrator v2.2.5
+# Implementation — orchestrator v2.2.6
+
+## Terza lingua: spagnolo (es) per AI e /help (v2.2.6)
+
+Nel piano `Docs/i18n/ita/compiti-ai-esterne/2026-09-09-i18n-help-esterno-e-spagnolo.md` (Parte B):
+1. **Direttiva AI (`crates/orchestrator/src/agent.rs`)**:
+   - Aggiunta costante `RESPOND_SPANISH = " Responde en español, de forma concisa."`.
+   - `system_prompt` seleziona `RESPOND_SPANISH` quando `opts.lang.as_deref() == Some("es")`.
+   - `system_prompt_override` preservato intatto per i canali specializzati.
+2. **Finestra /help (`crates/orchestrator/src/core.rs`)**:
+   - Costante `HELP_TITLE_SPANISH = "Lare \u{2014} Comandos"`.
+   - Ramo `"help"` mappa `Some("es") => (HELP_TITLE_SPANISH, "es")`, delegando a `help::load_help_body`
+     il caricamento di `Configuration/help/es.md`.
 
 ## Refactor: migrazione /help su file esterni (v2.2.5)
 

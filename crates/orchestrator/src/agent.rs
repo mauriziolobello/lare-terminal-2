@@ -16,6 +16,7 @@ pub const TRUNCATE_TAIL: usize = 2048;
 /// Direttive di lingua per la risposta dell'AI.
 pub const RESPOND_ITALIAN: &str = " Rispondi in italiano, in modo conciso.";
 pub const RESPOND_ENGLISH: &str = " Answer in English, concisely.";
+pub const RESPOND_SPANISH: &str = " Responde en español, de forma concisa.";
 
 /// Base del system prompt dell'assistente terminale (senza la direttiva di lingua finale).
 pub const BASE_SYSTEM_PROMPT: &str = "Sei l'assistente di Lare Terminal, un terminale sulla macchina dell'utente (OS Windows, shell PowerShell persistente: cwd ed env persistono tra i comandi). Hai i seguenti strumenti: run_in_session (esegui un comando nella shell persistente), open_target (apri URL, cartella o file con l'app di default), show_markdown (mostra contenuto Markdown ricco — spiegazioni lunghe, codice, tabelle — in una finestra dedicata), search_routines (cerca fra le routine PowerShell gia' salvate, per nome/descrizione/tag) e run_routine (esegui per nome una routine gia' salvata, nella stessa shell persistente). Prima di scrivere un comando nuovo con run_in_session per una richiesta operativa (file, disco, rete, sistema), controlla SEMPRE con search_routines se esiste gia' una routine salvata pertinente anche solo per tema (es. 'file grandi' e una routine sulla dimensione dei file sono lo stesso tema): se c'e' una routine adatta usa run_routine invece di riscrivere il comando da zero. Scrivi un comando nuovo solo se nessuna routine esistente e' pertinente. Hai anche get_routine_content (leggi il corpo di una routine salvata, sola lettura) e save_routine (salva un nuovo script come routine riusabile, o aggiornane una esistente passando replace). Prima di chiamare save_routine per una routine NUOVA, controlla SEMPRE con search_routines se esiste gia' qualcosa di simile per nome o tema: se si', leggi il contenuto con get_routine_content e decidi se riusare quella esistente, aggiornarla (save_routine con replace) o crearne una distinta con un nome diverso. Chiama save_routine SOLO dopo aver gia' testato lo script con run_in_session e verificato che funzioni: mai salvare uno script mai eseguito. Preferisci ESEGUIRE i comandi invece di spiegare come farli: se la richiesta e' fattibile via shell, usa run_in_session. Quando la risposta e' formattata o lunga (spiegazioni, codice, tabelle), usa show_markdown invece di scriverla come testo semplice. Per mostrare il contenuto di un file o un output lungo usa show_markdown e non ripetere lo stesso contenuto anche come testo. Evita comandi interattivi o a esecuzione prolungata (REPL come python o node, editor come vim o nano): bloccherebbero la sessione.";
@@ -37,6 +38,7 @@ pub fn system_prompt(opts: TurnOptions) -> String {
     }
     let lang_directive = match opts.lang.as_deref() {
         Some("en") => RESPOND_ENGLISH,
+        Some("es") => RESPOND_SPANISH,
         _ => RESPOND_ITALIAN,
     };
     if opts.web_search {
@@ -713,8 +715,25 @@ mod tests {
             ..Default::default()
         });
         assert!(en_web.contains("web_search") && en_web.contains("web_fetch"));
-        assert!(en_web.ends_with(RESPOND_ENGLISH));
-        assert!(!en_web.contains(RESPOND_ITALIAN.trim()));
+        // lang: Some("es") -> spanish
+        let es = system_prompt(TurnOptions {
+            lang: Some("es".into()),
+            ..Default::default()
+        });
+        assert!(es.ends_with(RESPOND_SPANISH));
+        assert!(!es.contains(RESPOND_ITALIAN.trim()));
+        assert!(!es.contains(RESPOND_ENGLISH.trim()));
+
+        // Con web_search=true e lang: Some("es") -> web addendum presente e chiusura in spanish
+        let es_web = system_prompt(TurnOptions {
+            web_search: true,
+            lang: Some("es".into()),
+            ..Default::default()
+        });
+        assert!(es_web.contains("web_search") && es_web.contains("web_fetch"));
+        assert!(es_web.ends_with(RESPOND_SPANISH));
+        assert!(!es_web.contains(RESPOND_ITALIAN.trim()));
+        assert!(!es_web.contains(RESPOND_ENGLISH.trim()));
 
         // system_prompt_override resta intoccato anche se lang è valorizzato
         let overridden = system_prompt(TurnOptions {
