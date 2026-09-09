@@ -1,4 +1,36 @@
-# Implementation — orchestrator v2.2.2
+# Implementation — orchestrator v2.2.3
+
+## Lingua AI e cablaggio direttiva lang (v2.2.3, i18n Parte 3)
+
+Nel piano `Docs/i18n/ita/compiti-ai-esterne/2026-09-08-i18n-programma.md` (Parte 3), l'orchestratore
+adatta la lingua di risposta dell'assistente AI in base alla preferenza di sistema (`config.json.language`)
+o al valore `lang` trasmesso dal client nel messaggio `ClientMsg::Command { lang, .. }` (protocollo v2.1.1).
+
+### Architettura e invarianti
+
+1. **`agent.rs` — Nessuna traduzione dell'intero `SYSTEM_PROMPT`**:
+   Il prompt principale (`BASE_SYSTEM_PROMPT`) descrive le capacità del sistema e le convenzioni operative,
+   e rimane inalterato per evitare costi di manutenzione e divergenze tra lingue.
+   È stata isolata la frase finale direttiva in:
+   - `RESPOND_ITALIAN = " Rispondi in italiano, in modo conciso."`
+   - `RESPOND_ENGLISH = " Answer in English, concisely."`
+   La funzione `system_prompt(opts: &TurnOptions)` valuta `opts.lang`: se `opts.lang.as_deref() == Some("en")`,
+   appende `RESPOND_ENGLISH`, altrimenti appende `RESPOND_ITALIAN` (default conservativo per `Some("it")`,
+   `None` o stringa vuota).
+
+2. **Integrità di `system_prompt_override`**:
+   I canali che utilizzano prompt dedicati (`Telegram`, `mcp-nmap`, `AI Chat`) specificano
+   `TurnOptions { system_prompt_override: Some(...), .. }`. In tali canali, `system_prompt` restituisce
+   l'override inalterato, garantendo che nessuna direttiva spuria venga iniettata in prompt già specializzati.
+
+3. **Propagazione e fallback**:
+   - `crates/orchestrator/src/shell_slash.rs`: funzione `read_language(&config_dir) -> Option<String>`
+     estrae la preferenza `language` dal file `config.json` se presente e non vuoto.
+   - `crates/orchestrator/src/shell_turn.rs`: in `run_shell_command` e `run_ai_turn`, il parametro `lang: String`
+     ricevuto da `ClientMsg::Command` viene valutato: se non vuoto è usato direttamente come `Some(lang)`,
+     altrimenti viene effettuato il fallback su `read_language(&deps.rt.config_dir)`.
+   - `crates/orchestrator/src/ws.rs`: decodifica il campo `lang` da `ClientMsg::Command` e lo instrada
+     a `run_shell_command` o a `handle_command` (con fallback su `read_language(&config_dir)`).
 
 ## Sink plugin aggiornabile alla riconnessione della UI (v2.2.2)
 

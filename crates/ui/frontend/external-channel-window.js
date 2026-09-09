@@ -36,6 +36,7 @@ if (titlebarLabelEl && channelTitle) {
 const renderer = new LareRenderer(outputEl, statusEl);
 
 let client = null;
+let currentLanguage = "it";
 
 // ── Activity indicator ──────────────────────────────────────────────────
 // Un tool su questo canale (es. una scansione nmap) può impiegare fino a
@@ -132,6 +133,9 @@ async function init() {
     if (cfg && typeof cfg.window_alpha === "number") {
       document.documentElement.style.setProperty("--window-alpha", cfg.window_alpha);
     }
+    if (cfg?.language) {
+      currentLanguage = cfg.language;
+    }
     await fetchI18n(invoke, cfg?.language || "it");
     applyI18n(document);
   } catch (e) {
@@ -146,6 +150,7 @@ async function init() {
     url,
     token,
     channel: channelId,
+    lang: currentLanguage,
     onStatus: (s) => renderer.setStatus(s),
     onMessage: handleServerMsg,
   });
@@ -159,6 +164,8 @@ tauriEvent.listen("config:saved", async (ev) => {
   }
   const lang = ev.payload?.language;
   if (lang) {
+    currentLanguage = lang;
+    if (client) client.setLanguage(lang);
     await fetchI18n(invoke, lang);
     applyI18n(document);
   }
@@ -172,7 +179,7 @@ function submitCommand(text) {
   renderer.echoCommand(text);
   const id = crypto.randomUUID();
   commandStarted(id);
-  client.sendCommand(text, id, false);
+  client.sendCommand(text, id, false, currentLanguage);
 }
 
 inputEl.addEventListener("keydown", (ev) => {

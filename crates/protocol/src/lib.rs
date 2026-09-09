@@ -218,6 +218,10 @@ pub enum ClientMsg {
         /// questo comando. Campo additivo: i client che non lo inviano → false.
         #[serde(default)]
         web_search: bool,
+        /// Lingua della risposta AI richiesta dal client (es. "it", "en").
+        /// Campo additivo: i client che non lo inviano → stringa vuota "" (default).
+        #[serde(default)]
+        lang: String,
     },
 
     /// Keep-alive ping; `ts` is a client-side Unix timestamp (ms or s).
@@ -860,6 +864,7 @@ mod tests {
             command_type: CommandKind::Auto,
             cwd: None,
             web_search: false,
+            lang: String::new(),
         };
         let json = serde_json::to_string(&msg).unwrap();
         let back: ClientMsg = serde_json::from_str(&json).unwrap();
@@ -875,6 +880,7 @@ mod tests {
             command_type: CommandKind::Nl,
             cwd: Some("/home/user".to_string()),
             web_search: false,
+            lang: String::new(),
         };
         let json = serde_json::to_string(&msg).unwrap();
         let back: ClientMsg = serde_json::from_str(&json).unwrap();
@@ -994,6 +1000,7 @@ mod tests {
             command_type: CommandKind::Auto,
             cwd: None,
             web_search: false,
+            lang: String::new(),
         };
         let json = serde_json::to_string(&msg).unwrap();
         assert!(
@@ -1099,6 +1106,7 @@ mod tests {
                 command_type: CommandKind::Auto,
                 cwd: None,
                 web_search: false,
+                lang: String::new(),
             }
         );
     }
@@ -1175,6 +1183,7 @@ mod tests {
                 command_type: CommandKind::Nl,
                 cwd: Some("/tmp".to_string()),
                 web_search: false,
+                lang: String::new(),
             }
         );
     }
@@ -1199,6 +1208,7 @@ mod tests {
                 command_type: CommandKind::Os,
                 cwd: None,
                 web_search: false,
+                lang: String::new(),
             }
         );
     }
@@ -1366,11 +1376,45 @@ mod tests {
             command_type: CommandKind::Nl,
             cwd: None,
             web_search: true,
+            lang: String::new(),
         };
         let json = serde_json::to_string(&msg).unwrap();
         assert!(
             json.contains(r#""web_search":true"#),
             "manca web_search:true in {json}"
+        );
+        let back: ClientMsg = serde_json::from_str(&json).unwrap();
+        assert_eq!(msg, back);
+    }
+
+    // ── lang field on Command (i18n Parte 3) ──────────────────────────────────
+
+    #[test]
+    fn command_lang_defaults_empty_when_absent() {
+        // Un client che non invia `lang` → stringa vuota "" (serde default).
+        let raw = r#"{"type":"command","id":"a","input":"x","input_mode":"keyboard","command_type":"auto","cwd":null}"#;
+        let msg: ClientMsg = serde_json::from_str(raw).unwrap();
+        match msg {
+            ClientMsg::Command { lang, .. } => assert_eq!(lang, ""),
+            other => panic!("atteso Command, trovato {other:?}"),
+        }
+    }
+
+    #[test]
+    fn command_lang_roundtrip() {
+        let msg = ClientMsg::Command {
+            id: "a".to_string(),
+            input: "cerca".to_string(),
+            input_mode: InputMode::Keyboard,
+            command_type: CommandKind::Nl,
+            cwd: None,
+            web_search: false,
+            lang: "en".to_string(),
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(
+            json.contains(r#""lang":"en""#),
+            "manca lang:\"en\" in {json}"
         );
         let back: ClientMsg = serde_json::from_str(&json).unwrap();
         assert_eq!(msg, back);

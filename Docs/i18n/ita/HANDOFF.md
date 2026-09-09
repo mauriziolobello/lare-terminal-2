@@ -5,15 +5,14 @@
 
 ## Versioni correnti
 
-(a fine piano 3 "finestra terminale" — lette da ogni `Cargo.toml`/`.csproj`; `protocol` resta
-2.1.0, non toccato da questo piano)
+(a fine piano 3 "finestra terminale" e i18n Parte 3 — lette da ogni `Cargo.toml`/`.csproj`)
 
-- protocol 2.1.0 (da v1 0.15.4)
+- protocol 2.1.1 (da v1 0.15.4; 2.1.1 — `ClientMsg::Command.lang` additivo con default vuoto per i18n Parte 3)
 - startup-config 2.0.4 (da v1 0.1.0; `spawn_detached` piano 3 Task 3; 2.0.4 — modulo `logging`
   condiviso + stdio chiuse + `child_stderr_log_sink`, fix finestre console spurie)
 - mcp-server 2.0.1 (da v1 0.7.1)
 - mcp-nmap 2.0.1 (da v1 0.8.2; 2.0.1 — codepage OEM per comandi nativi Win32 in network_info.rs, fix mojibake accenti)
-- orchestrator 2.2.2 (da v1 0.41.21; 2.2.2 — sink plugin aggiornato dopo riapertura UI)
+- orchestrator 2.2.3 (da v1 0.41.21; 2.2.3 — direttiva lingua AI su `TurnOptions` e `system_prompt`, cablaggio `lang` da WS e fallback su `config.json`)
 - plugin-protocol 2.0.0 (da v1 0.2.1)
 - plugin-ping 2.0.0 (da v1 0.1.0)
 - plugin-counter 2.0.0 (da v1 0.1.0)
@@ -25,6 +24,20 @@
   `--no-terminal` — non un crate Cargo: `shell/lare-shell/`, .NET/C#)
 
 ## FATTO
+
+- **i18n Parte 3 — Lingua dell'AI sul canale cursore (2026-09-09)** —
+  Terza fase del piano `Docs/i18n/ita/compiti-ai-esterne/2026-09-08-i18n-programma.md`:
+  esteso il protocollo con campo additivo `ClientMsg::Command.lang: String` (`#[serde(default)]`,
+  default `""` sul wire). Isolamento della frase direttiva finale del prompt di sistema in
+  `crates/orchestrator/src/agent.rs` (`RESPOND_ITALIAN` e `RESPOND_ENGLISH`); `system_prompt()` appende
+  la direttiva inglese per `lang == Some("en")` e la direttiva italiana di default per `None`/`"it"`.
+  I canali con `system_prompt_override` (Telegram, mcp-nmap, AI Chat) restano intatti.
+  Implementata la lettura della preferenza da `config.json` (`read_language`) come fallback
+  per chiamanti che inviano `lang` vuoto. Cablato `lang` in `ws.rs`, `shell_turn.rs` e `core.rs`.
+  Nel frontend, `LareWsClient` accetta `lang` nel constructor, fornisce `setLanguage(lang)` e
+  popola `ClientMsg::Command.lang` in `sendCommand`; `window.js` ed `external-channel-window.js`
+  propagano la lingua corrente. Tutti i test passano: protocol (82), orchestrator (969),
+  ui (147), e test frontend Node.js (255 passati su 255). Protocol bump a 2.1.1, orchestrator a 2.2.3.
 
 - **i18n Parte 2 — Internazionalizzazione a cascata di tutte le finestre (2026-09-09)** —
   Seconda fase del piano `Docs/i18n/ita/compiti-ai-esterne/2026-09-08-i18n-programma.md`:

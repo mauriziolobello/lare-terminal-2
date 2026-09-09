@@ -3,7 +3,29 @@
 All notable changes to this crate are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), versioning: [SemVer](https://semver.org/).
 
----
+## 2.2.3 — 2026-09-09 — lingua AI e cablaggio lang (i18n Parte 3)
+
+- **Direttiva lingua su `TurnOptions` e `system_prompt()`** (`crates/orchestrator/src/agent.rs`):
+  - Estratte le costanti `RESPOND_ITALIAN = " Rispondi in italiano, in modo conciso."` e
+    `RESPOND_ENGLISH = " Answer in English, concisely."` dal prompt di base.
+  - Aggiunto `lang: Option<String>` a `TurnOptions`.
+  - In `system_prompt()`, se `lang == Some("en")` viene appesa la direttiva `RESPOND_ENGLISH`,
+    altrimenti la direttiva predefinita `RESPOND_ITALIAN` (per `Some("it")`, `None` o stringa vuota).
+  - Canali specializzati con `system_prompt_override` (Telegram, mcp-nmap, AI Chat) restano intatti.
+- **Supporto configurazione e propagazione lingua**:
+  - `read_language(&config_dir) -> Option<String>` in `shell_slash.rs` per leggere `config.json`.
+  - `crates/orchestrator/src/core.rs`: esteso `handle_command` con `lang: Option<String>`, propagato
+    a `TurnOptions`.
+  - `crates/orchestrator/src/shell_turn.rs`: propagato `lang` in `run_shell_command` e `run_ai_turn`,
+    con fallback a `read_language(&deps.rt.config_dir)` se il client invia stringa vuota.
+  - `crates/orchestrator/src/ws.rs`: decodifica di `lang` da `ClientMsg::Command` sia nel path
+    della sessione shell sia nel path per comandi autonomi (con fallback `read_language`).
+- **Test unitari e d'integrazione**:
+  - Nuovi test in `agent.rs`: `system_prompt_respects_language_directive` (verifica che `en`
+    includa la frase inglese ed escluda l'italiana, e viceversa; verifica che `system_prompt_override`
+    non venga toccato).
+  - Nuovi test in `shell_slash.rs`: `language_is_read_from_config_json_default_none`.
+  - Aggiornati test in `core.rs`, `shell_turn.rs`, `ai_adapter.rs` e `ws_integration.rs`.
 
 ## 2.2.2 — 2026-09-08 — plugin dopo riapertura della UI
 

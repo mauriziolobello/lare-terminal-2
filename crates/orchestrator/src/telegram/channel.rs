@@ -290,6 +290,7 @@ impl TelegramChannel {
             None, // format_invocation: Telegram non partecipa alla risoluzione canale — fallback su agent::display_invocation, invariato
             None, // system_prompt_override: idem — Telegram non ha un concetto di canale, resta sempre agent::SYSTEM_PROMPT
             false, // web_search=false in v1 (nessun toggle Telegram)
+            None,  // lang: Telegram non passa lang, usa il default (italiano)
             Some(&confirmer),
             None,
             tx,

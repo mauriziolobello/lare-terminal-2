@@ -4,6 +4,18 @@ All notable changes to this crate are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Versioning: `major.minor.update` (SemVer).
 
+## 2.1.1 — 2026-09-09 — lang additivo su ClientMsg::Command (i18n Parte 3)
+
+Aggiunta additiva (Contratto A) per supportare la scelta della lingua di risposta
+dell'AI sul canale cursore/terminale (`Docs/i18n/ita/compiti-ai-esterne/2026-09-08-i18n-programma.md` §6, Parte 3):
+
+- **`ClientMsg::Command.lang: String`** (nuovo campo additivo):
+  - Decorato con `#[serde(default)]`: stringa vuota `""` di default quando assente sul
+    wire JSON (nessuna regressione per client esistenti o legacy).
+  - Semantica: lingua richiesta per la risposta dell'AI (es. `"it"`, `"en"`).
+  - Test: `command_lang_defaults_empty_when_absent` (assente → `""`) e
+    `command_lang_roundtrip` (round-trip con `"lang":"en"`).
+
 ## 2.1.0 — 2026-09-06 — ruolo della connessione + canale shell (piano 2a, Task 1)
 
 Fondamenta del canale "shell" (spec `Docs/i18n/ita/superpowers/specs/2026-09-04-lare-terminal-2-design.md`

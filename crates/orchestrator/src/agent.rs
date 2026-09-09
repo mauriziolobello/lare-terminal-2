@@ -13,7 +13,14 @@ pub const MAX_ITERATIONS: usize = 8;
 pub const TRUNCATE_HEAD: usize = 6144;
 pub const TRUNCATE_TAIL: usize = 2048;
 
-/// System prompt dell'assistente terminale.
+/// Direttive di lingua per la risposta dell'AI.
+pub const RESPOND_ITALIAN: &str = " Rispondi in italiano, in modo conciso.";
+pub const RESPOND_ENGLISH: &str = " Answer in English, concisely.";
+
+/// Base del system prompt dell'assistente terminale (senza la direttiva di lingua finale).
+pub const BASE_SYSTEM_PROMPT: &str = "Sei l'assistente di Lare Terminal, un terminale sulla macchina dell'utente (OS Windows, shell PowerShell persistente: cwd ed env persistono tra i comandi). Hai i seguenti strumenti: run_in_session (esegui un comando nella shell persistente), open_target (apri URL, cartella o file con l'app di default), show_markdown (mostra contenuto Markdown ricco — spiegazioni lunghe, codice, tabelle — in una finestra dedicata), search_routines (cerca fra le routine PowerShell gia' salvate, per nome/descrizione/tag) e run_routine (esegui per nome una routine gia' salvata, nella stessa shell persistente). Prima di scrivere un comando nuovo con run_in_session per una richiesta operativa (file, disco, rete, sistema), controlla SEMPRE con search_routines se esiste gia' una routine salvata pertinente anche solo per tema (es. 'file grandi' e una routine sulla dimensione dei file sono lo stesso tema): se c'e' una routine adatta usa run_routine invece di riscrivere il comando da zero. Scrivi un comando nuovo solo se nessuna routine esistente e' pertinente. Hai anche get_routine_content (leggi il corpo di una routine salvata, sola lettura) e save_routine (salva un nuovo script come routine riusabile, o aggiornane una esistente passando replace). Prima di chiamare save_routine per una routine NUOVA, controlla SEMPRE con search_routines se esiste gia' qualcosa di simile per nome o tema: se si', leggi il contenuto con get_routine_content e decidi se riusare quella esistente, aggiornarla (save_routine con replace) o crearne una distinta con un nome diverso. Chiama save_routine SOLO dopo aver gia' testato lo script con run_in_session e verificato che funzioni: mai salvare uno script mai eseguito. Preferisci ESEGUIRE i comandi invece di spiegare come farli: se la richiesta e' fattibile via shell, usa run_in_session. Quando la risposta e' formattata o lunga (spiegazioni, codice, tabelle), usa show_markdown invece di scriverla come testo semplice. Per mostrare il contenuto di un file o un output lungo usa show_markdown e non ripetere lo stesso contenuto anche come testo. Evita comandi interattivi o a esecuzione prolungata (REPL come python o node, editor come vim o nano): bloccherebbero la sessione.";
+
+/// System prompt dell'assistente terminale (default in italiano, per retro-compatibilità).
 pub const SYSTEM_PROMPT: &str = "Sei l'assistente di Lare Terminal, un terminale sulla macchina dell'utente (OS Windows, shell PowerShell persistente: cwd ed env persistono tra i comandi). Hai i seguenti strumenti: run_in_session (esegui un comando nella shell persistente), open_target (apri URL, cartella o file con l'app di default), show_markdown (mostra contenuto Markdown ricco — spiegazioni lunghe, codice, tabelle — in una finestra dedicata), search_routines (cerca fra le routine PowerShell gia' salvate, per nome/descrizione/tag) e run_routine (esegui per nome una routine gia' salvata, nella stessa shell persistente). Prima di scrivere un comando nuovo con run_in_session per una richiesta operativa (file, disco, rete, sistema), controlla SEMPRE con search_routines se esiste gia' una routine salvata pertinente anche solo per tema (es. 'file grandi' e una routine sulla dimensione dei file sono lo stesso tema): se c'e' una routine adatta usa run_routine invece di riscrivere il comando da zero. Scrivi un comando nuovo solo se nessuna routine esistente e' pertinente. Hai anche get_routine_content (leggi il corpo di una routine salvata, sola lettura) e save_routine (salva un nuovo script come routine riusabile, o aggiornane una esistente passando replace). Prima di chiamare save_routine per una routine NUOVA, controlla SEMPRE con search_routines se esiste gia' qualcosa di simile per nome o tema: se si', leggi il contenuto con get_routine_content e decidi se riusare quella esistente, aggiornarla (save_routine con replace) o crearne una distinta con un nome diverso. Chiama save_routine SOLO dopo aver gia' testato lo script con run_in_session e verificato che funzioni: mai salvare uno script mai eseguito. Preferisci ESEGUIRE i comandi invece di spiegare come farli: se la richiesta e' fattibile via shell, usa run_in_session. Quando la risposta e' formattata o lunga (spiegazioni, codice, tabelle), usa show_markdown invece di scriverla come testo semplice. Per mostrare il contenuto di un file o un output lungo usa show_markdown e non ripetere lo stesso contenuto anche come testo. Evita comandi interattivi o a esecuzione prolungata (REPL come python o node, editor come vim o nano): bloccherebbero la sessione. Rispondi in italiano, in modo conciso.";
 
 /// Addendum al system prompt quando la ricerca web interna è attiva: dice all'AI
@@ -23,20 +30,24 @@ pub const SYSTEM_PROMPT: &str = "Sei l'assistente di Lare Terminal, un terminale
 const WEB_SEARCH_ADDENDUM: &str = " Hai inoltre due strumenti per il web: web_search (cerca sul web) e web_fetch (scarica e leggi una pagina). USALI per RISPONDERE a domande che richiedono informazioni aggiornate o dal web (prezzi, meteo, notizie, eventi, fatti recenti): cerca e fornisci la risposta direttamente nel terminale citando la fonte, NON limitarti ad aprire il browser. Usa open_target per aprire una pagina solo se l'utente chiede esplicitamente di aprirla o navigarla.";
 
 /// System prompt per il turno: override del canale (se presente) → altrimenti
-/// base + addendum web se la ricerca web è attiva.
+/// base + addendum web se la ricerca web è attiva + direttiva lingua.
 pub fn system_prompt(opts: TurnOptions) -> String {
     if let Some(overridden) = opts.system_prompt_override {
         return overridden.to_string();
     }
+    let lang_directive = match opts.lang.as_deref() {
+        Some("en") => RESPOND_ENGLISH,
+        _ => RESPOND_ITALIAN,
+    };
     if opts.web_search {
-        format!("{SYSTEM_PROMPT}{WEB_SEARCH_ADDENDUM}")
+        format!("{BASE_SYSTEM_PROMPT}{WEB_SEARCH_ADDENDUM}{lang_directive}")
     } else {
-        SYSTEM_PROMPT.to_string()
+        format!("{BASE_SYSTEM_PROMPT}{lang_directive}")
     }
 }
 
 /// Flag per-turno che modellano la richiesta all'AI.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 // `format_invocation` è un fn-pointer: rustc segnala che il confronto `==` su
 // puntatori a funzione non è garantito stabile (indirizzi possono coincidere
 // dopo merge del codegen). In pratica `TurnOptions` non viene mai confrontato
@@ -60,11 +71,20 @@ pub struct TurnOptions {
     /// INTERAMENTE il prompt di default (addendum web escluso: i canali
     /// esterni non hanno `web_search` in v1).
     pub system_prompt_override: Option<&'static str>,
+    /// Lingua della risposta AI richiesta dal client (es. "it", "en").
+    /// `None`, vuoto o "it" → italiano (comportamento invariato); "en" → inglese.
+    pub lang: Option<String>,
 }
 
 impl Default for TurnOptions {
     fn default() -> Self {
-        Self { allow_windows: true, web_search: false, format_invocation: None, system_prompt_override: None }
+        Self {
+            allow_windows: true,
+            web_search: false,
+            format_invocation: None,
+            system_prompt_override: None,
+            lang: None,
+        }
     }
 }
 
@@ -592,7 +612,7 @@ mod tests {
     #[test]
     fn tools_for_no_windows_excludes_show_markdown() {
         let t = tools_for(
-            TurnOptions { allow_windows: false, web_search: false, format_invocation: None, system_prompt_override: None },
+            TurnOptions { allow_windows: false, web_search: false, format_invocation: None, system_prompt_override: None, lang: None },
             tool_defs(),
         );
         // 8 tool custom - show_markdown (era 7 prima di set_ai_display_name, Task 7).
@@ -603,7 +623,7 @@ mod tests {
     #[test]
     fn tools_for_web_search_adds_two_server_tools() {
         let t = tools_for(
-            TurnOptions { allow_windows: true, web_search: true, format_invocation: None, system_prompt_override: None },
+            TurnOptions { allow_windows: true, web_search: true, format_invocation: None, system_prompt_override: None, lang: None },
             tool_defs(),
         );
         // 8 tool custom (era 7 prima di set_ai_display_name, Task 7) + 2 web.
@@ -634,6 +654,7 @@ mod tests {
             web_search: true,
             format_invocation: None,
             system_prompt_override: Some("PROMPT FISSO DEL CANALE"),
+            lang: None,
         };
         let s = system_prompt(opts);
         assert_eq!(s, "PROMPT FISSO DEL CANALE");
@@ -649,9 +670,59 @@ mod tests {
         assert!(!off.contains("web_search"), "prompt OFF non deve menzionare web_search: {off}");
         // Con ricerca web: il prompt DEVE dire all'AI di usare web_search/web_fetch
         // (senza questo addendum il modello ignora il tool e apre il browser).
-        let on = system_prompt(TurnOptions { allow_windows: true, web_search: true, format_invocation: None, system_prompt_override: None });
+        let on = system_prompt(TurnOptions { allow_windows: true, web_search: true, format_invocation: None, system_prompt_override: None, lang: None });
         assert!(on.contains("web_search") && on.contains("web_fetch"),
             "prompt ON deve menzionare i tool web: {on}");
+    }
+
+    #[test]
+    fn system_prompt_respects_language_directive() {
+        // lang: None -> italiano
+        let def = system_prompt(TurnOptions::default());
+        assert!(def.ends_with(RESPOND_ITALIAN));
+        assert!(!def.contains(RESPOND_ENGLISH.trim()));
+
+        // lang: Some("it") -> italiano
+        let it = system_prompt(TurnOptions {
+            lang: Some("it".into()),
+            ..Default::default()
+        });
+        assert!(it.ends_with(RESPOND_ITALIAN));
+        assert!(!it.contains(RESPOND_ENGLISH.trim()));
+
+        // lang: Some("") -> italiano
+        let empty = system_prompt(TurnOptions {
+            lang: Some("".into()),
+            ..Default::default()
+        });
+        assert!(empty.ends_with(RESPOND_ITALIAN));
+        assert!(!empty.contains(RESPOND_ENGLISH.trim()));
+
+        // lang: Some("en") -> english
+        let en = system_prompt(TurnOptions {
+            lang: Some("en".into()),
+            ..Default::default()
+        });
+        assert!(en.ends_with(RESPOND_ENGLISH));
+        assert!(!en.contains(RESPOND_ITALIAN.trim()));
+
+        // Con web_search=true e lang: Some("en") -> web addendum presente e chiusura in english
+        let en_web = system_prompt(TurnOptions {
+            web_search: true,
+            lang: Some("en".into()),
+            ..Default::default()
+        });
+        assert!(en_web.contains("web_search") && en_web.contains("web_fetch"));
+        assert!(en_web.ends_with(RESPOND_ENGLISH));
+        assert!(!en_web.contains(RESPOND_ITALIAN.trim()));
+
+        // system_prompt_override resta intoccato anche se lang è valorizzato
+        let overridden = system_prompt(TurnOptions {
+            system_prompt_override: Some("custom prompt"),
+            lang: Some("en".into()),
+            ..Default::default()
+        });
+        assert_eq!(overridden, "custom prompt");
     }
 
     #[test]
