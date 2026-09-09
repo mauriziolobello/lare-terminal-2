@@ -22,6 +22,7 @@ import { LareWsClient } from "./ws-client.js";
 import { buildExpandPrompt, isConnectionFailureStatus, isEmptyExpandResult, isAiTurnFailure } from "./expand-prompt.mjs";
 import { sortedOrder } from "./table-sort.mjs";
 import { outputWindowIdFromLabel } from "./ui-local.mjs";
+import { fetchI18n, applyI18n, t } from "./i18n.mjs";
 
 // ---------------------------------------------------------------------------
 // Tauri IPC reference
@@ -156,7 +157,7 @@ function sortTableByColumn(table, colIndex, dir, type) {
 async function bootstrap() {
   if (!tauriInvoke) {
     contentEl.classList.replace("loading", "error");
-    contentEl.textContent = "[window] Error: Tauri IPC not available.";
+    contentEl.textContent = t("md_window.error_ipc");
     return;
   }
 
@@ -169,9 +170,12 @@ async function bootstrap() {
     if (cfg && typeof cfg.web_search_enabled === "boolean") {
       webSearchEnabled = cfg.web_search_enabled;
     }
+    await fetchI18n(invokeCmd, cfg?.language);
   } catch (e) {
     console.warn("[window] get_config on startup failed:", e);
+    await fetchI18n(invokeCmd);
   }
+  applyI18n(document);
 
   let data;
   try {
@@ -181,19 +185,19 @@ async function bootstrap() {
     data = await invokeCmd("take_window_content");
   } catch (e) {
     contentEl.classList.replace("loading", "error");
-    contentEl.textContent = `[window] Error retrieving content: ${e}`;
+    contentEl.textContent = t("md_window.error_retrieving", { error: e });
     return;
   }
 
   if (!data) {
     contentEl.classList.replace("loading", "error");
-    contentEl.textContent = "[window] No content found for this window.";
+    contentEl.textContent = t("md_window.no_content");
     return;
   }
 
   // Update the title bar label and document title.
   // Only the label span is updated — the close button in #titlebar is untouched.
-  const title = data.title || "Lare — Output";
+  const title = data.title || t("md_window.titlebar");
   titlebarLabelEl.textContent = title;
   document.title = title;
 
@@ -218,7 +222,7 @@ async function bootstrap() {
   // NOT the rendered HTML — we archive the source, not the sanitized output).
   // We keep a reference to the original text rather than reading innerHTML to
   // ensure we save what was received, not what DOMPurify may have stripped.
-  const saveTitle   = data.title || "Untitled";
+  const saveTitle   = data.title || t("common.untitled");
   // `let`, non `const`: per una finestra di output del canale shell (2.0),
   // il contenuto arriva DOPO l'apertura via evento `output:content` — il
   // salvataggio in Library deve archiviare quel contenuto aggiornato, non
@@ -236,7 +240,7 @@ async function bootstrap() {
       await invokeCmd("archive_save", { title: saveTitle, content: saveContent });
       // Success: stable "saved" state — button stays disabled, text updated.
       // The user cannot click again until the window is reopened (new session).
-      saveBtnEl.textContent = "✓ Salvato";
+      saveBtnEl.textContent = t("common.saved");
     } catch (e) {
       // Failure: re-enable the button so the user can retry.
       console.error("[archive] archive_save failed:", e);
@@ -257,7 +261,7 @@ async function bootstrap() {
   // aggiornato, riusare una connessione accumulerebbe versioni vecchie).
   let currentContent = data.content || "";
   const sourceFile = data.source_file || "";
-  const docTitle = data.title || "Untitled";
+  const docTitle = data.title || t("common.untitled");
 
   // ── Finestra di output del canale shell (2.0, spec §3.2/D14) ──────────────
   // Solo le finestre `output-<id>` ricevono aggiornamenti dopo l'apertura
@@ -311,7 +315,7 @@ async function bootstrap() {
 
     expandBtnEl.disabled = true;
     expandInputEl.disabled = true;
-    expandStatusEl.textContent = "🔄 espando…";
+    expandStatusEl.textContent = t("md_window.expanding");
 
     const token = (await invokeCmd("get_lare_token")) ?? "";
     // Porta WS da startup.json (2.0), stesso comando usato da host.js.
@@ -334,7 +338,7 @@ async function bootstrap() {
       onStatus: (status) => {
         if (!isConnectionFailureStatus(status, settled)) return;
         settled = true;
-        failExpand("connessione persa");
+        failExpand(t("md_window.connection_lost"));
         client.disconnect();
       },
       onMessage: (msg) => {
@@ -348,17 +352,17 @@ async function bootstrap() {
         } else if (msg.type === "done") {
           settled = true;
           if (isAiTurnFailure(msg.exit_code)) {
-            const detail = buffer.trim() || "errore sconosciuto";
-            failExpand(`richiesta AI fallita — documento non modificato (${detail})`);
+            const detail = buffer.trim() || t("md_window.unknown_error");
+            failExpand(t("md_window.ai_failed", { detail }));
           } else if (isEmptyExpandResult(buffer)) {
-            failExpand("risposta AI vuota — documento non modificato");
+            failExpand(t("md_window.ai_empty"));
           } else {
             finishExpand(buffer);
           }
           client.disconnect();
         } else if (msg.type === "error") {
           settled = true;
-          failExpand(msg.message || "errore sconosciuto");
+          failExpand(msg.message || t("md_window.unknown_error"));
           client.disconnect();
         }
       },
@@ -370,12 +374,12 @@ async function bootstrap() {
     try {
       await invokeCmd("archive_update", { file: sourceFile, title: docTitle, content: newContent });
     } catch (e) {
-      failExpand(`salvataggio fallito: ${e}`);
+      failExpand(t("md_window.save_failed", { error: e }));
       return;
     }
     currentContent = newContent;
     renderMarkdown(newContent);
-    expandStatusEl.textContent = "✓ Espanso";
+    expandStatusEl.textContent = t("md_window.expanded");
     expandInputEl.value = "";
     expandInputEl.disabled = false;
     expandBtnEl.disabled = true; // richiede nuovo testo per riattivarsi
@@ -436,9 +440,13 @@ async function bootstrap() {
 
 bootstrap();
 
-tauriEvent?.listen("config:saved", (ev) => {
+tauriEvent?.listen("config:saved", async (ev) => {
   const alpha = ev.payload?.window_alpha;
   if (typeof alpha === "number") {
     document.documentElement.style.setProperty("--window-alpha", alpha);
+  }
+  if (ev.payload?.language) {
+    await fetchI18n(invokeCmd, ev.payload.language);
+    applyI18n(document);
   }
 });

@@ -38,6 +38,7 @@ import {
 } from "./library-nav.mjs";
 import { shareTargetList } from "./share-view.mjs";
 import { visibleNotesSorted, formatNoteMeta } from "./note-view.mjs";
+import { fetchI18n, applyI18n, t } from "./i18n.mjs";
 
 // ---------------------------------------------------------------------------
 // Tauri IPC reference
@@ -300,13 +301,13 @@ function wireDeleteButton(deleteBtn, row, file, deleteCmd, onSuccess = null) {
     confirmTimeout = null;
     deleteBtn.classList.remove("archive-item-delete--confirm");
     deleteBtn.textContent = "\u{1F5D1}"; // 🗑
-    deleteBtn.title = "Elimina";
+    deleteBtn.title = t("library.delete_title");
   }
 
   function armConfirm() {
     deleteBtn.classList.add("archive-item-delete--confirm");
-    deleteBtn.textContent = "Conferma";
-    deleteBtn.title = "Clicca ancora per eliminare";
+    deleteBtn.textContent = t("library.confirm_btn");
+    deleteBtn.title = t("library.confirm_delete_title");
     confirmTimeout = setTimeout(resetConfirm, 3000);
   }
 
@@ -327,8 +328,8 @@ function wireDeleteButton(deleteBtn, row, file, deleteCmd, onSuccess = null) {
           listAreaEl.className = "empty";
           listAreaEl.textContent =
             activeTab === "find"
-              ? "Nessuna ricerca salvata."
-              : "Nessun documento archiviato.";
+              ? t("library.no_saved_searches")
+              : t("library.no_archived_docs");
         }
       }
     } catch (e) {
@@ -374,13 +375,13 @@ function wireFolderDeleteButton(deleteBtn, row, folderRel) {
     confirmTimeout = null;
     deleteBtn.classList.remove("lib-folder-btn--confirm");
     deleteBtn.textContent = "\u{1F5D1}"; // 🗑
-    deleteBtn.title = "Elimina cartella";
+    deleteBtn.title = t("library.delete_folder_title");
   }
 
   function armConfirm() {
     deleteBtn.classList.add("lib-folder-btn--confirm");
-    deleteBtn.textContent = "Conferma";
-    deleteBtn.title = "Clicca ancora per eliminare";
+    deleteBtn.textContent = t("library.confirm_btn");
+    deleteBtn.title = t("library.confirm_delete_title");
     confirmTimeout = setTimeout(resetConfirm, 3000);
   }
 
@@ -444,13 +445,13 @@ function wireNoteDeleteButton(deleteBtn, noteId) {
     confirmTimeout = null;
     deleteBtn.classList.remove("archive-item-delete--confirm");
     deleteBtn.textContent = "\u{1F5D1}"; // 🗑
-    deleteBtn.title = "Elimina";
+    deleteBtn.title = t("library.delete_title");
   }
 
   function armConfirm() {
     deleteBtn.classList.add("archive-item-delete--confirm");
-    deleteBtn.textContent = "Conferma";
-    deleteBtn.title = "Clicca ancora per eliminare";
+    deleteBtn.textContent = t("library.confirm_btn");
+    deleteBtn.title = t("library.confirm_delete_title");
     confirmTimeout = setTimeout(resetConfirm, 3000);
   }
 
@@ -606,7 +607,7 @@ function openMoveDialog(itemRel, isFolder, displayName) {
   moveState.chosen   = null; // Nessuna selezione iniziale
 
   // Imposta il titolo del dialog — textContent per sicurezza (displayName è dati utente)
-  moveDialogTitle.textContent = `Sposta “${displayName}” in…`; // "Sposta «nome» in…"
+  moveDialogTitle.textContent = t("library.move_title_format", { name: displayName }); // "Sposta «nome» in…"
 
   // Nasconde la riga di errore (potrebbe essere visibile da un'apertura precedente)
   moveErrorEl.style.display = "none";
@@ -622,7 +623,7 @@ function openMoveDialog(itemRel, isFolder, displayName) {
     // Caso raro: nessuna destinazione disponibile (es. unica cartella al livello root)
     const msg = document.createElement("div");
     msg.className   = "move-target";
-    msg.textContent = "Nessuna destinazione disponibile.";
+    msg.textContent = t("library.no_targets_available");
     msg.style.color = "var(--text-muted)";
     msg.style.cursor = "default";
     moveTargetsEl.appendChild(msg);
@@ -643,7 +644,7 @@ function openMoveDialog(itemRel, isFolder, displayName) {
 
       // Etichetta: la root ottiene un'icona speciale per distinguerla visivamente
       if (target.relPath === "") {
-        row.textContent = "\u{1F3E0} " + target.name; // 🏠 Documenti (radice)
+        row.textContent = "\u{1F3E0} " + t("library.documents_root"); // 🏠 Documenti (radice)
       } else {
         row.textContent = "\u{1F4C1} " + target.name; // 📁 nome-cartella
       }
@@ -655,7 +656,7 @@ function openMoveDialog(itemRel, isFolder, displayName) {
       // aria-selected/click: la riga non è selezionabile.
       if (target.disabled) {
         row.setAttribute("aria-disabled", "true");
-        row.textContent += "  (posizione attuale)";
+        row.textContent += "  " + t("library.current_position");
         moveTargetsEl.appendChild(row);
         continue;
       }
@@ -700,7 +701,7 @@ function openShareDialog(itemRel, displayName) {
   shareState.docName = displayName;
   shareState.chosen  = null;
 
-  shareDialogTitle.textContent = `Condividi “${displayName}” con…`;
+  shareDialogTitle.textContent = t("library.share_title_format", { name: displayName });
   shareConfirmBtn.disabled = true;
   shareTargetsEl.textContent = "";
 
@@ -709,7 +710,7 @@ function openShareDialog(itemRel, displayName) {
   if (targets.length === 0) {
     const msg = document.createElement("div");
     msg.className    = "move-target";
-    msg.textContent  = "Nessuna macchina connessa.";
+    msg.textContent  = t("library.no_peers_connected");
     msg.style.color  = "var(--text-muted)";
     msg.style.cursor = "default";
     shareTargetsEl.appendChild(msg);
@@ -822,7 +823,7 @@ function wireMoveDialog() {
       // mostra il messaggio DENTRO il dialog senza chiuderlo.
       // L'utente può scegliere un'altra destinazione o premere Annulla.
       console.error("[library] move failed:", e);
-      const msg = typeof e === "string" ? e : (e?.message ?? "Errore sconosciuto.");
+      const msg = typeof e === "string" ? e : (e?.message ?? t("library.unknown_error"));
       moveErrorEl.textContent   = "⚠ " + msg; // ⚠ messaggio
       moveErrorEl.style.display = "block";
     }
@@ -919,22 +920,22 @@ function buildFolderRow(folder) {
   const renameBtn = document.createElement("button");
   renameBtn.className   = "lib-folder-btn lib-folder-btn--rename";
   renameBtn.textContent = "✏️"; // ✏️
-  renameBtn.title       = "Rinomina cartella";
-  renameBtn.setAttribute("aria-label", "Rinomina " + folder.name);
+  renameBtn.title       = t("library.rename_folder_title");
+  renameBtn.setAttribute("aria-label", t("library.rename_folder_aria", { name: folder.name }));
 
   // Pulsante sposta ↗ (visibile sempre — l'utente sceglie la destinazione nel dialog)
   const moveBtn = document.createElement("button");
   moveBtn.className   = "lib-folder-btn lib-folder-btn--move";
   moveBtn.textContent = "\u{2197}"; // ↗ U+2197 NORTH EAST ARROW
-  moveBtn.title       = "Sposta";
-  moveBtn.setAttribute("aria-label", "Sposta cartella " + folder.name);
+  moveBtn.title       = t("library.move_btn_title");
+  moveBtn.setAttribute("aria-label", t("library.move_folder_aria", { name: folder.name }));
 
   // Pulsante elimina 🗑 (visibile SOLO se la cartella sembra vuota)
   const deleteBtn = document.createElement("button");
   deleteBtn.className   = "lib-folder-btn lib-folder-btn--delete";
   deleteBtn.textContent = "\u{1F5D1}"; // 🗑
-  deleteBtn.title       = "Elimina cartella";
-  deleteBtn.setAttribute("aria-label", "Elimina " + folder.name);
+  deleteBtn.title       = t("library.delete_folder_title");
+  deleteBtn.setAttribute("aria-label", t("library.delete_folder_aria", { name: folder.name }));
 
   // Stima ottimistica: nasconde il pulsante se la cartella ha contenuto
   // (il backend resta la fonte di verità — se il delete fallisce, flashRowError)
@@ -1017,8 +1018,8 @@ function buildMarkdownItem(entry, onDelete = null) {
   const deleteBtn = document.createElement("button");
   deleteBtn.className   = "archive-item-delete";
   deleteBtn.textContent = "\u{1F5D1}"; // 🗑
-  deleteBtn.title       = "Elimina";
-  deleteBtn.setAttribute("aria-label", "Elimina documento");
+  deleteBtn.title       = t("library.delete_title");
+  deleteBtn.setAttribute("aria-label", t("library.delete_doc_aria"));
 
   // Passa onDelete come callback: nel contesto Explorer chiama reloadCurrentView
   wireDeleteButton(deleteBtn, row, entry.file, "archive_delete", onDelete);
@@ -1032,8 +1033,8 @@ function buildMarkdownItem(entry, onDelete = null) {
     const moveBtn = document.createElement("button");
     moveBtn.className   = "archive-item-move"; // hover blu (non distruttivo, ≠ rosso del 🗑)
     moveBtn.textContent = "\u{2197}"; // ↗ U+2197 NORTH EAST ARROW
-    moveBtn.title       = "Sposta";
-    moveBtn.setAttribute("aria-label", "Sposta documento");
+    moveBtn.title       = t("library.move_btn_title");
+    moveBtn.setAttribute("aria-label", t("library.move_doc_aria"));
 
     // stopPropagation sul click: non deve aprire il documento (open gestito da row)
     moveBtn.addEventListener("click", (e) => {
@@ -1056,8 +1057,8 @@ function buildMarkdownItem(entry, onDelete = null) {
     const shareBtn = document.createElement("button");
     shareBtn.className   = "archive-item-move"; // stesso stile hover non-distruttivo del pulsante Sposta
     shareBtn.textContent = "\u{1F4E4}"; // 📤
-    shareBtn.title       = "Condividi";
-    shareBtn.setAttribute("aria-label", "Condividi documento");
+    shareBtn.title       = t("library.share_btn_title");
+    shareBtn.setAttribute("aria-label", t("library.share_doc_aria"));
 
     shareBtn.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -1102,7 +1103,7 @@ function buildFindItem(entry) {
 
   const countSpan = document.createElement("span");
   countSpan.className   = "archive-item-count";
-  countSpan.textContent = entry.count + " hit";
+  countSpan.textContent = t("library.hit_count", { count: entry.count });
 
   const dateSpan = document.createElement("span");
   dateSpan.className   = "archive-item-date";
@@ -1111,8 +1112,8 @@ function buildFindItem(entry) {
   const deleteBtn = document.createElement("button");
   deleteBtn.className   = "archive-item-delete";
   deleteBtn.textContent = "\u{1F5D1}"; // 🗑
-  deleteBtn.title       = "Elimina";
-  deleteBtn.setAttribute("aria-label", "Elimina ricerca salvata");
+  deleteBtn.title       = t("library.delete_title");
+  deleteBtn.setAttribute("aria-label", t("library.delete_saved_search_aria"));
 
   // Tab Find: nessun onDelete, usa il comportamento originale (remove + check)
   wireDeleteButton(deleteBtn, row, entry.file, "delete_find");
@@ -1242,7 +1243,7 @@ function buildNoteItem(note) {
   bodyEl.className = "note-item-body";
 
   const titleEl = document.createElement("div");
-  titleEl.textContent = note.title || "(senza titolo)";
+  titleEl.textContent = note.title || t("library.untitled_note");
   bodyEl.appendChild(titleEl);
 
   // Corpo della nota (FIX 2). textContent, MAI innerHTML: il testo può
@@ -1267,8 +1268,8 @@ function buildNoteItem(note) {
   const editBtn = document.createElement("button");
   editBtn.className   = "archive-item-move"; // hover blu, coerente con "Sposta"/"Condividi" (azione non distruttiva)
   editBtn.textContent  = "✏️"; // ✏️
-  editBtn.title        = "Modifica";
-  editBtn.setAttribute("aria-label", "Modifica nota");
+  editBtn.title        = t("library.edit_btn_title");
+  editBtn.setAttribute("aria-label", t("library.edit_note_aria"));
   editBtn.addEventListener("click", (e) => {
     e.stopPropagation();
     // La finestra "Modifica nota" (Tauri separato, v. main.rs open_note_window)
@@ -1284,8 +1285,8 @@ function buildNoteItem(note) {
   const delBtn = document.createElement("button");
   delBtn.className = "archive-item-delete"; // hover rosso, stesso stile del resto del file
   delBtn.textContent = "\u{1F5D1}"; // 🗑
-  delBtn.title = "Elimina";
-  delBtn.setAttribute("aria-label", "Elimina nota");
+  delBtn.title = t("library.delete_title");
+  delBtn.setAttribute("aria-label", t("library.delete_note_aria"));
   row.appendChild(delBtn);
   wireNoteDeleteButton(delBtn, note.id);
 
@@ -1359,8 +1360,8 @@ function renderBreadcrumb() {
   const homeBtn = document.createElement("button");
   homeBtn.className = "lib-crumb";
   homeBtn.textContent = "\u{1F3E0}"; // 🏠
-  homeBtn.title = "Vai alla root della Library";
-  homeBtn.setAttribute("aria-label", "Root Library");
+  homeBtn.title = t("library.home_root_title");
+  homeBtn.setAttribute("aria-label", t("library.home_root_aria"));
   homeBtn.addEventListener("click", () => {
     currentPath = "";
     renderCurrent();
@@ -1380,7 +1381,7 @@ function renderBreadcrumb() {
     const btn = document.createElement("button");
     btn.className   = "lib-crumb";
     btn.textContent = seg.name; // textContent — sicuro
-    btn.title       = "Vai a " + seg.name;
+    btn.title       = t("library.go_to_folder_title", { name: seg.name });
 
     // Chiusura su seg.relPath (valore snapshot al momento della creazione)
     const targetPath = seg.relPath;
@@ -1428,7 +1429,7 @@ function renderCurrent() {
   // Stato vuoto: nessuna sottocartella E nessun documento
   if (node.folders.length === 0 && node.files.length === 0) {
     listAreaEl.className  = "empty";
-    listAreaEl.textContent = "Cartella vuota.";
+    listAreaEl.textContent = t("library.empty_folder");
     return;
   }
 
@@ -1459,7 +1460,7 @@ async function reloadCurrentView() {
     tree = await invokeCmd("archive_list_tree");
   } catch (e) {
     console.error("[library] archive_list_tree failed:", e);
-    showError("Errore caricamento archivio: " + e);
+    showError(t("library.error_load_archive", { error: String(e) }));
     return;
   }
 
@@ -1490,13 +1491,13 @@ async function loadFindTab() {
     entries = await invokeCmd("list_find");
   } catch (e) {
     console.error("[library] list_find failed:", e);
-    showError("Errore caricamento ricerche: " + e);
+    showError(t("library.error_load_searches", { error: String(e) }));
     return;
   }
 
   if (!Array.isArray(entries) || entries.length === 0) {
     listAreaEl.className  = "empty";
-    listAreaEl.textContent = "Nessuna ricerca salvata.";
+    listAreaEl.textContent = t("library.no_saved_searches");
     return;
   }
 
@@ -1529,13 +1530,13 @@ async function loadPluginsTab() {
     entries = await invokeCmd("list_plugins");
   } catch (e) {
     console.error("[library] list_plugins failed:", e);
-    showError("Errore caricamento plugin: " + e);
+    showError(t("library.error_load_plugins", { error: String(e) }));
     return;
   }
 
   if (!Array.isArray(entries) || entries.length === 0) {
     listAreaEl.className  = "empty";
-    listAreaEl.textContent = "Nessun plugin installato.";
+    listAreaEl.textContent = t("library.no_plugins_installed");
     return;
   }
 
@@ -1623,8 +1624,8 @@ function renderNoteList() {
   if (notes.length === 0) {
     listAreaEl.className  = "empty";
     listAreaEl.textContent = peerNetworkEnabled === false
-      ? "Rete peer disabilitata (network.json, campo \"enabled\") — abilitala da /config → AI Chat per usare il Blocco note. Ha effetto al prossimo riavvio dell'orchestrator."
-      : "Nessuna nota.";
+      ? t("library.peer_network_disabled_note")
+      : t("library.no_notes");
     return;
   }
   const fragment = document.createDocumentFragment();
@@ -1712,7 +1713,7 @@ if (newFolderBtn) {
       // archive_create_folder ritorna il rel_path effettivo della cartella creata
       const newRel = await invokeCmd("archive_create_folder", {
         parentRel: currentPath,
-        name: "Nuova cartella",
+        name: t("library.new_folder_default_name"),
       });
 
       if (!newRel) {
@@ -1763,23 +1764,23 @@ if (newNoteBtn) {
 async function bootstrap() {
   if (!tauriInvoke) {
     listAreaEl.className  = "error";
-    listAreaEl.textContent = "[library] Tauri IPC non disponibile.";
+    listAreaEl.textContent = t("library.error_tauri_unavailable");
     return;
   }
 
-  // Trasparenza (--window-alpha): applica subito il valore corrente della
-  // config all'avvio, come faceva il cursore v1 per la sua finestra visibile
-  // (host.js non lo fa più: la sua finestra è nascosta, senza CSS da
-  // applicare). Legge get_config invece di aspettare un evento (questa
-  // finestra potrebbe aprirsi molto dopo l'ultimo salvataggio di /config).
+  // Trasparenza (--window-alpha) e i18n
+  let lang = "it";
   try {
     const cfg = await invokeCmd("get_config");
     if (cfg && typeof cfg.window_alpha === "number") {
       document.documentElement.style.setProperty("--window-alpha", cfg.window_alpha);
     }
+    lang = (cfg && cfg.language) || "it";
   } catch (e) {
     console.warn("[library] get_config on startup failed:", e);
   }
+  await fetchI18n(tauriInvoke, lang);
+  applyI18n();
 
   activateTab("markdown");
 

@@ -1,7 +1,7 @@
 [package]
 # Name must be "ui" so that `cargo build -p ui` (from the repo root) works.
 name = "ui"
-version = "2.2.3"
+version = "2.3.1"
 edition = "2021"
 publish = false
 

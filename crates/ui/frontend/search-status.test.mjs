@@ -1,6 +1,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { statusLabel } from "./search-status.js";
+import { initI18n } from "./i18n.mjs";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const itDict = JSON.parse(
+  fs.readFileSync(path.resolve(__dirname, "../../../Test Run/Configuration/i18n/it.json"), "utf-8")
+);
+initI18n(itDict);
 
 test("attiva (non done, non stopped) → spinner", () => {
   assert.equal(statusLabel({ done: false, stopped: false }), "⏳ ricerca…");

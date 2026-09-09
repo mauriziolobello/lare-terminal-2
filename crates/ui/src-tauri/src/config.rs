@@ -43,6 +43,11 @@ pub struct Config {
     /// [0.0, 1.0]. Default 0.87 (valore storico allineato in 185f304).
     #[serde(default = "default_window_alpha")]
     pub window_alpha: f64,
+
+    /// Lingua dell'interfaccia utente (es. "it", "en").
+    /// Default: "it".
+    #[serde(default = "default_language")]
+    pub language: String,
 }
 
 /// Helper per `#[serde(default = "default_true")]`.
@@ -55,11 +60,17 @@ fn default_window_alpha() -> f64 {
     0.87
 }
 
+/// Helper per `#[serde(default = "default_language")]`.
+fn default_language() -> String {
+    "it".into()
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
             web_search_enabled: true,
             window_alpha: 0.87,
+            language: default_language(),
         }
     }
 }
@@ -158,6 +169,7 @@ mod tests {
         let original = Config {
             web_search_enabled: false,
             window_alpha: 0.6,
+            language: "en".into(),
         };
         save_to(&original, path).expect("save_to should succeed");
 
@@ -268,5 +280,31 @@ mod tests {
         let cfg: Config = serde_json::from_str(json).unwrap(); // i campi ignoti vengono ignorati
         assert_eq!(cfg.window_alpha, 0.5);
         assert!(!cfg.web_search_enabled);
+        assert_eq!(cfg.language, "it");
+    }
+
+    // ── language default, round-trip, missing field ───────────────────────
+
+    #[test]
+    fn default_language_is_it() {
+        assert_eq!(Config::default().language, "it");
+    }
+
+    #[test]
+    fn missing_language_field_defaults_to_it() {
+        let mut tmp = NamedTempFile::new().expect("tempfile");
+        tmp.write_all(br##"{"web_search_enabled":true,"window_alpha":0.5}"##)
+            .expect("write");
+        let cfg = load_from(tmp.path());
+        assert_eq!(cfg.language, "it", "campo language assente deve defaultare a 'it'");
+    }
+
+    #[test]
+    fn custom_language_round_trip() {
+        let mut tmp = NamedTempFile::new().expect("tempfile");
+        tmp.write_all(br##"{"web_search_enabled":true,"window_alpha":0.5,"language":"en"}"##)
+            .expect("write");
+        let cfg = load_from(tmp.path());
+        assert_eq!(cfg.language, "en");
     }
 }

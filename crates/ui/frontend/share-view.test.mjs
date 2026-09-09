@@ -1,5 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { initI18n } from "./i18n.mjs";
 import {
   shareTargetList,
   formatShareSize,
@@ -7,6 +11,12 @@ import {
   shareResultLine,
   shareReceivedLine,
 } from "./share-view.mjs";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const itDict = JSON.parse(
+  fs.readFileSync(path.resolve(__dirname, "../../../Test Run/Configuration/i18n/it.json"), "utf8")
+);
+initI18n(itDict);
 
 test("shareTargetList spoglia il suffisso -human/-ai e deduplica per macchina", () => {
   const participants = ["skimble-human", "skimble-ai", "rumpleteazer-human"];

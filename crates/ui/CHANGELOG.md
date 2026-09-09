@@ -3,7 +3,54 @@
 All notable changes to this package follow [Keep a Changelog](https://keepachangelog.com/) format.
 Versioning: `major.minor.update`.
 
----
+## 2.3.1 — 2026-09-09 — i18n Parte 2: internazionalizzazione a cascata di tutte le finestre
+
+Seconda parte del piano di internazionalizzazione di Lare Terminal (`Docs/i18n/ita/compiti-ai-esterne/2026-09-08-i18n-programma.md`):
+
+- **Conversione a cascata delle restanti finestre frontend**:
+  - `note-window.html` + `note-window.js` (`note.*`)
+  - `window-search.html` + `window-search.js` + `search-status.js` (`search.*`)
+  - `library.html` + `library.js` + `library-nav.mjs` (`library.*`)
+  - `aichat-window.html` + `aichat-window.js` + `aichat-view.mjs` + `admission.mjs` + `share-view.mjs` (`aichat.*`)
+  - `routine-preview.html` + `routine-preview.js` (`routine_preview.*`)
+  - `plugin-window.html` + `plugin-window.js` (`plugin.*`)
+  - `external-channel.html` + `external-channel-window.js` + `renderer.js` (`external_channel.*`)
+  - `screener-picker.html` + `screener-picker.js` (`screener_picker.*`)
+  - `window.html` + `window.js` (`md_window.*`)
+  - `host.html` + `host.js` (pulizia fallback rigidi, wire intatto)
+  - `terminal.html` + `terminal.js` (`terminal.*`)
+- **Titoli nativi delle finestre in Rust (`main.rs`)**:
+  - Localizzati dinamicamente via `ui_lib::i18n::t_sync(&i18n_dir, &lang, "key")` per tutte le finestre: `open_search_window`, `open_screener_picker_window`, `open_plugin_window`, `open_routine_preview`, `open_library_window`, `open_aichat_window`, `open_note_window`, `open_saved_find_window`.
+  - Eccezione rispettata: `"Lare Terminal"` per la finestra principale resta invariato.
+- **Sincronizzazione dizionari e test di parità**:
+  - `Test Run/Configuration/i18n/it.json` ed `en.json` espansi da 34 a 209 chiavi sincronizzate in perfetto ordine alfabetico.
+  - `i18n-parity.test.mjs` verde (0 chiavi mancanti, 0 chiavi orfane).
+  - 251 test frontend (`node --test`) e 147 test Rust (`cargo test -p ui`) passano con successo.
+
+## 2.3.0 — 2026-09-08 — i18n Parte 1: fondamenta e internazionalizzazione /config
+
+Prima parte del piano di internazionalizzazione di Lare Terminal (`Docs/i18n/ita/compiti-ai-esterne/2026-09-08-i18n-programma.md`):
+
+- **Backend Rust (`i18n.rs`)**: nuovo modulo in `crates/ui/src-tauri/src/i18n.rs` esportato da `lib.rs`.
+  Caricamento infallibile di dizionari JSON piatti (`load_dict`), unione con fallback `lang -> it -> key`
+  (`load_merged_dict`, `t_sync`). Unit test TDD completi con tempfile (file assente, JSON corrotto,
+  file valido, catena di fallback).
+- **Nuovo comando Tauri IPC `get_i18n`**: registrato in `generate_handler!` in `main.rs`, espone
+  il dizionario unito al frontend.
+- **Configurazione lingua**: aggiunto `Config.language: String` con default `"it"` in `config.rs`,
+  con test di compatibilità retroattiva per file JSON legacy v1/v2 privi del campo.
+- **Titolo finestra configurazione**: internazionalizzato in `open_config_window` via `i18n::t_sync`.
+- **Risoluzione cartella i18n**: aggiunto `config_dir::i18n_dir_path` (`<config_dir>/i18n`).
+- **Dizionari**: creati `Test Run/Configuration/i18n/it.json` ed `en.json` (34 chiavi per `/config`
+  e controlli comuni).
+- **Frontend `i18n.mjs`**: nuovo modulo con `t(key, params)` (supporto placeholder `{nome}`), `initI18n`,
+  `getDict`, `fetchI18n(invoke, lang)` e DOM walker `applyI18n(root)` per attributi `data-i18n`,
+  `data-i18n-placeholder`, `data-i18n-title`, `data-i18n-aria-label`. Test unitari in `i18n.test.mjs`.
+- **Finestra `/config` convertita**: `config.html`, `config-window.js` e `config-dialog.js` internazionalizzati.
+  Aggiunto selettore lingua a discesa (`Italiano` / `English`) con persistenza tramite `set_config`.
+- **Test automatico di parità chiavi**: `i18n-parity.test.mjs` garantisce che ogni chiave usata nel frontend
+  o nel backend Rust sia definita in entrambi i dizionari `it.json` ed `en.json`, e che nessuna chiave
+  definita rimanga orfana.
 
 ## 2.2.3 — 2026-09-08 — favicon
 

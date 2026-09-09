@@ -100,16 +100,16 @@
 </head>
 <body>
   <div id="titlebar" data-tauri-drag-region>
-    <span id="titlebar-text">Nuova nota</span>
-    <button id="close-btn" title="Chiudi" aria-label="Chiudi">&#x00D7;</button>
+    <span id="titlebar-text" data-i18n="note.new_title">Nuova nota</span>
+    <button id="close-btn" data-i18n-title="common.close" data-i18n-aria-label="common.close" title="Chiudi" aria-label="Chiudi">&#x00D7;</button>
   </div>
   <div id="note-form">
-    <input id="note-title-input" type="text" maxlength="200" placeholder="Titolo / descrizione" />
-    <textarea id="note-text-input" placeholder="Testo della nota…"></textarea>
+    <input id="note-title-input" type="text" maxlength="200" data-i18n-placeholder="note.title_placeholder" placeholder="Titolo / descrizione" />
+    <textarea id="note-text-input" data-i18n-placeholder="note.body_placeholder" placeholder="Testo della nota…"></textarea>
     <div id="note-error" style="display:none"></div>
     <div id="note-footer">
-      <button id="note-cancel" type="button">Annulla</button>
-      <button id="note-save" type="button">Salva</button>
+      <button id="note-cancel" type="button" data-i18n="common.cancel">Annulla</button>
+      <button id="note-save" type="button" data-i18n="common.save">Salva</button>
     </div>
   </div>
   <script type="module" src="note-window.js"></script>

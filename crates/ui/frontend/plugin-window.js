@@ -33,6 +33,7 @@ const { invoke }  = window.__TAURI__.core;
 const tauriEvent  = window.__TAURI__.event;
 
 import { eventFromTarget, eventFromDblTarget, eventFromKey, sanitizeAndRender, restoreActiveField } from "./plugin-runtime.mjs";
+import { fetchI18n, applyI18n, t } from "./i18n.mjs";
 
 // ── DOM refs ───────────────────────────────────────────────────────────────
 const titlebarLabel = document.getElementById("titlebar-label");
@@ -372,10 +373,15 @@ tauriEvent.listen("plugin:close", (ev) => {
  * /config: raggiunge questa finestra anche se è già aperta, senza bisogno
  * di riaprirla (stesso meccanismo confermato in Task 4 su Library).
  */
-tauriEvent.listen("config:saved", (ev) => {
+tauriEvent.listen("config:saved", async (ev) => {
   const alpha = ev.payload?.window_alpha;
   if (typeof alpha === "number") {
     document.documentElement.style.setProperty("--window-alpha", alpha);
+  }
+  const lang = ev.payload?.language;
+  if (lang) {
+    await fetchI18n(invokeCmd, lang);
+    applyI18n(document);
   }
 });
 
@@ -391,18 +397,29 @@ tauriEvent.listen("config:saved", (ev) => {
  * Returned shape: { title: string, content: string (HTML), kind: string (window_id) }
  */
 async function init() {
+  try {
+    const cfg = await invokeCmd("get_config");
+    if (cfg && typeof cfg.window_alpha === "number") {
+      document.documentElement.style.setProperty("--window-alpha", cfg.window_alpha);
+    }
+    await fetchI18n(invokeCmd, cfg?.language || "it");
+    applyI18n(document);
+  } catch (e) {
+    console.warn("[plugin-window] startup i18n/config failed:", e);
+  }
+
   let data;
   try {
     data = await invokeCmd("take_window_content");
   } catch (err) {
     console.error("[plugin-window] take_window_content failed:", err);
-    pluginRoot.textContent = "Error: could not load plugin content.";
+    pluginRoot.textContent = t("plugin.error_load");
     return;
   }
 
   if (!data) {
     console.error("[plugin-window] take_window_content returned null");
-    pluginRoot.textContent = "Error: plugin content not found.";
+    pluginRoot.textContent = t("plugin.error_not_found");
     return;
   }
 
@@ -418,17 +435,6 @@ async function init() {
   if (data.title) {
     titlebarLabel.textContent = data.title;
     document.title = data.title;
-  }
-
-  // Trasparenza (--window-alpha): applicata prima del render così il primo
-  // paint è già corretto (nessun flash al valore di default).
-  try {
-    const cfg = await invokeCmd("get_config");
-    if (cfg && typeof cfg.window_alpha === "number") {
-      document.documentElement.style.setProperty("--window-alpha", cfg.window_alpha);
-    }
-  } catch (e) {
-    console.warn("[plugin-window] get_config on startup failed:", e);
   }
 
   // Render the initial HTML (may be empty string if the plugin hasn't

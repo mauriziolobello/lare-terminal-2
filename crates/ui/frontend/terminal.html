@@ -2,21 +2,21 @@
 <html lang="it">
 <head>
   <meta charset="utf-8" />
-  <title>Lare Terminal</title>
+  <title data-i18n="terminal.window_title">Lare Terminal</title>
   <link rel="stylesheet" href="vendor/xterm.css" />
   <link rel="stylesheet" href="terminal.css" />
 </head>
 <body>
   <div id="bar-top">
     <span id="session-label"></span>
-    <span id="last-command">ultimo: —</span>
+    <span id="last-command" data-i18n="terminal.last_command_empty">ultimo: —</span>
     <span id="activity-dot" class="dot"></span>
     <span id="clock"></span>
   </div>
   <div id="terminal">
     <div id="restart-banner" hidden>
       <span id="restart-message"></span>
-      <button id="restart-btn">riavvia</button>
+      <button id="restart-btn" data-i18n="terminal.restart_btn">riavvia</button>
     </div>
   </div>
   <div id="bar-bottom">

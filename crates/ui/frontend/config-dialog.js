@@ -19,6 +19,7 @@
 
 import { LareWsClient } from "./ws-client.js";
 import { isConnectionFailureStatus } from "./expand-prompt.mjs";
+import { t } from "./i18n.mjs";
 
 // ---------------------------------------------------------------------------
 // ConfigDialog class
@@ -63,6 +64,7 @@ export class ConfigDialog {
 
     let current = {
       web_search_enabled:  true,
+      language:            "it",
     };
 
     if (this._invoke) {
@@ -145,7 +147,7 @@ export class ConfigDialog {
     // ── Title ──
     const title = document.createElement("h2");
     title.className = "config-dialog-title";
-    title.textContent = "Configuration — /config";
+    title.textContent = t("config.window_title");
     box.appendChild(title);
 
     // ── Tab bar ──
@@ -190,11 +192,11 @@ export class ConfigDialog {
 
     // Tab descriptor list (extensible: add future tabs here).
     const TABS = [
-      { id: "ui",     label: "UI",      panel: uiPanel },
-      { id: "search", label: "Search",  panel: searchPanel },
-      { id: "aichat", label: "AI Chat", panel: aichatPanel },
-      { id: "llm",    label: "LLM",     panel: llmPanel },
-      { id: "market-data", label: "Dati Mercato", panel: marketDataPanel },
+      { id: "ui",          label: t("config.tab_ui"),          panel: uiPanel },
+      { id: "search",      label: t("config.tab_search"),      panel: searchPanel },
+      { id: "aichat",      label: t("config.tab_aichat"),      panel: aichatPanel },
+      { id: "llm",         label: t("config.tab_llm"),         panel: llmPanel },
+      { id: "market-data", label: t("config.tab_market_data"), panel: marketDataPanel },
     ];
 
     const tabBtns = [];
@@ -227,12 +229,12 @@ export class ConfigDialog {
 
     const saveBtn = document.createElement("button");
     saveBtn.className = "config-btn config-btn-primary";
-    saveBtn.textContent = "Salva";
+    saveBtn.textContent = t("common.save");
     buttons.appendChild(saveBtn);
 
     const cancelBtn = document.createElement("button");
     cancelBtn.className = "config-btn config-btn-secondary";
-    cancelBtn.textContent = "Annulla";
+    cancelBtn.textContent = t("common.cancel");
     buttons.appendChild(cancelBtn);
 
     // ── Event wiring ──
@@ -243,28 +245,29 @@ export class ConfigDialog {
 
       const resultCap = parseInt(searchRefs.resultCapInput.value, 10);
       if (!Number.isFinite(resultCap) || resultCap < 1) {
-        errorEl.textContent = "Risultati max deve essere un intero positivo.";
+        errorEl.textContent = t("config.error_result_cap");
         return;
       }
       const maxDepth = parseInt(searchRefs.maxDepthInput.value, 10);
       if (!Number.isFinite(maxDepth) || maxDepth < 1) {
-        errorEl.textContent = "Profondità max deve essere un intero positivo.";
+        errorEl.textContent = t("config.error_max_depth");
         return;
       }
       const aichatLabel = aichatRefs.labelInput.value.trim();
       if (aichatLabel.length === 0) {
-        errorEl.textContent = "AI Chat — Etichetta: non può essere vuota.";
+        errorEl.textContent = t("config.error_aichat_label");
         return;
       }
       const aichatPort = parseInt(aichatRefs.portInput.value, 10);
       if (!Number.isFinite(aichatPort) || aichatPort < 1024 || aichatPort > 65535) {
-        errorEl.textContent = "AI Chat — Porta: deve essere un intero tra 1024 e 65535.";
+        errorEl.textContent = t("config.error_aichat_port");
         return;
       }
 
       const newCfg = {
         web_search_enabled:  uiRefs.webSearchInput.checked,
         window_alpha:        uiRefs.alphaField.getValue() / 100,
+        language:            uiRefs.languageSelect.value,
       };
       const newSearch = { result_cap: resultCap, max_depth: maxDepth };
       const newAiChat = {
@@ -331,16 +334,26 @@ export class ConfigDialog {
 
     // Ricerca web interna (toggle).
     const webSearchInput = this._buildCheckbox(
-      fields, "Ricerca web", "config-web-search", cfg.web_search_enabled
+      fields, t("config.web_search"), "config-web-search", cfg.web_search_enabled
     );
 
     // Trasparenza (alpha) — slider 0-100%, salvato come window_alpha (0.0-1.0).
     const alphaField = this._buildSliderField(
-      fields, "Trasparenza", "window-alpha", "config-window-alpha",
+      fields, t("config.transparency"), "window-alpha", "config-window-alpha",
       0, 100, 1, Math.round((cfg.window_alpha ?? 0.87) * 100)
     );
 
-    return { webSearchInput, alphaField };
+    // Lingua (dropdown con opzioni fisse "Italiano" ed "English").
+    const languageSelect = this._buildSelect(
+      fields, t("config.language"), "config-language",
+      [
+        { value: "it", label: "Italiano" },
+        { value: "en", label: "English" },
+      ],
+      cfg.language || "it"
+    );
+
+    return { webSearchInput, alphaField, languageSelect };
   }
 
   /**
@@ -357,7 +370,7 @@ export class ConfigDialog {
 
     // Maximum number of results returned by /find.
     const resultCapInput = this._buildField(
-      fields, "Risultati max", "result-cap", "config-result-cap",
+      fields, t("config.search_result_cap"), "result-cap", "config-result-cap",
       "number", String(search.result_cap ?? 2000)
     );
     resultCapInput.min = "1";
@@ -365,7 +378,7 @@ export class ConfigDialog {
 
     // Maximum directory depth explored by /find.
     const maxDepthInput = this._buildField(
-      fields, "Profondità max", "max-depth", "config-max-depth",
+      fields, t("config.search_max_depth"), "max-depth", "config-max-depth",
       "number", String(search.max_depth ?? 8)
     );
     maxDepthInput.min = "1";
@@ -394,19 +407,19 @@ export class ConfigDialog {
 
     // Attiva/disattiva il servizio AI Chat.
     const enabledInput = this._buildCheckbox(
-      fields, "Attivo", "config-aichat-enabled", aichat.enabled
+      fields, t("config.aichat_enabled"), "config-aichat-enabled", aichat.enabled
     );
 
     // Etichetta base di questa macchina (diventa "<label_base>-human" sul wire).
     const labelInput = this._buildField(
-      fields, "Etichetta", "aichat-label", "config-aichat-label",
+      fields, t("config.aichat_label"), "aichat-label", "config-aichat-label",
       "text", aichat.label_base ?? "lare"
     );
 
     // Nickname dell'umano — mostrato in AI Chat al posto di "<label_base>-human".
     // Testo libero (spazi/accenti ok), a differenza di "Etichetta" sopra.
     const displayNameInput = this._buildField(
-      fields, "Il tuo nome", "aichat-display-name", "config-aichat-display-name",
+      fields, t("config.aichat_display_name"), "aichat-display-name", "config-aichat-display-name",
       "text", aichat.display_name ?? ""
     );
 
@@ -414,13 +427,13 @@ export class ConfigDialog {
     // AI Chat è attivo (chiede all'utente o si sceglie un nome da sola);
     // resta comunque modificabile a mano qui in ogni momento.
     const aiDisplayNameInput = this._buildField(
-      fields, "Nome dell'AI", "aichat-ai-display-name", "config-aichat-ai-display-name",
+      fields, t("config.aichat_ai_display_name"), "aichat-ai-display-name", "config-aichat-ai-display-name",
       "text", aichat.ai_display_name ?? ""
     );
 
     // Porta TCP/UDP della chat.
     const portInput = this._buildField(
-      fields, "Porta", "aichat-port", "config-aichat-port",
+      fields, t("config.aichat_port"), "aichat-port", "config-aichat-port",
       "number", String(aichat.chat_port ?? 40100)
     );
     portInput.min = "1024";
@@ -432,7 +445,7 @@ export class ConfigDialog {
     // indipendentemente da questo flag. Default checked (vedi
     // AiChatConfig::default() lato orchestrator, design §9.4).
     const participatesInput = this._buildCheckbox(
-      fields, "La mia AI partecipa (risponde alle richieste della stanza)",
+      fields, t("config.aichat_participates"),
       "config-aichat-participates", aichat.ai_participates ?? true
     );
 
@@ -444,14 +457,14 @@ export class ConfigDialog {
     // lato orchestrator): opt-in esplicito, default UNCHECKED (a differenza del
     // checkbox sopra, che è default checked).
     const autoparticipateInput = this._buildCheckbox(
-      fields, "Auto-partecipazione (l'AI interviene da sola)",
+      fields, t("config.aichat_autoparticipate"),
       "config-aichat-autoparticipate", aichat.ai_autoparticipate ?? false
     );
 
     // Nota: queste impostazioni non sono live, a differenza di Search.
     const note = document.createElement("p");
     note.className = "config-note";
-    note.textContent = "Le modifiche all'AI Chat richiedono il riavvio dell'orchestrator.";
+    note.textContent = t("config.aichat_restart_note");
     panel.appendChild(note);
 
     return {
@@ -480,10 +493,7 @@ export class ConfigDialog {
     if (providers.length === 0) {
       const note = document.createElement("p");
       note.className = "config-note";
-      note.textContent =
-        "Nessun llms.json configurato. Crealo a mano — vive nella cartella di " +
-        "configurazione (--config-dir, di default Configuration\\ accanto " +
-        "all'eseguibile) — per scegliere un provider diverso da Claude diretto.";
+      note.textContent = t("config.llm_empty_note");
       panel.appendChild(note);
       return { radios: [] };
     }
@@ -497,7 +507,7 @@ export class ConfigDialog {
 
     const note = document.createElement("p");
     note.className = "config-note";
-    note.textContent = "Le modifiche al provider LLM richiedono il riavvio dell'orchestrator.";
+    note.textContent = t("config.llm_restart_note");
     panel.appendChild(note);
 
     return { radios };
@@ -530,24 +540,13 @@ export class ConfigDialog {
 
     const note = document.createElement("p");
     note.className = "config-note";
-    // Fix G (review-fix-wave, 2026-08-14): a differenza di llms.json/
-    // aichat.json (letti una sola volta all'avvio, cache in stato Rust),
-    // market_data.json è letto FRESCO a ogni nuovo processo Python
-    // (market_data_config.build_data_source, import di server.py -- un
-    // nuovo processo per il canale /markets o per ogni click di "Test
-    // connessione", mai un riavvio dell'intero orchestrator). Testo
-    // precedente ("richiedono il riavvio dell'orchestrator") era sbagliato.
-    note.textContent = "Le modifiche alla fonte dati mercato hanno effetto dalla prossima apertura di /markets o dal prossimo Test connessione — non serve riavviare l'orchestrator.";
+    note.textContent = t("config.market_data_note");
     panel.appendChild(note);
 
-    // Bottone "Test connessione" — testa SEMPRE la fonte ATTUALMENTE
-    // SALVATA su disco (market_data.json), non la radio appena cliccata e
-    // non ancora salvata (vedi doc-comment di ClientMsg::TestMarketDataSource
-    // in protocol/src/lib.rs e task-12-brief.md).
     const testBtn = document.createElement("button");
     testBtn.type = "button";
     testBtn.className = "config-test-btn";
-    testBtn.textContent = "Test connessione (fonte salvata)";
+    testBtn.textContent = t("config.market_data_test_btn");
     panel.appendChild(testBtn);
 
     const testResult = document.createElement("p");
@@ -572,7 +571,7 @@ export class ConfigDialog {
    */
   async _runMarketDataTest(btn, resultEl) {
     btn.disabled = true;
-    resultEl.textContent = "Verifica in corso…";
+    resultEl.textContent = t("config.market_data_testing");
 
     // Guardia coerente con tutti gli altri usi di this._invoke in questo
     // file (vedi _loadInitial sopra): senza try/catch un _invoke assente o
@@ -588,7 +587,7 @@ export class ConfigDialog {
         url = (await this._invoke("get_ws_endpoint")) ?? "";
       } catch (e) {
         console.error("[config-dialog] get_lare_token/get_ws_endpoint error:", e);
-        resultEl.textContent = "❌ Impossibile ottenere il token.";
+        resultEl.textContent = t("config.market_data_token_err");
         btn.disabled = false;
         return;
       }
@@ -606,7 +605,7 @@ export class ConfigDialog {
       onStatus: (status) => {
         if (!isConnectionFailureStatus(status, settled)) return;
         settled = true;
-        resultEl.textContent = "❌ Connessione al servizio persa.";
+        resultEl.textContent = t("config.market_data_conn_lost");
         btn.disabled = false;
         client.disconnect();
       },
@@ -657,6 +656,44 @@ export class ConfigDialog {
     row.appendChild(input);
 
     return input;
+  }
+
+  /**
+   * Build a label + select dropdown row.
+   *
+   * @param {HTMLElement} parent
+   * @param {string}      labelText
+   * @param {string}      id         Select element id (also used for label.htmlFor).
+   * @param {Array<{value: string, label: string}>} options
+   * @param {string}      selectedValue
+   * @returns {HTMLSelectElement}
+   */
+  _buildSelect(parent, labelText, id, options, selectedValue) {
+    const row = document.createElement("div");
+    row.className = "config-field-row";
+    parent.appendChild(row);
+
+    const label = document.createElement("label");
+    label.className = "config-field-label";
+    label.htmlFor = id;
+    label.textContent = labelText;
+    row.appendChild(label);
+
+    const select = document.createElement("select");
+    select.id = id;
+    select.className = "config-field-input";
+    for (const opt of options) {
+      const optEl = document.createElement("option");
+      optEl.value = opt.value;
+      optEl.textContent = opt.label;
+      if (opt.value === selectedValue) {
+        optEl.selected = true;
+      }
+      select.appendChild(optEl);
+    }
+    row.appendChild(select);
+
+    return select;
   }
 
   /**

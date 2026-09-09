@@ -2,6 +2,8 @@
 //
 // Responsibility (SRP): owns ONLY how ServerMsg data is displayed.
 // It does NOT touch the WebSocket; it receives plain objects from ws-client.js.
+import { t } from "./i18n.mjs";
+
 
 const MAX_OUTPUT_LINES = 500; // prevent unbounded growth in long sessions
 
@@ -130,11 +132,11 @@ export class LareRenderer {
     };
 
     const okBtn = document.createElement("button");
-    okBtn.textContent = "Esegui";
+    okBtn.textContent = t("common.execute");
     okBtn.addEventListener("click", () => decide(true));
 
     const noBtn = document.createElement("button");
-    noBtn.textContent = "Annulla";
+    noBtn.textContent = t("common.cancel");
     noBtn.addEventListener("click", () => decide(false));
 
     buttons.appendChild(okBtn);
@@ -207,10 +209,10 @@ export class LareRenderer {
   setStatus(status) {
     if (!this._statusEl) return;
     const labels = {
-      connecting: "●  connecting…",
-      connected:  "●  connected",
-      disconnected: "●  offline",
-      error:      "●  error",
+      connecting: t("ext_channel.status_connecting"),
+      connected:  t("ext_channel.status_connected"),
+      disconnected: t("ext_channel.status_disconnected"),
+      error:      t("ext_channel.status_error"),
     };
     this._statusEl.textContent = labels[status] ?? status;
     this._statusEl.className = `status status-${status}`;

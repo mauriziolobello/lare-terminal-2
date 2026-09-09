@@ -9,6 +9,7 @@
 
 import { LareRenderer } from "./renderer.js";
 import { LareWsClient } from "./ws-client.js";
+import { fetchI18n, applyI18n, t } from "./i18n.mjs";
 
 const { invoke } = window.__TAURI__.core;
 const tauriEvent = window.__TAURI__.event;
@@ -53,7 +54,7 @@ let frameIndex = 0;
 function tickSpinner() {
   const frame = SPINNER_FRAMES[frameIndex % SPINNER_FRAMES.length];
   frameIndex++;
-  if (activityEl) activityEl.textContent = `${frame} elaborando…`;
+  if (activityEl) activityEl.textContent = t("ext_channel.processing", { frame });
 }
 
 function commandStarted(id) {
@@ -126,6 +127,17 @@ function handleServerMsg(msg) {
 }
 
 async function init() {
+  try {
+    const cfg = await invoke("get_config");
+    if (cfg && typeof cfg.window_alpha === "number") {
+      document.documentElement.style.setProperty("--window-alpha", cfg.window_alpha);
+    }
+    await fetchI18n(invoke, cfg?.language || "it");
+    applyI18n(document);
+  } catch (e) {
+    console.warn("[external-channel-window] startup i18n/config failed:", e);
+  }
+
   const token = (await invoke("get_lare_token")) ?? "";
   // Porta WS da startup.json (2.0), letta una volta all'apertura della
   // finestra — stesso comando usato da host.js.
@@ -139,6 +151,18 @@ async function init() {
   });
   client.connect();
 }
+
+tauriEvent.listen("config:saved", async (ev) => {
+  const alpha = ev.payload?.window_alpha;
+  if (typeof alpha === "number") {
+    document.documentElement.style.setProperty("--window-alpha", alpha);
+  }
+  const lang = ev.payload?.language;
+  if (lang) {
+    await fetchI18n(invoke, lang);
+    applyI18n(document);
+  }
+});
 
 // Riusata sia dall'Enter sull'input-box sia dal listener "screener:picked"
 // (picker) — stessa semantica: come se l'utente avesse scritto `text` a

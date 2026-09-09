@@ -9,6 +9,7 @@ import { base64ToUint8Array } from "./base64.mjs";
 import { parseLareOsc } from "./osc-lare.mjs";
 import { createIndicatorState, onIntercept, onActivity } from "./indicators.mjs";
 import { createDebouncer } from "./fit-debounce.mjs";
+import { fetchI18n, applyI18n, t } from "./i18n.mjs";
 
 const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
@@ -43,7 +44,8 @@ const dotEl = document.getElementById("activity-dot");
 let dotOffTimer = null;
 
 function renderIndicators() {
-  lastCommandEl.textContent = "ultimo: " + (indicatorState.lastCommand ?? "—");
+  const cmd = indicatorState.lastCommand ?? "—";
+  lastCommandEl.textContent = t("terminal.last_command", { command: cmd });
   dotEl.classList.toggle("on", indicatorState.aiBusy);
 }
 
@@ -97,7 +99,7 @@ async function spawnShell() {
   try {
     await invoke("pty_spawn", { sessionId: ownSessionId, cols: term.cols, rows: term.rows });
   } catch (err) {
-    term.write("\r\n\x1b[31m[lare] pty_spawn fallita: " + err + "\x1b[0m\r\n");
+    term.write("\r\n\x1b[31m" + t("terminal.pty_spawn_failed", { error: String(err) }) + "\x1b[0m\r\n");
   }
 }
 
@@ -107,14 +109,34 @@ restartBtn.addEventListener("click", () => {
 });
 
 async function main() {
+  try {
+    const cfg = await invoke("get_config");
+    await fetchI18n(invoke, cfg?.language);
+  } catch (e) {
+    console.warn("[terminal] get_config failed:", e);
+    await fetchI18n(invoke);
+  }
+  applyI18n(document);
+
   ownSessionId = await invoke("get_terminal_session");
-  document.getElementById("session-label").textContent = "sessione " + ownSessionId;
+  document.getElementById("session-label").textContent = t("terminal.session_label", { session: ownSessionId });
 
   await listen("pty-out", (event) => term.write(base64ToUint8Array(event.payload)));
   await listen("pty-exit", (event) => {
-    term.write("\r\n\x1b[31m[lare] shell terminata (exit code: " + event.payload + ")\x1b[0m\r\n");
-    restartMessage.textContent = "shell terminata (exit code " + event.payload + ")";
+    term.write("\r\n\x1b[31m" + t("terminal.shell_terminated", { code: event.payload }) + "\x1b[0m\r\n");
+    restartMessage.textContent = t("terminal.restart_message", { code: event.payload });
     restartBanner.hidden = false;
+  });
+
+  listen("config:saved", async (ev) => {
+    if (ev.payload?.language) {
+      await fetchI18n(invoke, ev.payload.language);
+      applyI18n(document);
+      renderIndicators();
+      if (ownSessionId) {
+        document.getElementById("session-label").textContent = t("terminal.session_label", { session: ownSessionId });
+      }
+    }
   });
 
   await spawnShell();

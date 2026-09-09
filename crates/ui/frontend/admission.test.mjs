@@ -6,8 +6,18 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { initI18n } from "./i18n.mjs";
 
 import { joinPromptText, rerequestState, removeResolvedCandidate } from "./admission.mjs";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const itDict = JSON.parse(
+  fs.readFileSync(path.resolve(__dirname, "../../../Test Run/Configuration/i18n/it.json"), "utf8")
+);
+initI18n(itDict);
 
 // ---------------------------------------------------------------------------
 // joinPromptText

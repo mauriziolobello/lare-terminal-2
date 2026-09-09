@@ -2,6 +2,7 @@
 // "vuoi entrare in chat?", e cooldown del pulsante di re-request dopo un
 // rifiuto). Niente DOM, niente Tauri → testabile con `node:test` senza
 // dipendenze. Il DOM/routing vive in aichat-window.js + host.js (Task 10).
+import { t } from "./i18n.mjs";
 
 /**
  * Testo del gate 1 mostrato a chi sta per entrare in una chat già popolata.
@@ -17,14 +18,15 @@
  */
 export function joinPromptText(present) {
   if (!present || present.length === 0) {
-    return "Vuoi entrare in chat?";
+    return t("aichat.join_prompt_empty");
   }
   // Tutti gli elementi tranne l'ultimo vanno uniti con ", "; l'ultimo è
   // agganciato con " e " (es. ["A","B","C"] → "A, B" + " e " + "C").
   const allButLast = present.slice(0, -1);
   const last = present[present.length - 1];
-  const joined = allButLast.length > 0 ? `${allButLast.join(", ")} e ${last}` : last;
-  return `Vuoi entrare in chat con ${joined}?`;
+  const andWord = t("aichat.and_conjunction");
+  const joined = allButLast.length > 0 ? `${allButLast.join(", ")}${andWord}${last}` : last;
+  return t("aichat.join_prompt_with_peers", { peers: joined });
 }
 
 /**

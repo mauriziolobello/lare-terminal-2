@@ -14,6 +14,7 @@
 // unica logica pura del vecchio dialog, isolata perché un fix reale
 // (smoke test dal vivo) l'aveva appena toccata.
 import { isTitleValid, isBodyValid, noteEditMessages } from "./note-view.mjs";
+import { fetchI18n, applyI18n, t } from "./i18n.mjs";
 
 const tauriEvent = window.__TAURI__?.event;
 const invoke = window.__TAURI__?.core?.invoke;
@@ -42,7 +43,7 @@ function loadNote({ noteId: id, title, text }) {
   noteId = id || null;
   originalTitle = title ?? "";
   originalBodyText = text ?? "";
-  titlebarTextEl.textContent = noteId ? "Modifica nota" : "Nuova nota";
+  titlebarTextEl.textContent = noteId ? t("note.edit_title") : t("note.new_title");
   titleInput.value = originalTitle;
   textInput.value = originalBodyText;
   errorEl.style.display = "none";
@@ -64,12 +65,12 @@ saveBtn.addEventListener("click", async () => {
   const text = textInput.value;
 
   if (!isTitleValid(title)) {
-    errorEl.textContent = "⚠ Titolo non valido (1-200 caratteri).";
+    errorEl.textContent = t("note.error_title_invalid");
     errorEl.style.display = "block";
     return;
   }
   if (!isBodyValid(text)) {
-    errorEl.textContent = "⚠ Testo troppo lungo (max 256 KB).";
+    errorEl.textContent = t("note.error_body_too_long");
     errorEl.style.display = "block";
     return;
   }
@@ -106,26 +107,7 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") closeWindow();
 });
 
-// ── Caricamento iniziale (take_window_content) ──────────────────────────────
-// One-shot: il contenuto (title/content/kind) è stato stashato da
-// open_note_window PRIMA di creare questa finestra (WindowContentStore,
-// stesso schema di plugin-window.js) — nessuna race con la registrazione dei
-// listener sopra. `kind` porta l'id nota, o "" per una nota nuova.
-(async () => {
-  if (!invoke) return;
-  try {
-    const data = await invoke("take_window_content");
-    if (data) {
-      loadNote({ noteId: data.kind || null, title: data.title, text: data.content });
-    }
-  } catch (e) {
-    console.error("[note-window] take_window_content error:", e);
-  }
-})();
-
-// ── Trasparenza configurabile (--window-alpha) ─────────────────────────────
-// Stesso boilerplate di ogni altra finestra secondaria (aichat-window.js,
-// plugin-window.js): applica all'avvio e ad ogni salvataggio di /config.
+// ── Caricamento iniziale e i18n ───────────────────────────────────────────
 (async () => {
   if (!invoke) return;
   try {
@@ -133,8 +115,22 @@ document.addEventListener("keydown", (e) => {
     if (cfg && typeof cfg.window_alpha === "number") {
       document.documentElement.style.setProperty("--window-alpha", cfg.window_alpha);
     }
+    const lang = (cfg && cfg.language) || "it";
+    await fetchI18n(invoke, lang);
   } catch (e) {
-    console.warn("[note-window] get_config on startup failed:", e);
+    console.warn("[note-window] get_config/i18n on startup failed:", e);
+    await fetchI18n(invoke, "it");
+  } finally {
+    applyI18n();
+  }
+
+  try {
+    const data = await invoke("take_window_content");
+    if (data) {
+      loadNote({ noteId: data.kind || null, title: data.title, text: data.content });
+    }
+  } catch (e) {
+    console.error("[note-window] take_window_content error:", e);
   }
 })();
 

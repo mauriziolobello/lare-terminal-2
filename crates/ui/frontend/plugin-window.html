@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Lare — Plugin</title>
+  <title data-i18n="plugin.window_title">Lare — Plugin</title>
 
   <!-- DOMPurify: vendored, must load before plugin-window.js renders any HTML. -->
   <script src="vendor/purify.min.js"></script>
@@ -112,8 +112,8 @@
   <!-- Title bar — the data-tauri-drag-region attribute makes this the drag
        handle for the chromeless (decorations=false) window. -->
   <div id="titlebar" data-tauri-drag-region>
-    <span id="titlebar-label">Lare — Plugin</span>
-    <button id="close-btn" title="Chiudi" aria-label="Chiudi">&#x00D7;</button>
+    <span id="titlebar-label" data-i18n="plugin.titlebar">Lare — Plugin</span>
+    <button id="close-btn" data-i18n-title="common.close" data-i18n-aria-label="common.close" title="Chiudi" aria-label="Chiudi">&#x00D7;</button>
   </div>
 
   <!-- All plugin-supplied UI is injected here. -->

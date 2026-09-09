@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Lare — Seleziona screener</title>
+  <title data-i18n="screener_picker.window_title">Lare — Seleziona screener</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
@@ -51,11 +51,11 @@
 </head>
 <body>
   <div id="titlebar" data-tauri-drag-region>
-    <span id="titlebar-label">Seleziona screener</span>
-    <button id="close-btn" title="Chiudi" aria-label="Chiudi">&#x00D7;</button>
+    <span id="titlebar-label" data-i18n="screener_picker.titlebar">Seleziona screener</span>
+    <button id="close-btn" data-i18n-title="common.close" data-i18n-aria-label="common.close" title="Chiudi" aria-label="Chiudi">&#x00D7;</button>
   </div>
   <div id="list-area"></div>
-  <div id="hint-bar">&uarr;/&darr; o click per selezionare — Invio o doppio click per confermare — Esc per annullare</div>
+  <div id="hint-bar" data-i18n="screener_picker.hint_bar">&uarr;/&darr; o click per selezionare — Invio o doppio click per confermare — Esc per annullare</div>
   <script type="module" src="screener-picker.js"></script>
 </body>
 </html>

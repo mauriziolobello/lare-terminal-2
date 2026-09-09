@@ -5,6 +5,8 @@
  * Riusato da tre finestre diverse (library.js, host.js, aichat-window.js) per
  * evitare di duplicare la logica di formattazione in ciascuna.
  */
+import { t } from "./i18n.mjs";
+
 
 // ---------------------------------------------------------------------------
 // shareTargetList(participants) → string[]
@@ -55,7 +57,11 @@ export function formatShareSize(bytes) {
 // non "-human"/"-ai" — vedi ChatMsg::ShareOffer::from_label lato backend).
 // ---------------------------------------------------------------------------
 export function shareConsentPrompt(fromLabel, docName, sizeBytes) {
-  return `"${fromLabel}" vuole condividere "${docName}" (${formatShareSize(sizeBytes)}) — accetti?`;
+  return t("aichat.share_consent_prompt", {
+    from: fromLabel,
+    doc: docName,
+    size: formatShareSize(sizeBytes),
+  });
 }
 
 // ---------------------------------------------------------------------------

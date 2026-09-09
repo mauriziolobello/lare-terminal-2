@@ -17,6 +17,7 @@
 
 import { statusLabel } from "./search-status.js";
 import { parentDir } from "./path-utils.js";
+import { fetchI18n, applyI18n, t } from "./i18n.mjs";
 
 const tauri = window.__TAURI__;
 const invoke = tauri?.core?.invoke;
@@ -48,12 +49,15 @@ const groups = new Map(); // source → { listEl, countEl, count }
 
 // Ordine e label dei gruppi per sorgente (wire value → etichetta).
 const SOURCE_ORDER = ["cwd", "standard", "cloud", "external"];
-const SOURCE_LABEL = {
-  cwd: "Cartella corrente",
-  standard: "Standard",
-  cloud: "Cloud",
-  external: "Unità esterne",
-};
+function getSourceLabel(source) {
+  switch (source) {
+    case "cwd": return t("search.source_cwd");
+    case "standard": return t("search.source_standard");
+    case "cloud": return t("search.source_cloud");
+    case "external": return t("search.source_external");
+    default: return source;
+  }
+}
 
 // ── Chiusura: annulla la ricerca, poi chiudi la finestra ──────────────────────
 async function closeWindow() {
@@ -101,7 +105,7 @@ function getGroup(source) {
   const header = document.createElement("div");
   header.className = "group-header";
   const countEl = document.createElement("span");
-  const labelText = SOURCE_LABEL[source] || source;
+  const labelText = getSourceLabel(source);
   header.textContent = `▸ ${labelText} (`;
   header.appendChild(countEl);
   header.appendChild(document.createTextNode(")"));
@@ -160,8 +164,8 @@ function addHit(source, path, line, snippet) {
   // Folder button: opens the parent directory via the same search:open-path event.
   const folderBtn = document.createElement("button");
   folderBtn.className = "row-folder-btn";
-  folderBtn.title = "Apri cartella";
-  folderBtn.setAttribute("aria-label", "Apri cartella");
+  folderBtn.title = t("search.open_folder");
+  folderBtn.setAttribute("aria-label", t("search.open_folder"));
   folderBtn.textContent = "\u{1F4C2}"; // 📂
   folderBtn.addEventListener("click", (e) => {
     e.stopPropagation(); // do not trigger the row's open-file click
@@ -209,7 +213,7 @@ function wireSaveButton(query) {
     try {
       await invokeCmd("save_find", { query, hits });
       // Successo: feedback stabile; il pulsante non viene riabilitato (idempotente).
-      saveBtnEl.textContent = "✓ Salvato";
+      saveBtnEl.textContent = t("search.saved");
     } catch (e) {
       console.error("[search] save_find failed:", e);
       saveBtnEl.disabled = false;
@@ -223,18 +227,22 @@ function wireSaveButton(query) {
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 async function bootstrap() {
   if (!invoke || !tauriEvent) {
-    if (statusEl) statusEl.textContent = "errore: Tauri non disponibile";
+    if (statusEl) statusEl.textContent = t("search.error_tauri_unavailable");
     return;
   }
 
+  let lang = "it";
   try {
     const cfg = await invokeCmd("get_config");
     if (cfg && typeof cfg.window_alpha === "number") {
       document.documentElement.style.setProperty("--window-alpha", cfg.window_alpha);
     }
+    lang = (cfg && cfg.language) || "it";
   } catch (e) {
     console.warn("[window-search] get_config on startup failed:", e);
   }
+  await fetchI18n(invoke, lang);
+  applyI18n();
 
   let data;
   try {
@@ -246,11 +254,11 @@ async function bootstrap() {
     return;
   }
   if (!data) {
-    if (statusEl) statusEl.textContent = "errore: nessun contesto di ricerca";
+    if (statusEl) statusEl.textContent = t("search.error_no_context");
     return;
   }
 
-  const title = data.title || "Lare — Ricerca";
+  const title = data.title || t("search.window_title");
   titlebarLabelEl.textContent = title;
   document.title = title;
 
@@ -273,7 +281,7 @@ async function bootstrap() {
     try {
       archive = JSON.parse(data.content.slice("saved:".length));
     } catch (e) {
-      statusEl.textContent = `errore: JSON non valido (${e})`;
+      statusEl.textContent = t("search.error_invalid_json", { error: String(e) });
       return;
     }
 
@@ -292,7 +300,7 @@ async function bootstrap() {
 
     // Stato finale "salvati": usa la label standard + indicatore esplicito.
     const n = hits.length;
-    statusEl.textContent = `✅ ${n} risultati (salvati)`;
+    statusEl.textContent = t("search.status_saved_count", { count: n });
     return; // fine — nessun listener live
   }
 
@@ -322,7 +330,7 @@ async function bootstrap() {
       done: true, stopped, count: p.count, truncated: p.truncated,
     });
     if (p.count === 0 && emptyEl && emptyEl.parentNode) {
-      emptyEl.textContent = stopped ? "Ricerca interrotta." : "Nessun file trovato.";
+      emptyEl.textContent = stopped ? t("search.interrupted") : t("search.no_files_found");
     }
   });
 

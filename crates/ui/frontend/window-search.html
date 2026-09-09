@@ -210,14 +210,14 @@
 </head>
 <body>
   <div id="titlebar" data-tauri-drag-region>
-    <span id="titlebar-label">Lare — Ricerca</span>
-    <span id="status">⏳ ricerca…</span>
-    <button id="stop-btn" title="Pausa la ricerca (la finestra resta aperta)" aria-label="Pausa">&#x23F9;</button>
-    <button id="resume-btn" class="hidden" title="Riprendi la ricerca" aria-label="Riprendi">&#x25B6;</button>
-    <button id="save-btn" class="hidden" title="Salva i risultati nella Library" aria-label="Salva">&#x1F4BE;</button>
-    <button id="close-btn" title="Chiudi (annulla la ricerca)" aria-label="Chiudi">&#x00D7;</button>
+    <span id="titlebar-label" data-i18n="search.window_title">Lare — Ricerca</span>
+    <span id="status" data-i18n="search.status_searching">⏳ ricerca…</span>
+    <button id="stop-btn" data-i18n-title="search.stop_title" data-i18n-aria-label="search.stop_aria" title="Pausa la ricerca (la finestra resta aperta)" aria-label="Pausa">&#x23F9;</button>
+    <button id="resume-btn" class="hidden" data-i18n-title="search.resume_title" data-i18n-aria-label="search.resume_aria" title="Riprendi la ricerca" aria-label="Riprendi">&#x25B6;</button>
+    <button id="save-btn" class="hidden" data-i18n-title="search.save_title" data-i18n-aria-label="common.save" title="Salva i risultati nella Library" aria-label="Salva">&#x1F4BE;</button>
+    <button id="close-btn" data-i18n-title="search.close_title" data-i18n-aria-label="common.close" title="Chiudi (annulla la ricerca)" aria-label="Chiudi">&#x00D7;</button>
   </div>
-  <div id="results"><div id="empty">Nessun risultato ancora…</div></div>
+  <div id="results"><div id="empty" data-i18n="search.no_results_yet">Nessun risultato ancora…</div></div>
 
   <!-- Tauri v2: withGlobalTauri = true → window.__TAURI__ (core + event) disponibile. -->
   <script type="module" src="window-search.js"></script>
