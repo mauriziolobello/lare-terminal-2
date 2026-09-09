@@ -25,6 +25,21 @@
 
 ## FATTO
 
+- **Doc `/help`: chiarito che `/open <target>` non vuole virgolette (2026-09-10)** —
+  segnalazione dal vivo di Maurizio: `/open "https://www.linux.org"` (con virgolette, per
+  abitudine da riga di comando) produceva `target non trovato o non riconosciuto:
+  C:\Users\Maurizio"https://www.linux.org"`. Root cause verificata in
+  `crates/orchestrator/src/core.rs::handle_slash`: il testo dopo `/open` è preso verbatim con
+  `splitn(2, char::is_whitespace)` — non c'è un parser di shell, quindi le virgolette digitate
+  restano parte del target e `resolve_open_target` non le riconosce né come URL né come path
+  assoluto, cadendo nel ramo relativo (`Path::new(cwd).join(target)`). Nessun fix di codice: dato
+  che `rest` è già l'intera coda della riga (spazi compresi, non ri-tokenizzata), le virgolette
+  non servono MAI per `/open`, nemmeno per path con spazi — a differenza di `/ai`, che le richiede
+  davvero. Aggiunta una riga di chiarimento alla voce `/open` in tutti e 3 i file
+  `Test Run/Configuration/help/{it,en,es}.md`, in contrasto esplicito con `/ai` poco sopra nello
+  stesso file. Nessun bump di versione (solo contenuto testuale, stessa regola già applicata alle
+  traduzioni).
+
 - **i18n Terza lingua: spagnolo per AI, UI e /help (2026-09-09)** —
   Parte B del piano `Docs/i18n/ita/compiti-ai-esterne/2026-09-09-i18n-help-esterno-e-spagnolo.md`:
   introdotta la terza lingua (`es`, spagnolo). Aggiunta costante `RESPOND_SPANISH` in `crates/orchestrator/src/agent.rs`

@@ -13,7 +13,8 @@ The result of each slash command appears in a window; a confirmation line remain
 - `/config` — configuration (appearance, web search, AI, markets).
 - `/library` — archive of saved documents (reopenable).
 - `/aichat` — AI Chat (communication between networked Lare machines, with AI participation).
-- `/open <target>` — open a URL, folder, or file with the default app.
+- `/open <target>` — open a URL, folder, or file with the default app. No quotes around
+  the target (unlike `/ai` above): type it as-is, even with spaces.
 - `/web <query>` — search the query in the default browser.
 - `/show <markdown>` — open a window with the given Markdown.
 - `/find [<query>] [in:"<phrase>"] [folder:from-here]` — live file search, dedicated window.

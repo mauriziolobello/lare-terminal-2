@@ -13,7 +13,9 @@ El resultado de cada comando slash aparece en una ventana; en el terminal perman
 - `/config` — configuración (apariencia, búsqueda web, IA, mercados).
 - `/library` — archivo de documentos guardados (reabribles).
 - `/aichat` — AI Chat (comunicación entre máquinas Lare en red, con participación de la IA).
-- `/open <target>` — abre una URL, carpeta o archivo con la aplicación predeterminada.
+- `/open <target>` — abre una URL, carpeta o archivo con la aplicación predeterminada. Sin
+  comillas alrededor del target (a diferencia de `/ai` más arriba): escríbelo tal cual, incluso
+  con espacios.
 - `/web <query>` — busca la consulta en el navegador predeterminado.
 - `/show <markdown>` — abre una ventana con el Markdown indicado.
 - `/find [<query>] [in:"<frase>"] [folder:from-here]` — búsqueda de archivos en vivo, ventana dedicada.
