@@ -66,6 +66,7 @@
   "ext_channel.status_connecting": "●  conectando…",
   "ext_channel.status_disconnected": "●  desconectado",
   "ext_channel.status_error": "●  error",
+  "ext_channel.status_failed": "●  no disponible",
   "ext_channel.titlebar": "Canal externo",
   "ext_channel.window_title": "Lare — Canal externo",
   "library.breadcrumb_aria": "Ruta actual en la Library",

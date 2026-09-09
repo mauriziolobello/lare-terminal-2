@@ -151,6 +151,7 @@ async function init() {
     token,
     channel: channelId,
     lang: currentLanguage,
+    maxRetries: 6,
     onStatus: (s) => renderer.setStatus(s),
     onMessage: handleServerMsg,
   });

@@ -19,7 +19,7 @@
 - plugin-calc 2.0.0 (da v1 0.2.0)
 - plugin-lc 2.0.0 (da v1 0.4.5)
 - plugin-crypto 2.0.0 (da v1 1.0.1)
-- ui 2.3.2 (da v1 0.47.1; 2.3.2 — supporto terza lingua: spagnolo es e parità generalizzata)
+- ui 2.3.3 (da v1 0.47.1; 2.3.3 — limite tentativi di reconnect canali esterni e fix reset backoff)
 - lare-shell 2.0.1 (piano 2b 2.0.0 → 2.0.1 nel piano 3, Task 3: `Launcher.EnsureUi()` passa
   `--no-terminal` — non un crate Cargo: `shell/lare-shell/`, .NET/C#)
 
@@ -39,6 +39,16 @@
   `Test Run/Configuration/help/{it,en,es}.md`, in contrasto esplicito con `/ai` poco sopra nello
   stesso file. Nessun bump di versione (solo contenuto testuale, stessa regola già applicata alle
   traduzioni).
+
+- **Fix reconnect infinito su canale esterno e reset backoff (2026-09-09)** —
+  Compito `Docs/i18n/ita/compiti-ai-esterne/2026-09-09-reconnect-infinito-canale-esterno.md`:
+  risolto il debito architetturale della v1 tracciato in `KNOWN-ISSUES.md`. Aggiunto parametro opzionale
+  `maxRetries` a `LareWsClient` (`ws-client.js`); se superato, il client arresta i tentativi ed emette
+  lo stato terminale `"failed"`. `external-channel-window.js` imposta `maxRetries: 6` (~31s totali di backoff).
+  `host.js` (canale cursore) mantiene il retry infinito per sopravvivere ai riavvii backend. Spostato inoltre il
+  reset del backoff da `"open"` (livello TCP) a `server_info` (handshake applicativo riuscito), evitando che un server
+  che accetta e chiude subito resetti il timer a 1s all'infinito. Aggiornato `renderer.js` con il badge `"failed"`
+  e tradotta la chiave `ext_channel.status_failed` in `it.json`, `en.json`, `es.json`. UI bump a 2.3.3.
 
 - **i18n Terza lingua: spagnolo per AI, UI e /help (2026-09-09)** —
   Parte B del piano `Docs/i18n/ita/compiti-ai-esterne/2026-09-09-i18n-help-esterno-e-spagnolo.md`:

@@ -42,9 +42,9 @@ const RETRY_MAX_MS = 8000;
  */
 export class LareWsClient {
   /**
-   * @param {{ url: string, token: string, onStatus: function, onMessage: function, channel?: string, lang?: string }} opts
+   * @param {{ url: string, token: string, onStatus: function, onMessage: function, channel?: string, lang?: string, maxRetries?: number }} opts
    */
-  constructor({ url, token, onStatus, onMessage, channel, lang }) {
+  constructor({ url, token, onStatus, onMessage, channel, lang, maxRetries }) {
     /** @type {string} */
     this._url = url;
     /** @type {string} */
@@ -57,6 +57,8 @@ export class LareWsClient {
     this._channel = channel;
     /** @type {string} */
     this._lang = lang || "";
+    /** @type {number|undefined} */
+    this._maxRetries = typeof maxRetries === "number" ? maxRetries : undefined;
 
     /** @type {WebSocket|null} */
     this._ws = null;
@@ -64,6 +66,8 @@ export class LareWsClient {
     this._intentionalClose = false;
     /** @type {number} */
     this._retryMs = RETRY_INITIAL_MS;
+    /** @type {number} */
+    this._retryCount = 0;
     /** @type {number|null} */
     this._retryTimer = null;
   }
@@ -81,6 +85,8 @@ export class LareWsClient {
   /** Open the connection (with automatic retry on failure). */
   connect() {
     this._intentionalClose = false;
+    this._retryMs = RETRY_INITIAL_MS;
+    this._retryCount = 0;
     this._openSocket();
   }
 
@@ -468,7 +474,6 @@ export class LareWsClient {
         // (undefined) for the main cursor connection — JSON.stringify drops
         // undefined-valued keys, so the wire shape is byte-identical to today.
         this._send({ type: "hello", token: this._token, channel: this._channel });
-        this._retryMs = RETRY_INITIAL_MS; // reset backoff on success
       });
 
       ws.addEventListener("message", (ev) => {
@@ -482,6 +487,8 @@ export class LareWsClient {
 
         // ServerInfo signals that the handshake was accepted.
         if (msg.type === "server_info") {
+          this._retryMs = RETRY_INITIAL_MS; // reset backoff only on actual handshake success
+          this._retryCount = 0;
           this._onStatus("connected");
         }
 
@@ -509,7 +516,12 @@ export class LareWsClient {
 
   _scheduleRetry() {
     if (this._intentionalClose) return;
-    console.info(`[ws-client] Reconnecting in ${this._retryMs}ms…`);
+    if (this._maxRetries !== undefined && this._retryCount >= this._maxRetries) {
+      this._onStatus("failed");
+      return;
+    }
+    this._retryCount++;
+    console.info(`[ws-client] Reconnecting in ${this._retryMs}ms… (retry ${this._retryCount})`);
     this._retryTimer = setTimeout(() => {
       this._retryTimer = null;
       this._openSocket();

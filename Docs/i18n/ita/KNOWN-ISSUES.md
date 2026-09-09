@@ -44,25 +44,24 @@ Telegram/AI Chat il problema architetturale resta identico alla v1.
 
 ---
 
-## [APERTO] Reconnect infinito su un canale esterno permanentemente rotto
+## [RISOLTO] Reconnect infinito su un canale esterno permanentemente rotto
 
 **Segnalato:** come debito architetturale nella v1 (`Docs/STATO-ATTUALE.md` §16: "un fallimento
 permanente di canale esterno (config/venv mancante) causa reconnect infinito invece di un errore
-mostrato una volta"). **Ancora presente in 2.0**, verificato leggendo il codice copiato:
-`crates/ui/frontend/ws-client.js` (`_scheduleRetry`) non ha un numero massimo di tentativi — il
-backoff esponenziale è **capped** a `RETRY_MAX_MS` ma non si ferma mai. Ogni finestra che apre una
-propria connessione (`external-channel-window.js`, `config-dialog.js`, `window.js`, oltre alla
-connessione di default di `host.js`) usa la stessa `LareWsClient` e quindi lo stesso comportamento.
+mostrato una volta").
 
-**Sintomo.** Se un canale esterno (es. un plugin con endpoint sbagliato, o una dipendenza mancante
-lato server — `venv` non trovato, config assente) fallisce **in modo permanente** (non transitorio),
-la finestra continua a ritentare la connessione all'infinito invece di mostrare una volta un
-messaggio d'errore stabile e smettere.
-
-**Rilevanza per il piano 2/3.** Non toccato dal piano 1: il piano ha cambiato solo il parametro
-`url` di `ws-client.js` (per rendere la porta configurabile via `startup.json`), mai la logica di
-retry. Resta un debito architetturale aperto da affrontare quando si costruirà l'esperienza utente
-attorno ai canali esterni.
+**Risolto in `crates/ui` 2.3.3** (`Docs/i18n/ita/compiti-ai-esterne/2026-09-09-reconnect-infinito-canale-esterno.md`):
+- `crates/ui/frontend/ws-client.js`: introdotto parametro opzionale `maxRetries` per-istanza in
+  `LareWsClient`. Quando i tentativi consecutivi raggiungono `maxRetries`, il client smette di schedulare
+  timer ed emette lo stato terminale `"failed"`.
+- `crates/ui/frontend/external-channel-window.js`: passa `maxRetries: 6` (~31s totali di backoff prima di fermarsi).
+  `renderer.js` visualizza lo stato terminale con badge tradotto (`ext_channel.status_failed`).
+- **Nota architetturale importante:** la connessione principale della finestra (`host.js`, canale cursore)
+  mantiene **deliberatamente** il retry infinito (nessun `maxRetries` passato). Questo vincolo garantisce
+  che la UI cursore si riconnetta automaticamente se l'orchestratore viene riavviato (build, crash, self-healing),
+  anche dopo minuti, senza lasciare l'utente con l'interfaccia bloccata.
+- Corretto contestualmente il reset improprio di `_retryMs` sull'evento TCP `"open"`, spostandolo sulla
+  ricezione effettiva di `server_info` (handshake applicativo).
 
 ---
 

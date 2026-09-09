@@ -66,6 +66,7 @@
   "ext_channel.status_connecting": "●  connessione in corso…",
   "ext_channel.status_disconnected": "●  offline",
   "ext_channel.status_error": "●  errore",
+  "ext_channel.status_failed": "●  non disponibile",
   "ext_channel.titlebar": "Canale esterno",
   "ext_channel.window_title": "Lare — Canale esterno",
   "library.breadcrumb_aria": "Percorso corrente nella Library",
