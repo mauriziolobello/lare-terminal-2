@@ -16,6 +16,9 @@ L'esito di ogni comando slash compare in una finestra; nel terminale resta una r
 - `/open <target>` — apri un URL, una cartella o un file con l'app di default.
 - `/web <query>` — cerca la query nel browser di default.
 - `/show <markdown>` — apri una finestra con il Markdown indicato.
+- `/find [<query>] [in:"<frase>"] [folder:from-here]` — cerca file dal vivo, finestra dedicata.
+- `/reset` — riavvia la sessione shell.
+- `/nowin <richiesta>` — l'AI risponde come testo nel terminale, niente finestra Markdown.
 - `/calc` — calcolatrice (plugin).
 
 ## Strumenti esterni (finestra dedicata)
