@@ -16,6 +16,9 @@ The result of each slash command appears in a window; a confirmation line remain
 - `/open <target>` — open a URL, folder, or file with the default app.
 - `/web <query>` — search the query in the default browser.
 - `/show <markdown>` — open a window with the given Markdown.
+- `/find [<query>] [in:"<phrase>"] [folder:from-here]` — live file search, dedicated window.
+- `/reset` — restart the shell session.
+- `/nowin <prompt>` — AI answers as text in the terminal, no Markdown window.
 - `/calc` — calculator (plugin).
 
 ## External tools (dedicated window)

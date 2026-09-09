@@ -16,6 +16,9 @@ El resultado de cada comando slash aparece en una ventana; en el terminal perman
 - `/open <target>` — abre una URL, carpeta o archivo con la aplicación predeterminada.
 - `/web <query>` — busca la consulta en el navegador predeterminado.
 - `/show <markdown>` — abre una ventana con el Markdown indicado.
+- `/find [<query>] [in:"<frase>"] [folder:from-here]` — búsqueda de archivos en vivo, ventana dedicada.
+- `/reset` — reinicia la sesión de shell.
+- `/nowin <solicitud>` — la IA responde como texto en el terminal, sin ventana Markdown.
 - `/calc` — calculadora (plugin).
 
 ## Herramientas externas (ventana dedicada)

@@ -36,6 +36,10 @@
   test Rust orchestrator (948 lib + 2 bin + 23 int) e test ui (100 lib + 47 bin) tutti verdi; clippy senza warning.
   Orchestrator bump a 2.2.6, UI bump a 2.3.2.
 
+- **/help: aggiunti /find, /reset, /nowin ai file help/<lang>.md (2026-09-09)** —
+  I tre comandi erano attivi da codice ma assenti dalla finestra di /help. Solo contenuto
+  Markdown in it.md/en.md/es.md, nessun cambiamento di codice.
+
 - **i18n /help su file esterni help/<lang>.md (2026-09-09)** —
   Parte A del piano `Docs/i18n/ita/compiti-ai-esterne/2026-09-09-i18n-help-esterno-e-spagnolo.md`:
   migrato il corpo Markdown di `/help` da costanti Rust a file esterni sotto `Configuration/help/<lang>.md`.
