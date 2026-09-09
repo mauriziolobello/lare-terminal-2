@@ -343,6 +343,42 @@ turno `/ai` reale, chiusura finestra, autostart di `ui.exe` dall'orchestratore, 
 
 ## DA FARE
 
+- **Idea (Maurizio, 2026-09-09) — metodologia guidata per assistere un sistemista verso un
+  qualunque strumento/dispositivo esterno (nata da un caso reale: configurazione di uno switch
+  di rete).** Non un plugin per UNO strumento specifico, ma un METODO ripetibile che Lare applica
+  a QUALUNQUE dispositivo/strumento con cui il tecnico deve interfacciarsi — il soggetto a cui si
+  fa sempre capo è il dispositivo stesso, non un'astrazione software. Quattro fasi, le prime
+  gestite a quattro mani (tecnico + AI insieme), le ultime sempre più autonome per l'AI:
+  1. **Conoscenza/recupero informazioni** — l'AI legge la documentazione DEL dispositivo per
+     capire come interagirci. Nel caso reale che ha originato l'idea: le pagine web di gestione
+     integrate nello switch stesso (il suo "strumento di configurazione", non un sito esterno) —
+     ma il concetto generalizza a manuali PDF, pagine di supporto del produttore, changelog di
+     firmware, ecc., a seconda del dispositivo.
+  2. **Comunicazione/collegamento** — l'AI suggerisce i passaggi per aprire un canale di
+     controllo verso il dispositivo (nel caso reale: come entrare in modalità CLI dalla web UI,
+     abilitare SSH, ottenere i comandi "estesi"/enable, poi collegarsi in SSH). Generalizza ad
+     altri canali a seconda dello strumento (seriale/console, API REST, SNMP, ecc.).
+  3. **Test dei comandi suggeriti, raccolta di quelli VALIDI** — l'AI può proporre comandi da
+     documentazione non aggiornata o non pertinente a quel modello/quella versione firmware
+     esatta (caso reale: apparecchio vecchio, sintassi CLI cambiata nel tempo); il tecnico
+     testa dal vivo e, insieme all'AI, costruisce un elenco di comandi VERIFICATI funzionanti
+     per quello specifico dispositivo — non un elenco teorico preso da un manuale generico.
+  4. **Interrogazione/richieste operative** — una volta noti i comandi validi per QUEL
+     dispositivo, il tecnico esprime una necessità in linguaggio naturale e l'AI o (a) traduce
+     in comandi che il tecnico stesso sottomette, o (b) — più avanzato, da valutare con
+     attenzione — invia i comandi direttamente allo strumento (Maurizio ipotizza `SendKeys` o
+     equivalente: implicazioni di sicurezza reali, un comando sbagliato su un apparecchio di rete
+     può interrompere la connettività stessa con cui l'AI ci sta parlando — da trattare con la
+     stessa cautela del gate di conferma ADR-007, forse più).
+  **Esplicitamente non ancora pronta per un piano**: Maurizio la definisce "ci dobbiamo lavorare
+  ancora un po'" — da riprendere in un brainstorming dedicato quando arriva il suo turno. Domande
+  aperte da affrontare allora: come si aggancia all'architettura esistente (un plugin nuovo? un
+  canale tool esterno come `/nmap`/`/markets`? qualcosa di più simile a `run_routine` ma per
+  dispositivi invece che script?); dove/come si conserva la "conoscenza acquisita" per dispositivo
+  (i comandi validi della fase 3) fra una sessione e l'altra, così un secondo intervento sullo
+  stesso switch non riparte da zero; se e come si generalizza oltre agli switch di rete (altri
+  apparecchi con CLI/web UI di gestione — router, firewall, NAS, ecc.); il perimetro esatto della
+  fase 4(b) (invio diretto comandi) e le sue conseguenze di sicurezza.
 - **Idea (Maurizio, 2026-09-08) — pagina interattiva client-only generata dall'AI per un
   argomento, con refresh via Python.** L'utente chiede una pagina interattiva su un tema;
   istruzioni di base per l'AI: pagina **solo client** (al massimo un DB SQL leggero tipo SQLite
