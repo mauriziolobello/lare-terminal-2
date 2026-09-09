@@ -204,7 +204,7 @@ export class LareRenderer {
   /**
    * Update the visual status badge.
    *
-   * @param {"connecting"|"connected"|"disconnected"|"error"} status
+   * @param {"connecting"|"connected"|"disconnected"|"error"|"failed"} status
    */
   setStatus(status) {
     if (!this._statusEl) return;
@@ -213,6 +213,7 @@ export class LareRenderer {
       connected:  t("ext_channel.status_connected"),
       disconnected: t("ext_channel.status_disconnected"),
       error:      t("ext_channel.status_error"),
+      failed:     t("ext_channel.status_failed"),
     };
     this._statusEl.textContent = labels[status] ?? status;
     this._statusEl.className = `status status-${status}`;

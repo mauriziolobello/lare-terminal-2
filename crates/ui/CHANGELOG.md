@@ -3,6 +3,22 @@
 All notable changes to this package follow [Keep a Changelog](https://keepachangelog.com/) format.
 Versioning: `major.minor.update`.
 
+## 2.3.3 — 2026-09-09 — limite tentativi di reconnect canali esterni e fix reset backoff
+
+- **Limite tentativi di riconnessione (`maxRetries`) in `LareWsClient`** (`crates/ui/frontend/ws-client.js`):
+  - Aggiunto il parametro opzionale `maxRetries` al costruttore di `LareWsClient` per consentire un limite configurabile per-istanza.
+  - Con `maxRetries` impostato, al superamento dei tentativi consecutivi di riconnessione il client interrompe i retry ed emette lo stato terminale `"failed"` invece di schedulare un altro tentativo.
+  - `host.js` (connessione principale / canale cursore) non passa `maxRetries` e mantiene deliberatamente il retry infinito per garantire la ripresa automatica dopo riavvii o aggiornamenti del backend.
+- **Correzione del punto di reset del backoff esponenziale** (`crates/ui/frontend/ws-client.js`):
+  - Rimosso il reset di `_retryMs` dall'evento `"open"` (apertura livello TCP): un server che accetta la connessione e la chiude subito dopo l'handshake non resetta più il backoff a 1s.
+  - Il reset di `_retryMs` a `RETRY_INITIAL_MS` e di `_retryCount` a 0 avviene ora esclusivamente alla ricezione di `server_info` (accettazione effettiva dell'handshake applicativo) e all'invocazione di `connect()` (avvio fresco della connessione).
+- **Canali esterni (`external-channel-window.js`)**:
+  - `external-channel-window.js` configura ora `maxRetries: 6` (sequenza 1s, 2s, 4s, 8s, 8s, 8s per un totale di ~31s di tentativi prima dello stato terminale).
+- **Badge di stato e traduzioni (`renderer.js`, `it.json`, `en.json`, `es.json`)**:
+  - Aggiunto supporto visivo allo stato `"failed"` tramite la chiave `ext_channel.status_failed` in italiano (`●  non disponibile`), inglese (`●  failed`) e spagnolo (`●  no disponible`).
+- **Test unitari** (`crates/ui/frontend/ws-client.test.mjs`):
+  - Aggiunti 4 test TDD con `mock.timers` per verificare il comportamento con `maxRetries`, la prosecuzione indefinita senza di esso, il corretto reset su `server_info` e la crescita esponenziale del backoff in caso di chiusura immediata dopo l'apertura TCP.
+
 ## 2.3.2 — 2026-09-09 — supporto terza lingua (spagnolo es) e parità generalizzata
 
 - **Opzione lingua Español in `/config`** (`crates/ui/frontend/config-dialog.js`):

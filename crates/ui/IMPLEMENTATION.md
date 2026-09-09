@@ -1,4 +1,19 @@
-# Implementation — crates/ui v2.3.2
+# Implementation — crates/ui v2.3.3
+
+## Limite tentativi di reconnect canali esterni e fix reset backoff (v2.3.3)
+
+Nel piano `Docs/i18n/ita/compiti-ai-esterne/2026-09-09-reconnect-infinito-canale-esterno.md`:
+1. **Parametro opzionale `maxRetries` in `LareWsClient` (`crates/ui/frontend/ws-client.js`)**:
+   - Consente di limitare per-istanza i tentativi di riconnessione consecutivi.
+   - Quando `_retryCount >= maxRetries`, `_scheduleRetry()` emette lo stato terminale `"failed"` e si arresta senza schedulare ulteriori timer.
+   - `host.js` continua a non specificare `maxRetries`, mantenendo il comportamento di retry indefinito richiesto per il canale cursore primario.
+2. **Correzione punto di reset del backoff**:
+   - Rimosso `this._retryMs = RETRY_INITIAL_MS` dal listener `"open"` (livello TCP).
+   - Il reset avviene ora nel blocco `msg.type === "server_info"` (handshake applicativo completato con successo) e in `connect()` all'avvio.
+3. **Canali esterni (`crates/ui/frontend/external-channel-window.js`)**:
+   - Impostato `maxRetries: 6` (~31s totali di backoff prima di arrendersi).
+4. **Renderer e Localizzazione (`renderer.js`, `it.json`, `en.json`, `es.json`)**:
+   - Aggiunto mapping dello stato `"failed"` sull'etichetta `ext_channel.status_failed` ("●  non disponibile", "●  failed", "●  no disponible").
 
 ## Supporto terza lingua: spagnolo (v2.3.2)
 
