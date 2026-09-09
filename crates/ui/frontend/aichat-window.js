@@ -4,6 +4,7 @@
 // col canale `aichat` dell'orchestrator. Stesso disaccoppiamento delle finestre plugin.
 import { messageLine, rosterText, consentPrompt, isSelf, historyEntries, chatWindowTitle, peerLostText } from "./aichat-view.mjs";
 import { shareConsentPrompt } from "./share-view.mjs";
+import { fetchI18n, applyI18n, t } from "./i18n.mjs";
 // admission.mjs (Task 9): logica PURA del flusso di ammissione (testo del gate 1 +
 // stato del pulsante di re-request). Niente DOM lì dentro → la importiamo qui dove
 // il DOM invece vive.
@@ -109,7 +110,7 @@ tauriEvent?.listen("aichat:roster", (e) => {
   if (lastRosterParticipants) {
     const added = participants.filter((p) => !lastRosterParticipants.includes(p));
     for (const label of added) {
-      if (label !== selfLabel) addSystemLine(`${label} è entrato in chat.`);
+      if (label !== selfLabel) addSystemLine(t("aichat.peer_joined", { label }));
     }
   }
   lastRosterParticipants = participants;
@@ -173,14 +174,14 @@ document.getElementById("gate1-yes").addEventListener("click", () => {
 document.getElementById("gate1-no").addEventListener("click", () => {
   gate1El.classList.remove("show");
   emit("aichat:join-decision", { accept: false });
-  addSystemLine("Hai annullato l'ingresso in chat.");
+  addSystemLine(t("aichat.cancelled_join"));
 });
 
 tauriEvent?.listen("aichat:pending", (e) => {
   stopRerequestTimer();
   rejectedEl.classList.remove("show"); // un nuovo tentativo sostituisce il banner di rifiuto
   const present = e.payload?.present || [];
-  pendingText.textContent = `In attesa di ammissione da ${present.join(", ")}…`;
+  pendingText.textContent = t("aichat.pending_admission", { peers: present.join(", ") });
   pendingEl.classList.add("show");
   msgInput.disabled = true; // previene il "saluto perso": non si scrive finché non ammessi
 });
@@ -190,7 +191,7 @@ tauriEvent?.listen("aichat:admitted", () => {
   pendingEl.classList.remove("show");
   rejectedEl.classList.remove("show");
   msgInput.disabled = false;
-  addSystemLine("Sei entrato in chat.");
+  addSystemLine(t("aichat.you_joined"));
 });
 
 // Aggiorna testo/stato del pulsante "Chiedi di entrare" secondo `rerequestState`
@@ -198,7 +199,9 @@ tauriEvent?.listen("aichat:admitted", () => {
 function updateRerequestButton() {
   const { enabled, secondsLeft } = rerequestState(Date.now(), retryAtMs);
   rerequestBtn.disabled = !enabled;
-  rerequestBtn.textContent = enabled ? "Chiedi di entrare" : `Chiedi di entrare (${secondsLeft}s)`;
+  rerequestBtn.textContent = enabled
+    ? t("aichat.btn_request_admission")
+    : t("aichat.btn_request_admission_countdown", { seconds: secondsLeft });
   if (enabled) stopRerequestTimer();
 }
 
@@ -226,7 +229,7 @@ function showNextAdmissionRequest() {
     gate2El.classList.remove("show");
     return;
   }
-  gate2Text.textContent = `${admissionQueue[0]} chiede di entrare in chat.`;
+  gate2Text.textContent = t("aichat.peer_requests_admission", { candidate: admissionQueue[0] });
   gate2El.classList.add("show");
 }
 tauriEvent?.listen("aichat:admission-request", (e) => {
@@ -316,14 +319,24 @@ msgInput.focus();
     if (cfg && typeof cfg.window_alpha === "number") {
       document.documentElement.style.setProperty("--window-alpha", cfg.window_alpha);
     }
+    await fetchI18n(invoke, cfg?.language || "it");
+    applyI18n(document);
   } catch (e) {
-    console.warn("[aichat-window] get_config on startup failed:", e);
+    console.warn("[aichat-window] startup init failed:", e);
   }
 })();
 
-tauriEvent?.listen("config:saved", (ev) => {
+tauriEvent?.listen("config:saved", async (ev) => {
   const alpha = ev.payload?.window_alpha;
   if (typeof alpha === "number") {
     document.documentElement.style.setProperty("--window-alpha", alpha);
+  }
+  const lang = ev.payload?.language;
+  if (lang) {
+    await fetchI18n(invoke, lang);
+    applyI18n(document);
+    if (lastRosterParticipants) {
+      rosterEl.textContent = rosterText(lastRosterParticipants);
+    }
   }
 });

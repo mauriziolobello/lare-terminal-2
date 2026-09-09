@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="it">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Lare — Output</title>
+  <title data-i18n="md_window.window_title">Lare — Output</title>
   <style>
     /* ── Reset ─────────────────────────────────────────────────────────── */
     *, *::before, *::after {
@@ -309,18 +309,18 @@
     drag handler.
   -->
   <div id="titlebar" data-tauri-drag-region>
-    <span id="titlebar-label">Lare — Output</span>
+    <span id="titlebar-label" data-i18n="md_window.titlebar">Lare — Output</span>
     <span>
-      <button id="save-btn" title="Save to archive" aria-label="Save window to archive">&#x1F4BE;</button>
-      <button id="close-btn" title="Close" aria-label="Close window">&#x00D7;</button>
+      <button id="save-btn" data-i18n-title="md_window.save_title" data-i18n-aria-label="md_window.save_aria" title="Salva nell'archivio" aria-label="Salva finestra nell'archivio">&#x1F4BE;</button>
+      <button id="close-btn" data-i18n-title="common.close" data-i18n-aria-label="md_window.close_aria" title="Chiudi" aria-label="Chiudi finestra">&#x00D7;</button>
     </span>
   </div>
   <div id="expand-bar">
-    <input id="expand-input" type="text" placeholder="Cosa vuoi aggiungere o approfondire?" />
-    <button id="expand-btn" disabled>Espandi</button>
+    <input id="expand-input" type="text" data-i18n-placeholder="md_window.expand_placeholder" placeholder="Cosa vuoi aggiungere o approfondire?" />
+    <button id="expand-btn" data-i18n="md_window.expand_btn" disabled>Espandi</button>
     <span id="expand-status"></span>
   </div>
-  <div id="content" class="loading">Loading…</div>
+  <div id="content" class="loading" data-i18n="md_window.loading">Caricamento…</div>
 
   <!--
     Tauri v2: withGlobalTauri = true in tauri.conf.json → window.__TAURI__ is available.

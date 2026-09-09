@@ -13,6 +13,7 @@
 // la propria label.
 
 import { createPickerState, moveSelection, selectedItem } from "./screener-picker-list.mjs";
+import { fetchI18n, applyI18n, t } from "./i18n.mjs";
 
 const { invoke } = window.__TAURI__.core;
 const tauriEvent = window.__TAURI__.event;
@@ -28,7 +29,7 @@ function render() {
   if (state.items.length === 0) {
     const empty = document.createElement("div");
     empty.id = "empty-state";
-    empty.textContent = "Nessuno screener disponibile.";
+    empty.textContent = t("screener_picker.empty");
     listArea.appendChild(empty);
     return;
   }
@@ -95,6 +96,17 @@ document.addEventListener("keydown", (ev) => {
 closeBtn.addEventListener("click", () => invoke("close_self"));
 
 async function init() {
+  try {
+    const cfg = await invoke("get_config");
+    if (cfg && typeof cfg.window_alpha === "number") {
+      document.documentElement.style.setProperty("--window-alpha", cfg.window_alpha);
+    }
+    await fetchI18n(invoke, cfg?.language || "it");
+    applyI18n(document);
+  } catch (e) {
+    console.warn("[screener-picker] startup i18n/config failed:", e);
+  }
+
   const data = await invoke("take_window_content");
   if (!data) {
     console.error("[screener-picker] take_window_content returned null");
@@ -110,5 +122,18 @@ async function init() {
   state = createPickerState(items);
   render();
 }
+
+tauriEvent.listen("config:saved", async (ev) => {
+  const alpha = ev.payload?.window_alpha;
+  if (typeof alpha === "number") {
+    document.documentElement.style.setProperty("--window-alpha", alpha);
+  }
+  const lang = ev.payload?.language;
+  if (lang) {
+    await fetchI18n(invoke, lang);
+    applyI18n(document);
+    render();
+  }
+});
 
 init();

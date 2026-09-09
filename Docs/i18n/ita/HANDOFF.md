@@ -20,11 +20,21 @@
 - plugin-calc 2.0.0 (da v1 0.2.0)
 - plugin-lc 2.0.0 (da v1 0.4.5)
 - plugin-crypto 2.0.0 (da v1 1.0.1)
-- ui 2.3.0 (da v1 0.47.1; 2.3.0 — i18n Parte 1: fondamenta e /config)
+- ui 2.3.1 (da v1 0.47.1; 2.3.1 — i18n Parte 2: cascata finestre e titoli nativi)
 - lare-shell 2.0.1 (piano 2b 2.0.0 → 2.0.1 nel piano 3, Task 3: `Launcher.EnsureUi()` passa
   `--no-terminal` — non un crate Cargo: `shell/lare-shell/`, .NET/C#)
 
 ## FATTO
+
+- **i18n Parte 2 — Internazionalizzazione a cascata di tutte le finestre (2026-09-09)** —
+  Seconda fase del piano `Docs/i18n/ita/compiti-ai-esterne/2026-09-08-i18n-programma.md`:
+  conversione a cascata di tutte le restanti 10 finestre dell'applicazione (`note-window`,
+  `window-search`, `library`, `aichat-window`, `routine-preview`, `plugin-window`,
+  `external-channel`, `screener-picker`, `window.html`, `host.js`, `terminal.html`/`terminal.js`).
+  Titoli nativi delle finestre in Rust (`main.rs`) internazionalizzati dinamicamente via
+  `ui_lib::i18n::t_sync` nel builder Tauri. Dizionari `it.json` ed `en.json` portati a 209 chiavi
+  in sincronia e ordine alfabetico perfetto. Test di parità `i18n-parity.test.mjs` verde.
+  Tutti i 251 test frontend e 147 test Rust passano; clippy pulito senza warning. UI bump a 2.3.1.
 
 - **i18n Parte 1 — Fondamenta e internazionalizzazione /config (2026-09-08)** —
   Prima fase del piano `Docs/i18n/ita/compiti-ai-esterne/2026-09-08-i18n-programma.md`:

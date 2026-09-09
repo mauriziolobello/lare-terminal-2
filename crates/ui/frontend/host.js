@@ -406,7 +406,7 @@ async function openMarkdownWindow(title, content, kind = "markdown") {
 /** Apre la finestra di ricerca live delegando a Rust. */
 async function openSearchWindow(sid, title) {
   try {
-    await invokeCmd("open_search_window", { title: title || "Ricerca", sid });
+    await invokeCmd("open_search_window", { title: title || "", sid });
   } catch (e) {
     console.error("[host] open_search_window error:", e);
   }

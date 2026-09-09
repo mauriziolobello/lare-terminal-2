@@ -1,5 +1,6 @@
 // aichat-view.mjs — logica PURA della finestra-chat AI Chat (Slice 1a-ui-B).
 // Niente DOM, niente Tauri → testabile con `node:test`. Il DOM vive in aichat-window.js.
+import { t } from "./i18n.mjs";
 
 /** Estrae l'etichetta macchina da `from_label` ("skimble-human"/"skimble-ai" → "skimble").
  *  `from_label` è sempre `<label_base>-human` o `<label_base>-ai` sul wire (vedi
@@ -28,13 +29,13 @@ export function messageLine({ from_label, text, display_name, is_ai }) {
 
 /** Riga del roster: "presenti: a · b · c" (vuoto → trattino). */
 export function rosterText(participants) {
-  if (!participants || participants.length === 0) return "presenti: —";
-  return "presenti: " + participants.join(" · ");
+  if (!participants || participants.length === 0) return t("aichat.roster_empty");
+  return t("aichat.roster_present", { participants: participants.join(" · ") });
 }
 
 /** Testo del banner di consenso per un peer comparso in rete. */
 export function consentPrompt(peer_label) {
-  return `${peer_label} è comparso in rete — entrare nella stanza con lui?`;
+  return t("aichat.consent_prompt", { peer: peer_label });
 }
 
 /** True se l'etichetta è di QUESTA macchina (per stilare diversamente i propri messaggi). */
@@ -61,5 +62,5 @@ export function chatWindowTitle(selfLabel) {
  *  sparito"): stessa causa tecnica, ma "sparito" suona allarmante/gergale per un umano
  *  che legge la chat — feedback utente 2026-07-05. */
 export function peerLostText(label) {
-  return label ? `${label} risulta scollegato` : "un peer risulta scollegato";
+  return label ? t("aichat.peer_lost_named", { label }) : t("aichat.peer_lost_unnamed");
 }

@@ -725,10 +725,10 @@
     #close-btn does NOT carry data-tauri-drag-region.
   -->
   <div id="titlebar" data-tauri-drag-region>
-    <span id="titlebar-label">Lare — Archivio</span>
+    <span id="titlebar-label" data-i18n="library.titlebar">Lare — Archivio</span>
     <span class="titlebar-actions">
-      <button id="open-dir-btn" title="Apri la cartella nel file manager" aria-label="Apri cartella archivio">&#x1F4C2;</button>
-      <button id="close-btn" title="Chiudi" aria-label="Chiudi finestra">&#x00D7;</button>
+      <button id="open-dir-btn" data-i18n-title="library.open_dir_title" data-i18n-aria-label="library.open_dir_aria" title="Apri la cartella nel file manager" aria-label="Apri cartella archivio">&#x1F4C2;</button>
+      <button id="close-btn" data-i18n-title="common.close" data-i18n-aria-label="common.close" title="Chiudi" aria-label="Chiudi finestra">&#x00D7;</button>
     </span>
   </div>
 
@@ -737,11 +737,11 @@
     The active tab is highlighted with .lib-tab--active (set by library.js).
     Switching tab triggers a reload of the appropriate list.
   -->
-  <div id="tab-bar" role="tablist" aria-label="Tipo di archivio">
+  <div id="tab-bar" role="tablist" data-i18n-aria-label="library.tab_bar_aria" aria-label="Tipo di archivio">
     <button id="tab-markdown" class="lib-tab lib-tab--active" role="tab" aria-selected="true"  aria-controls="list-area" data-tab="markdown">Markdown</button>
     <button id="tab-find"     class="lib-tab"                 role="tab" aria-selected="false" aria-controls="list-area" data-tab="find">Find</button>
     <button id="tab-plugins"  class="lib-tab"                 role="tab" aria-selected="false" aria-controls="list-area" data-tab="plugins">Plugins</button>
-    <button id="tab-note"     class="lib-tab"                 role="tab" aria-selected="false" aria-controls="list-area" data-tab="note">Note</button>
+    <button id="tab-note"     class="lib-tab"                 role="tab" aria-selected="false" aria-controls="list-area" data-tab="note" data-i18n="library.tab_note">Note</button>
   </div>
 
   <!--
@@ -751,10 +751,10 @@
     Popolata dinamicamente da library.js (renderBreadcrumb).
   -->
   <div id="lib-toolbar">
-    <nav id="lib-breadcrumb" aria-label="Percorso corrente nella Library"></nav>
+    <nav id="lib-breadcrumb" data-i18n-aria-label="library.breadcrumb_aria" aria-label="Percorso corrente nella Library"></nav>
     <div class="lib-toolbar-actions">
-      <button id="new-folder-btn" title="Crea nuova cartella nella posizione corrente">+ Cartella</button>
-      <button id="reload-btn" title="Ricarica la lista">&#x1F504;</button>
+      <button id="new-folder-btn" data-i18n-title="library.new_folder_title" data-i18n="library.new_folder_btn" title="Crea nuova cartella nella posizione corrente">+ Cartella</button>
+      <button id="reload-btn" data-i18n-title="library.reload_title" title="Ricarica la lista">&#x1F504;</button>
     </div>
   </div>
 
@@ -763,11 +763,11 @@
     Pulsante "+ Nuova" per creare una nuova nota.
   -->
   <div id="note-toolbar" style="display:none">
-    <button id="new-note-btn">Nuova</button>
+    <button id="new-note-btn" data-i18n="library.new_note_btn">Nuova</button>
   </div>
 
   <!-- Populated by library.js — folder rows + document rows -->
-  <div id="list-area" role="listbox" aria-label="Contenuto Library"></div>
+  <div id="list-area" role="listbox" data-i18n-aria-label="library.list_area_aria" aria-label="Contenuto Library"></div>
 
   <!--
     Modale "Sposta" — aperta via showModal() da openMoveDialog() in library.js.
@@ -785,13 +785,13 @@
   <dialog id="move-dialog" aria-modal="true" aria-labelledby="move-dialog-title">
     <div class="move-dialog-box">
       <div class="move-dialog-header">
-        <span id="move-dialog-title">Sposta in…</span>
+        <span id="move-dialog-title" data-i18n="library.move_dialog_title">Sposta in…</span>
       </div>
-      <div id="move-targets" role="listbox" aria-label="Destinazione spostamento"></div>
+      <div id="move-targets" role="listbox" data-i18n-aria-label="library.move_targets_aria" aria-label="Destinazione spostamento"></div>
       <div id="move-error"></div>
       <div class="move-dialog-footer">
-        <button id="move-cancel" type="button">Annulla</button>
-        <button id="move-confirm" type="button" disabled>Sposta qui</button>
+        <button id="move-cancel" type="button" data-i18n="common.cancel">Annulla</button>
+        <button id="move-confirm" type="button" data-i18n="library.move_confirm_btn" disabled>Sposta qui</button>
       </div>
     </div>
   </dialog>
@@ -808,12 +808,12 @@
   <dialog id="share-dialog" aria-modal="true" aria-labelledby="share-dialog-title">
     <div class="move-dialog-box">
       <div class="move-dialog-header">
-        <span id="share-dialog-title">Condividi con…</span>
+        <span id="share-dialog-title" data-i18n="library.share_dialog_title">Condividi con…</span>
       </div>
-      <div id="share-targets" role="listbox" aria-label="Macchina destinataria"></div>
+      <div id="share-targets" role="listbox" data-i18n-aria-label="library.share_targets_aria" aria-label="Macchina destinataria"></div>
       <div class="move-dialog-footer">
-        <button id="share-cancel" type="button">Annulla</button>
-        <button id="share-confirm" type="button" disabled>Condividi</button>
+        <button id="share-cancel" type="button" data-i18n="common.cancel">Annulla</button>
+        <button id="share-confirm" type="button" data-i18n="library.share_confirm_btn" disabled>Condividi</button>
       </div>
     </div>
   </dialog>

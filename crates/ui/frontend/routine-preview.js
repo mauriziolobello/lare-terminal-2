@@ -16,6 +16,8 @@
 //   4. Chiudere la finestra senza cliccare un pulsante (✕, Esc, Alt-F4) è
 //      trattato come Annulla — emette decision(false) prima di chiudersi.
 
+import { fetchI18n, applyI18n, t } from "./i18n.mjs";
+
 const invoke = window.__TAURI__?.core?.invoke;
 const tauriEvent = window.__TAURI__?.event;
 
@@ -41,7 +43,10 @@ function closeSelf() {
   invoke?.("close_self").catch((e) => console.error("[routine-preview] close_self error:", e));
 }
 
+let currentData = null;
+
 function render(data) {
+  currentData = data;
   document.getElementById("meta-name").textContent = data.name;
   document.getElementById("meta-description").textContent = data.description;
   document.getElementById("meta-category").textContent = data.category;
@@ -50,23 +55,12 @@ function render(data) {
 
   const banner = document.getElementById("replace-banner");
   if (data.replace) {
-    banner.textContent = `Sostituisce/aggiorna: ${data.replace}`;
+    document.getElementById("titlebar-label").textContent = t("routine_preview.titlebar_update");
+    banner.textContent = t("routine_preview.replace_banner", { replace: data.replace });
     banner.style.display = "block";
   }
 }
 
-(async () => {
-  if (!invoke) return;
-  try {
-    const stored = await invoke("take_window_content");
-    if (!stored || stored.kind !== "routine_preview") return;
-    const data = JSON.parse(stored.content);
-    routineId = data.id;
-    render(data);
-  } catch (e) {
-    console.error("[routine-preview] take_window_content error:", e);
-  }
-})();
 
 document.getElementById("save-action").addEventListener("click", async () => {
   await emitDecision(true);
@@ -116,14 +110,27 @@ window.addEventListener("beforeunload", () => {
     if (cfg && typeof cfg.window_alpha === "number") {
       document.documentElement.style.setProperty("--window-alpha", cfg.window_alpha);
     }
+    await fetchI18n(invoke, cfg?.language || "it");
+    applyI18n(document);
+    const stored = await invoke("take_window_content");
+    if (!stored || stored.kind !== "routine_preview") return;
+    const data = JSON.parse(stored.content);
+    routineId = data.id;
+    render(data);
   } catch (e) {
-    console.warn("[routine-preview] get_config on startup failed:", e);
+    console.error("[routine-preview] startup error:", e);
   }
 })();
 
-tauriEvent?.listen("config:saved", (ev) => {
+tauriEvent?.listen("config:saved", async (ev) => {
   const alpha = ev.payload?.window_alpha;
   if (typeof alpha === "number") {
     document.documentElement.style.setProperty("--window-alpha", alpha);
+  }
+  const lang = ev.payload?.language;
+  if (lang) {
+    await fetchI18n(invoke, lang);
+    applyI18n(document);
+    if (currentData) render(currentData);
   }
 });

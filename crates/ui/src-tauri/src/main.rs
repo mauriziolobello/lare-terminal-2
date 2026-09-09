@@ -452,18 +452,26 @@ async fn open_search_window(
         format!("search-{ts}-{ctr}")
     };
 
+    let win_title = if title.trim().is_empty() {
+        let lang = app.state::<ConfigState>().0.lock().unwrap().language.clone();
+        let i18n_dir = i18n_dir_path(&app)?;
+        ui_lib::i18n::t_sync(&i18n_dir, &lang, "search.window_title")
+    } else {
+        title
+    };
+
     {
         let mut map = store.0.lock().map_err(|e| format!("lock error: {e}"))?;
         // content = sid (la finestra lo usa per filtrare gli eventi); kind = "search".
         // source_file = "" — una finestra di ricerca live non è mai un documento Library.
         map.insert(
             label.clone(),
-            (title.clone(), sid, "search".to_string(), String::new()),
+            (win_title.clone(), sid, "search".to_string(), String::new()),
         );
     } // lock released here
 
     WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("window-search.html".into()))
-        .title(&title)
+        .title(&win_title)
         .inner_size(720.0, 520.0)
         .decorations(false)
         .transparent(true)
@@ -531,8 +539,12 @@ async fn open_screener_picker_window(
         );
     } // lock released here
 
+    let lang = app.state::<ConfigState>().0.lock().unwrap().language.clone();
+    let i18n_dir = i18n_dir_path(&app)?;
+    let win_title = ui_lib::i18n::t_sync(&i18n_dir, &lang, "screener_picker.window_title");
+
     WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("screener-picker.html".into()))
-        .title("Lare — Seleziona screener")
+        .title(&win_title)
         .inner_size(420.0, 480.0)
         .decorations(false)
         .transparent(true)
@@ -589,6 +601,14 @@ async fn open_plugin_window(
     // from the label if needed (though we use take_window_content instead).
     let label = format!("plugin-{window_id}");
 
+    let win_title = if title.trim().is_empty() {
+        let lang = app.state::<ConfigState>().0.lock().unwrap().language.clone();
+        let i18n_dir = i18n_dir_path(&app)?;
+        ui_lib::i18n::t_sync(&i18n_dir, &lang, "plugin.window_title")
+    } else {
+        title
+    };
+
     {
         let mut map = store.0.lock().map_err(|e| format!("lock error: {e}"))?;
         // content = initial HTML to render.
@@ -596,12 +616,12 @@ async fn open_plugin_window(
         // source_file = "" — una finestra plugin non è mai un documento Library.
         map.insert(
             label.clone(),
-            (title.clone(), html, window_id.to_string(), String::new()),
+            (win_title.clone(), html, window_id.to_string(), String::new()),
         );
     } // lock released here
 
     WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("plugin-window.html".into()))
-        .title(&title)
+        .title(&win_title)
         // Dimensione iniziale: quella dichiarata dal plugin se presente, altrimenti
         // il default generico 480×360 (adatto ai plugin compatti come la calcolatrice).
         .inner_size(width.unwrap_or(480.0), height.unwrap_or(360.0))
@@ -636,6 +656,7 @@ async fn open_plugin_window(
 /// `WebviewWindowBuilder::build()` deadlocks in synchronous Tauri commands on
 /// Windows (Tauri v2 documented limitation).
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 async fn open_routine_preview(
     id: String,
     name: String,
@@ -659,9 +680,14 @@ async fn open_routine_preview(
         format!("routine-preview-{ts}-{ctr}")
     };
 
+    let lang = app.state::<ConfigState>().0.lock().unwrap().language.clone();
+    let i18n_dir = i18n_dir_path(&app)?;
     let title = match &replace {
-        Some(old) => format!("Aggiorna routine: {name} (sostituisce {old})"),
-        None => format!("Salva routine: {name}"),
+        Some(old) => ui_lib::i18n::t_sync(&i18n_dir, &lang, "routine_preview.window_title_update")
+            .replace("{name}", &name)
+            .replace("{old}", old),
+        None => ui_lib::i18n::t_sync(&i18n_dir, &lang, "routine_preview.window_title_save")
+            .replace("{name}", &name),
     };
 
     let payload = serde_json::json!({
@@ -984,10 +1010,14 @@ async fn open_library_window(app: AppHandle) -> Result<(), String> {
         return Ok(());
     }
 
+    let lang = app.state::<ConfigState>().0.lock().unwrap().language.clone();
+    let i18n_dir = i18n_dir_path(&app)?;
+    let win_title = format!("Lare — {}", ui_lib::i18n::t_sync(&i18n_dir, &lang, "library.window_title"));
+
     // Build the library browser window — same transparent/chromeless style as
     // Markdown output windows, with a fixed label so the singleton check works.
     WebviewWindowBuilder::new(&app, "library", WebviewUrl::App("library.html".into()))
-        .title("Lare — Archivio")
+        .title(&win_title)
         .inner_size(460.0, 560.0)
         .decorations(false)
         .transparent(true)
@@ -1099,8 +1129,11 @@ async fn open_aichat_window(app: AppHandle) -> Result<(), String> {
             .map_err(|e| format!("open_aichat_window set_focus error: {e}"))?;
         return Ok(());
     }
+    let lang = app.state::<ConfigState>().0.lock().unwrap().language.clone();
+    let i18n_dir = i18n_dir_path(&app)?;
+    let title = ui_lib::i18n::t_sync(&i18n_dir, &lang, "aichat.window_title");
     WebviewWindowBuilder::new(&app, "aichat", WebviewUrl::App("aichat-window.html".into()))
-        .title("Lare — AI Chat")
+        .title(&title)
         .inner_size(420.0, 560.0)
         .decorations(false)
         .transparent(true)
@@ -1165,12 +1198,16 @@ async fn open_note_window(
         return Ok(());
     }
 
+    let lang = app.state::<ConfigState>().0.lock().unwrap().language.clone();
+    let i18n_dir = i18n_dir_path(&app)?;
+    let win_title = format!("Lare — {}", ui_lib::i18n::t_sync(&i18n_dir, &lang, "note.window_title"));
+
     WebviewWindowBuilder::new(
         &app,
         "note-compose",
         WebviewUrl::App("note-window.html".into()),
     )
-    .title("Lare — Nota")
+    .title(&win_title)
     .inner_size(440.0, 400.0)
     .decorations(false)
     .transparent(true)
@@ -1332,7 +1369,10 @@ async fn open_saved_find_window(
     };
 
     // Step 4: store content BEFORE building the window (same pattern as open_search_window).
-    let title = format!("Find: {}", record.query);
+    let lang = app.state::<ConfigState>().0.lock().unwrap().language.clone();
+    let i18n_dir = i18n_dir_path(&app)?;
+    let title = ui_lib::i18n::t_sync(&i18n_dir, &lang, "search.saved_title_format")
+        .replace("{query}", &record.query);
     {
         let mut map = store.0.lock().map_err(|e| format!("lock error: {e}"))?;
         // source_file = "" — una finestra di ricerca salvata non è un documento Library.

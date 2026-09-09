@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Lare — Salva routine</title>
+  <title data-i18n="routine_preview.window_title">Lare — Salva routine</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -113,22 +113,22 @@
 </head>
 <body>
   <div id="titlebar" data-tauri-drag-region>
-    <span id="titlebar-label">Salva routine</span>
-    <span><button id="close-btn" title="Annulla" aria-label="Annulla e chiudi">&#x00D7;</button></span>
+    <span id="titlebar-label" data-i18n="routine_preview.titlebar">Salva routine</span>
+    <span><button id="close-btn" data-i18n-title="common.cancel" data-i18n-aria-label="routine_preview.close_aria" title="Annulla" aria-label="Annulla e chiudi">&#x00D7;</button></span>
   </div>
   <div id="content">
     <div id="replace-banner"></div>
     <div id="meta">
-      <div><span class="label">Nome:</span><span id="meta-name"></span></div>
-      <div><span class="label">Descrizione:</span><span id="meta-description"></span></div>
-      <div><span class="label">Categoria:</span><span id="meta-category"></span></div>
-      <div><span class="label">Tag:</span><span id="meta-tags"></span></div>
+      <div><span class="label" data-i18n="routine_preview.meta_name">Nome:</span><span id="meta-name"></span></div>
+      <div><span class="label" data-i18n="routine_preview.meta_desc">Descrizione:</span><span id="meta-description"></span></div>
+      <div><span class="label" data-i18n="routine_preview.meta_category">Categoria:</span><span id="meta-category"></span></div>
+      <div><span class="label" data-i18n="routine_preview.meta_tags">Tag:</span><span id="meta-tags"></span></div>
     </div>
     <pre id="script"></pre>
   </div>
   <div id="actions">
-    <button id="cancel-action" class="action">Annulla</button>
-    <button id="save-action" class="action">Salva</button>
+    <button id="cancel-action" class="action" data-i18n="common.cancel">Annulla</button>
+    <button id="save-action" class="action" data-i18n="common.save">Salva</button>
   </div>
 
   <script type="module" src="routine-preview.js"></script>

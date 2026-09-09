@@ -1,4 +1,31 @@
-# Implementation — crates/ui v2.3.0
+# Implementation — crates/ui v2.3.1
+
+## i18n Parte 2: Cascata di tutte le finestre frontend e titoli nativi (v2.3.1)
+
+Completamento dell'internazionalizzazione a cascata di tutte le restanti finestre dell'applicazione e dei titoli nativi di Tauri (`Docs/i18n/ita/compiti-ai-esterne/2026-09-08-i18n-programma.md`):
+
+1. **Finestre e moduli convertiti**:
+   - `note-window.html` + `note-window.js` (`note.*`): etichette, placeholder, validazioni corpo/titolo.
+   - `window-search.html` + `window-search.js` + `search-status.js` (`search.*`): stati di ricerca live e replay, label sorgenti, aria-label, fallback titolo.
+   - `library.html` + `library.js` + `library-nav.mjs` (`library.*`): tab bar, toolbar, filtri per tag, dialoghi eliminazione/rinomina, form nuova cartella, lista note e find, share picker, stati vuoti/errori.
+   - `aichat-window.html` + `aichat-window.js` + `aichat-view.mjs` + `admission.mjs` + `share-view.mjs` (`aichat.*`): input chat, banner ammissione e consenso peer, roster presenti, banner e log esiti share, messaggi di stato.
+   - `routine-preview.html` + `routine-preview.js` (`routine_preview.*`): metadati routine, banner sostituzione/aggiornamento, bottoni azione, titoli finestra.
+   - `plugin-window.html` + `plugin-window.js` (`plugin.*`): messaggi di errore caricamento e assenza contenuto, titolo barra.
+   - `external-channel.html` + `external-channel-window.js` + `renderer.js` (`external_channel.*`): form parametri, bottoni esecuzione, messaggi di caricamento/errore IPC/stato.
+   - `screener-picker.html` + `screener-picker.js` (`screener_picker.*`): hint bar, stato lista vuota, titolo barra.
+   - `window.html` + `window.js` (`md_window.*`): barra espandi (input, bottone, status, errori AI/connessione), bottone salvataggio in archivio, caricamento e fallback titoli.
+   - `host.html` + `host.js`: pulizia fallback rigidi (passa stringa vuota a `open_search_window` demandando a Rust il titolo localizzato), invariati i contratti wire.
+   - `terminal.html` + `terminal.js` (`terminal.*`): indicatore ultimo comando, etichetta sessione, banner riavvio shell, messaggi errore pty e terminazione processo.
+
+2. **Titoli nativi delle finestre in Rust (`main.rs`)**:
+   - Tutte le funzioni Tauri di creazione finestra (`open_search_window`, `open_screener_picker_window`, `open_plugin_window`, `open_routine_preview`, `open_library_window`, `open_aichat_window`, `open_note_window`, `open_saved_find_window`) leggono la lingua da `ConfigState` e usano `ui_lib::i18n::t_sync(&i18n_dir, &lang, "key")`.
+   - Il titolo nativo `"Lare Terminal"` per la finestra principale è preservato letterale come richiesto da specifica.
+
+3. **Dizionari e Parità**:
+   - `Test Run/Configuration/i18n/{it,en}.json` espansi da 34 a 209 chiavi sincronizzate biunivocamente.
+   - Test `i18n-parity.test.mjs` verde (0 chiavi mancanti, 0 chiavi orfane).
+   - 251 unit test frontend (`node --test`) e 147 test Rust (`cargo test -p ui`) passano con successo.
+   - `cargo clippy -p ui --all-targets` pulito senza alcun warning.
 
 ## i18n Parte 1: Fondamenta e finestra /config (v2.3.0)
 

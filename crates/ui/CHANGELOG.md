@@ -3,6 +3,30 @@
 All notable changes to this package follow [Keep a Changelog](https://keepachangelog.com/) format.
 Versioning: `major.minor.update`.
 
+## 2.3.1 — 2026-09-09 — i18n Parte 2: internazionalizzazione a cascata di tutte le finestre
+
+Seconda parte del piano di internazionalizzazione di Lare Terminal (`Docs/i18n/ita/compiti-ai-esterne/2026-09-08-i18n-programma.md`):
+
+- **Conversione a cascata delle restanti finestre frontend**:
+  - `note-window.html` + `note-window.js` (`note.*`)
+  - `window-search.html` + `window-search.js` + `search-status.js` (`search.*`)
+  - `library.html` + `library.js` + `library-nav.mjs` (`library.*`)
+  - `aichat-window.html` + `aichat-window.js` + `aichat-view.mjs` + `admission.mjs` + `share-view.mjs` (`aichat.*`)
+  - `routine-preview.html` + `routine-preview.js` (`routine_preview.*`)
+  - `plugin-window.html` + `plugin-window.js` (`plugin.*`)
+  - `external-channel.html` + `external-channel-window.js` + `renderer.js` (`external_channel.*`)
+  - `screener-picker.html` + `screener-picker.js` (`screener_picker.*`)
+  - `window.html` + `window.js` (`md_window.*`)
+  - `host.html` + `host.js` (pulizia fallback rigidi, wire intatto)
+  - `terminal.html` + `terminal.js` (`terminal.*`)
+- **Titoli nativi delle finestre in Rust (`main.rs`)**:
+  - Localizzati dinamicamente via `ui_lib::i18n::t_sync(&i18n_dir, &lang, "key")` per tutte le finestre: `open_search_window`, `open_screener_picker_window`, `open_plugin_window`, `open_routine_preview`, `open_library_window`, `open_aichat_window`, `open_note_window`, `open_saved_find_window`.
+  - Eccezione rispettata: `"Lare Terminal"` per la finestra principale resta invariato.
+- **Sincronizzazione dizionari e test di parità**:
+  - `Test Run/Configuration/i18n/it.json` ed `en.json` espansi da 34 a 209 chiavi sincronizzate in perfetto ordine alfabetico.
+  - `i18n-parity.test.mjs` verde (0 chiavi mancanti, 0 chiavi orfane).
+  - 251 test frontend (`node --test`) e 147 test Rust (`cargo test -p ui`) passano con successo.
+
 ## 2.3.0 — 2026-09-08 — i18n Parte 1: fondamenta e internazionalizzazione /config
 
 Prima parte del piano di internazionalizzazione di Lare Terminal (`Docs/i18n/ita/compiti-ai-esterne/2026-09-08-i18n-programma.md`):

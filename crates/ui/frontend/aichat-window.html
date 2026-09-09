@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Lare — AI Chat</title>
+  <title data-i18n="aichat.window_title">Lare — AI Chat</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
@@ -81,25 +81,25 @@
 <body>
   <div id="titlebar" data-tauri-drag-region>
     <span id="titlebar-text">AICHAT</span>
-    <button id="close-btn" title="Chiudi" aria-label="Chiudi">&#x00D7;</button>
+    <button id="close-btn" data-i18n-title="common.close" data-i18n-aria-label="common.close" title="Chiudi" aria-label="Chiudi">&#x00D7;</button>
   </div>
-  <div id="roster">presenti: —</div>
+  <div id="roster" data-i18n="aichat.roster_empty">presenti: —</div>
   <div id="consent">
     <span id="consent-text"></span>
-    <button id="consent-yes">Entra</button>
-    <button id="consent-no">No</button>
+    <button id="consent-yes" data-i18n="aichat.btn_enter">Entra</button>
+    <button id="consent-no" data-i18n="common.no">No</button>
   </div>
   <!-- Gate 1 (nuovo arrivato): "vuoi entrare in chat con A e C?" -->
   <div id="gate1" class="gate-banner">
     <span id="gate1-text"></span>
-    <button id="gate1-yes">Entra</button>
-    <button id="gate1-no">Annulla</button>
+    <button id="gate1-yes" data-i18n="aichat.btn_enter">Entra</button>
+    <button id="gate1-no" data-i18n="common.cancel">Annulla</button>
   </div>
   <!-- Gate 2 (presente): "B chiede di entrare. Ammetti?" -->
   <div id="gate2" class="gate-banner">
     <span id="gate2-text"></span>
-    <button id="gate2-yes">Ammetti</button>
-    <button id="gate2-no">Rifiuta</button>
+    <button id="gate2-yes" data-i18n="aichat.btn_admit">Ammetti</button>
+    <button id="gate2-no" data-i18n="aichat.btn_reject">Rifiuta</button>
   </div>
   <!-- Attesa del voto (nuovo arrivato, dopo aver accettato il gate 1) -->
   <div id="pending-banner" class="gate-banner">
@@ -107,8 +107,8 @@
   </div>
   <!-- Rifiutato: pulsante di re-request con cooldown (vedi admission.mjs) -->
   <div id="rejected-banner" class="gate-banner">
-    <span>Ingresso rifiutato.</span>
-    <button id="rerequest-btn">Chiedi di entrare</button>
+    <span data-i18n="aichat.rejected_text">Ingresso rifiutato.</span>
+    <button id="rerequest-btn" data-i18n="aichat.btn_request_admission">Chiedi di entrare</button>
   </div>
   <!-- Banner di consenso Share with (Slice 1a-ui): "X vuole condividere Y — accetti?"
        Elemento SEPARATO da #consent (gate di ammissione) — un'offerta di
@@ -118,12 +118,12 @@
        visiva, nessun CSS nuovo necessario. -->
   <div id="share-consent" class="gate-banner">
     <span id="share-consent-text"></span>
-    <button id="share-consent-yes">Sì</button>
-    <button id="share-consent-no">No</button>
+    <button id="share-consent-yes" data-i18n="common.yes">Sì</button>
+    <button id="share-consent-no" data-i18n="common.no">No</button>
   </div>
   <div id="transcript"></div>
   <div id="input-row">
-    <input id="msg" type="text" placeholder="Scrivi… (Invio per inviare)" autocomplete="off" />
+    <input id="msg" type="text" data-i18n-placeholder="aichat.input_placeholder" placeholder="Scrivi… (Invio per inviare)" autocomplete="off" />
   </div>
   <script type="module" src="aichat-window.js"></script>
 </body>
