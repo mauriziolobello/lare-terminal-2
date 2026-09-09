@@ -231,6 +231,7 @@ async fn run_ai_turn(
         None,
         web_search,
         lang,
+        &deps.rt.config_dir,
         Some(&confirmer),
         Some(cancel),
         turn_tx,

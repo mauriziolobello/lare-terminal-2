@@ -1,4 +1,25 @@
-# Implementation — orchestrator v2.2.4
+# Implementation — orchestrator v2.2.5
+
+## Refactor: migrazione /help su file esterni (v2.2.5)
+
+Nel piano `Docs/i18n/ita/compiti-ai-esterne/2026-09-09-i18n-help-esterno-e-spagnolo.md` (Parte A),
+il corpo Markdown di `/help` è stato migrato da costanti statiche Rust a file esterni dedicati sotto
+`<config_dir>/help/<lang>.md`. Questo allinea l'architettura dei testi di help a quella già adottata
+per i dizionari UI (`<config_dir>/i18n/<lang>.json`), prevenendo la crescita incontrollata di `core.rs`.
+
+### Componenti e flusso:
+1. **Modulo `help` (`crates/orchestrator/src/help.rs`)**:
+   - Fornisce `help_dir_path(config_dir: &Path) -> PathBuf` per comporre `<config_dir>/help`.
+   - Fornisce `load_help_body(help_dir: &Path, lang: &str) -> String` che carica `<lang>.md` con
+     catena di fallback: file della lingua richiesta -> `it.md` -> stringa di sicurezza minima
+     (`"Aiuto non disponibile: file mancante."`).
+2. **File Markdown esterni**:
+   - `Test Run/Configuration/help/it.md`: contenuto italiano originale di `HELP_MARKDOWN_IT`.
+   - `Test Run/Configuration/help/en.md`: contenuto inglese originale di `HELP_MARKDOWN_EN`.
+3. **Propagazione di `config_dir`**:
+   - Esteso `handle_slash` e `handle_command` con `config_dir: &Path`.
+   - Aggiornati i chiamanti `ws.rs`, `shell_turn.rs` e `telegram::channel`.
+   - I titoli della finestra restano costanti compatte in `core.rs` (`HELP_TITLE_IT` ed `HELP_TITLE_EN`).
 
 ## Fix: /help rispetta la lingua selezionata (v2.2.4)
 

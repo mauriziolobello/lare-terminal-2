@@ -3,7 +3,19 @@
 All notable changes to this crate are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), versioning: [SemVer](https://semver.org/).
 
-## 2.2.4 — 2026-09-09 — fix: /help ora rispetta la lingua selezionata
+## 2.2.5 — 2026-09-09 — refactor: migra /help su file esterni help/<lang>.md
+
+- **Migrazione corpo di `/help` su file esterni Markdown** (`crates/orchestrator/src/help.rs`):
+  - Creato il nuovo modulo `help` con le funzioni `help_dir_path(config_dir: &Path) -> PathBuf`
+    e `load_help_body(help_dir: &Path, lang: &str) -> String`.
+  - Catena di fallback infallibile: `<lang>.md` assente/illeggibile -> `it.md` -> stringa di sicurezza
+    `"Aiuto non disponibile: file mancante."` (nessun errore o panic).
+  - Rimossi i blocchi statici `HELP_MARKDOWN_IT` e `HELP_MARKDOWN_EN` da `core.rs` ed esternalizzati
+    in `Test Run/Configuration/help/it.md` e `Test Run/Configuration/help/en.md`.
+  - Mantenute le costanti brevi per i titoli di finestra (`HELP_TITLE_IT` e `HELP_TITLE_EN`).
+  - Propagato `config_dir: &Path` in `handle_command` e `handle_slash` con cablaggio in `ws.rs`,
+    `shell_turn.rs` e canale `telegram`.
+  - Test unitari TDD in `help.rs` che coprono il fallback su `it.md`, il fallback di sicurezza e la lingua presente.
 
 - **Comando `/help` internazionalizzato** (`crates/orchestrator/src/core.rs`):
   - Sdoppiato il contenuto Markdown dell'help nelle costanti `HELP_MARKDOWN_IT` e `HELP_MARKDOWN_EN`,

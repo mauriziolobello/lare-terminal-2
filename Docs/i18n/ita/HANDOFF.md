@@ -12,7 +12,7 @@
   condiviso + stdio chiuse + `child_stderr_log_sink`, fix finestre console spurie)
 - mcp-server 2.0.1 (da v1 0.7.1)
 - mcp-nmap 2.0.1 (da v1 0.8.2; 2.0.1 — codepage OEM per comandi nativi Win32 in network_info.rs, fix mojibake accenti)
-- orchestrator 2.2.4 (da v1 0.41.21; 2.2.4 — fix: /help ora rispetta la lingua selezionata con HELP_MARKDOWN_IT / HELP_MARKDOWN_EN)
+- orchestrator 2.2.5 (da v1 0.41.21; 2.2.5 — refactor: /help su file esterni Configuration/help/<lang>.md)
 - plugin-protocol 2.0.0 (da v1 0.2.1)
 - plugin-ping 2.0.0 (da v1 0.1.0)
 - plugin-counter 2.0.0 (da v1 0.1.0)
@@ -24,6 +24,16 @@
   `--no-terminal` — non un crate Cargo: `shell/lare-shell/`, .NET/C#)
 
 ## FATTO
+
+- **i18n /help su file esterni help/<lang>.md (2026-09-09)** —
+  Parte A del piano `Docs/i18n/ita/compiti-ai-esterne/2026-09-09-i18n-help-esterno-e-spagnolo.md`:
+  migrato il corpo Markdown di `/help` da costanti Rust a file esterni sotto `Configuration/help/<lang>.md`.
+  Nuovo modulo `crates/orchestrator/src/help.rs` (`help_dir_path`, `load_help_body`) con catena di fallback
+  `<lang>.md` -> `it.md` -> stringa minima di sicurezza. Creati `Test Run/Configuration/help/it.md` ed `en.md`.
+  Rimossi `HELP_MARKDOWN_IT` e `HELP_MARKDOWN_EN` da `core.rs`. Propagato `config_dir: &Path` a `handle_command`
+  e `handle_slash` con cablaggio in `ws.rs`, `shell_turn.rs` e `telegram::channel`. Test unitari TDD in `help.rs`
+  e aggiornamento test in `core.rs` con `tempfile::tempdir()`. Tutti i test dell'orchestrator passano,
+  clippy senza nuovi warning. Orchestrator bump a 2.2.5.
 
 - **i18n Fix: /help rispetta la lingua selezionata (2026-09-09)** —
   Risolto il difetto riscontrato dal vivo in cui `/help` rimaneva in italiano con l'interfaccia in inglese (`Docs/i18n/ita/compiti-ai-esterne/2026-09-09-i18n-fix-help.md`).

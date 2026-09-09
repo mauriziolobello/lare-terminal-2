@@ -291,6 +291,7 @@ impl TelegramChannel {
             None, // system_prompt_override: idem — Telegram non ha un concetto di canale, resta sempre agent::SYSTEM_PROMPT
             false, // web_search=false in v1 (nessun toggle Telegram)
             None,  // lang: Telegram non passa lang, usa il default (italiano)
+            self.state_path.parent().unwrap_or_else(|| std::path::Path::new(".")),
             Some(&confirmer),
             None,
             tx,
