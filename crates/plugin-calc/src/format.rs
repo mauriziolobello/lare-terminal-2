@@ -122,7 +122,7 @@ pub fn format_integer_in_base(x: f64, base: NumBase, width: BitWidth) -> Option<
             Some(group_every(&format!("{bits:0digits$b}"), 4, '_'))
         }
         NumBase::Oct => {
-            let digits = ((bits_total + 2) / 3) as usize;   // ⌈width/3⌉
+            let digits = bits_total.div_ceil(3) as usize;   // ⌈width/3⌉
             Some(format!("{bits:0digits$o}"))
         }
     }

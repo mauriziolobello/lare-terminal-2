@@ -56,6 +56,7 @@ impl Default for AngleMode {
 pub enum NumBase { Dec, Hex, Oct, Bin }
 
 impl Default for NumBase {
+    /// Default: Dec (comportamento storico della calcolatrice scientifica).
     fn default() -> Self { NumBase::Dec }
 }
 
@@ -83,6 +84,7 @@ impl NumBase {
 pub enum BitWidth { Byte, Word, Dword, Qword }
 
 impl Default for BitWidth {
+    /// Default: Qword (64 bit), coerente con l'unica larghezza pre-modalità programmatore.
     fn default() -> Self { BitWidth::Qword }
 }
 
@@ -686,7 +688,9 @@ pub(crate) fn to_i64_checked(v: f64) -> Option<i64> {
 ///
 /// Wrapper di compatibilità: chiama `evaluate_with_width` con `BitWidth::Qword`
 /// (64 bit, comportamento invariato — l'unica larghezza che esisteva prima
-/// della modalità programmatore).
+/// della modalità programmatore). Mantenuto come API pubblica per i test;
+/// il codice di produzione usa direttamente `evaluate_with_width`.
+#[allow(dead_code)] // usato solo dai test del crate; l'API pubblica è `evaluate_with_width`
 pub fn evaluate(e: &Expr, mode: AngleMode) -> Result<f64, CalcError> {
     evaluate_with_width(e, mode, BitWidth::Qword)
 }
