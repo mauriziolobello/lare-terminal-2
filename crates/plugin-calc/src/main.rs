@@ -12,8 +12,8 @@ mod engine;
 mod format;
 mod render;
 
-use engine::{evaluate, parse, AngleMode};
-use format::format_number;
+use engine::{parse, parse_with_base, evaluate_with_width, AngleMode, BitWidth, NumBase};
+use format::{format_integer_in_base, format_number};
 use plugin_protocol::{HostToPlugin, PluginToHost};
 use std::io::{BufRead, Write};
 
@@ -48,6 +48,16 @@ struct CalcState {
     shift: bool,
     /// Modalità angolare per le funzioni trigonometriche (default: Deg).
     angle_mode: AngleMode,
+    /// Base numerica per la modalità programmatore (default: Dec).
+    /// In Dec: comportamento identico alla calcolatrice scientifica.
+    /// In Hex/Oct/Bin: solo interi, niente punto decimale/esponente.
+    base_mode: NumBase,
+    /// Larghezza del registro per NOT/shift/rotate e per la formattazione in base
+    /// non-decimale (default: Qword). INERTE se base_mode == Dec.
+    bit_width: BitWidth,
+    /// Sezione programmatore visibile/nascosta (default: nascosta — la calcolatrice
+    /// si presenta come oggi finché l'utente non la apre esplicitamente).
+    prog_visible: bool,
 }
 
 /// Helper per appendere una stringa al buffer con la semantica "chiaro-dopo-risultato".
@@ -73,6 +83,27 @@ fn append_str(state: &mut CalcState, text: &str, is_fresh: bool) {
         state.last_was_result = false;
     }
     state.buf.push_str(text);
+}
+
+/// Se il buffer corrente valuta a un intero rappresentabile nella VECCHIA base/
+/// larghezza, lo riformatta nella NUOVA base/larghezza e lo scrive nel buffer
+/// (comportamento "conversione", imita Windows Calculator modalità Programmatore).
+/// Altrimenti (buffer vuoto, espressione incompleta, non intero) non tocca il
+/// buffer — lascia al chiamante la libertà di cambiare comunque la modalità.
+fn try_convert_buf(state: &mut CalcState, new_base: NumBase, new_width: BitWidth) {
+    let Ok(ast) = parse_with_base(&state.buf, state.base_mode) else { return };
+    let Ok(v) = evaluate_with_width(&ast, state.angle_mode, state.bit_width) else { return };
+    let converted = if new_base == NumBase::Dec {
+        Some(format_number(v))
+    } else {
+        format_integer_in_base(v, new_base, new_width)
+    };
+    if let Some(text) = converted {
+        state.buf = text;
+        state.last_was_result = true;
+    }
+    // else: non un intero rappresentabile — buffer invariato, solo la modalità cambia
+    // (fatto dal chiamante DOPO questa funzione, vedi i rami match sotto).
 }
 
 /// Traduce un `data-evt` nel carattere/azione corrispondente e aggiorna lo stato.
@@ -129,6 +160,15 @@ fn handle_key(state: &mut CalcState, key: &str) {
         "d7" => Some('7'),
         "d8" => Some('8'),
         "d9" => Some('9'),
+        // Cifre esadecimali A-F: stesso ramo generico delle cifre 0-9 (regola
+        // "smart clear after result" inclusa). In Dec il tokenizer le rifiuterà
+        // (Syntax), ma i tasti sono visibili solo nella sezione programmatore.
+        "hexA" => Some('A'),
+        "hexB" => Some('B'),
+        "hexC" => Some('C'),
+        "hexD" => Some('D'),
+        "hexE" => Some('E'),
+        "hexF" => Some('F'),
         "dot"          => Some('.'),
         "op_add"       => Some('+'),
         "op_sub"       => Some('−'),   // U+2212 — display minus sign (accettato dall'engine)
@@ -154,18 +194,17 @@ fn handle_key(state: &mut CalcState, key: &str) {
             state.last_was_result = false;
         }
 
-        // = (uguale): valuta l'espressione corrente.
-        // Se il parse o la valutazione falliscono → mostra "Error".
+        // = (uguale): valuta l'espressione corrente con la base e larghezza correnti.
         "eq" => {
-            // Cattura l'espressione digitata PRIMA di sostituire il buffer col risultato,
-            // così la riga eco può continuare a mostrarla (calcolatrice a due righe).
-            // Esempio: dopo "7×8=", last_expr = "7×8", buf = "56".
+            // Cattura l'espressione digitata PRIMA di sovrascrivere il buffer col risultato.
             state.last_expr = state.buf.clone();
-            // Usa la modalità angolare corrente (state.angle_mode) — Task 3 fix.
-            let result = parse(&state.buf).and_then(|e| evaluate(&e, state.angle_mode));
-            state.buf = match result {
-                Ok(v)  => format_number(v),
-                Err(_) => "Error".to_string(),
+            let result = parse_with_base(&state.buf, state.base_mode)
+                .and_then(|e| evaluate_with_width(&e, state.angle_mode, state.bit_width));
+            state.buf = match (result, state.base_mode) {
+                (Ok(v), NumBase::Dec) => format_number(v),
+                (Ok(v), _) => format_integer_in_base(v, state.base_mode, state.bit_width)
+                    .unwrap_or_else(|| "Error".to_string()),
+                (Err(_), _) => "Error".to_string(),
             };
             state.last_was_result = true;
         }
@@ -177,6 +216,29 @@ fn handle_key(state: &mut CalcState, key: &str) {
                 AngleMode::Rad => AngleMode::Deg,
             };
         }
+
+        // ── Base numerica — modalità programmatore ─────────────────────────────
+        "base_dec" | "base_hex" | "base_oct" | "base_bin" => {
+            let new_base = match key {
+                "base_dec" => NumBase::Dec, "base_hex" => NumBase::Hex,
+                "base_oct" => NumBase::Oct, "base_bin" => NumBase::Bin,
+                _ => unreachable!(),
+            };
+            try_convert_buf(state, new_base, state.bit_width);
+            state.base_mode = new_base;
+        }
+        // ── Larghezza bit — stesso pattern "converti se il buffer valuta" ──────
+        "width_byte" | "width_word" | "width_dword" | "width_qword" => {
+            let new_width = match key {
+                "width_byte" => BitWidth::Byte, "width_word" => BitWidth::Word,
+                "width_dword" => BitWidth::Dword, "width_qword" => BitWidth::Qword,
+                _ => unreachable!(),
+            };
+            try_convert_buf(state, state.base_mode, new_width);
+            state.bit_width = new_width;
+        }
+        // ── Toggle sezione programmatore ───────────────────────────────────────
+        "toggle_prog" => { state.prog_visible = !state.prog_visible; }
 
         // ── Funzioni trigonometriche dirette e inverse ─────────────────────────
         // is_fresh=true: aprono un nuovo input (cancellano il risultato precedente).
@@ -230,6 +292,19 @@ fn handle_key(state: &mut CalcState, key: &str) {
         "fn_factorial" => append_str(state, "!", false),
         "fn_mod"       => append_str(state, "%", false),
 
+        // ── Operatori bitwise (modalità programmatore) — glyph Unicode dedicati ──
+        // is_fresh=false continuano dal risultato (operatori binari/postfissi).
+        "op_and" => append_str(state, "∧", false),   // ∧ U+2227
+        "op_or"  => append_str(state, "∨", false),   // ∨ U+2228
+        "op_xor" => append_str(state, "⊻", false),   // ⊻ U+22BB
+        // NOT bitwise unario/prefisso — is_fresh=true (nuovo input, come √/∛).
+        "fn_not" => append_str(state, "¬(", true),
+        // Shift: UN tasto, 2nd sceglie la direzione — esattamente come fn_sqrt (√/∛).
+        "op_shift" => append_str(state, if was_shifted { "≫" } else { "≪" }, false),
+        // Rotazione: tasto separato dallo shift (famiglia diversa di operatore
+        // anche se stesso livello di precedenza).
+        "op_rotate" => append_str(state, if was_shifted { "↻" } else { "↺" }, false),
+
         // ── Costanti ───────────────────────────────────────────────────────────
         // v2: π ed e sono tasti separati — nessuna 2ª funzione via Shift.
         // Entrambe iniziano un nuovo input (is_fresh=true).
@@ -281,38 +356,67 @@ fn handle_key(state: &mut CalcState, key: &str) {
 ///     display = "56", eco = "7×8".
 ///   - Mentre si digita (`last_was_result == false`): mostra `buf` direttamente.
 fn render_window(state: &CalcState) -> String {
-    let display = match parse(&state.buf) {
-        Ok(ast) => render::render(&ast),
-        // Buffer incompleto o errore → mostra il testo lineare escaped.
-        // `html_escape` garantisce che eventuali `<`, `>`, `&` nel buffer non rompano il markup.
-        Err(_)  => html_escape(&state.buf),
+    // In modalità non-Dec il display è SEMPRE lineare (mai render 2D):
+    // render.rs non viene proprio chiamato per Hex/Oct/Bin — evita che un buffer
+    // "E+1" in Hex venga tokenizzato come Const(E)+Num(1) dal parse decimale.
+    let display = if state.base_mode != NumBase::Dec {
+        html_escape(&state.buf)
+    } else {
+        match parse(&state.buf) {
+            Ok(ast) => render::render(&ast),
+            Err(_)  => html_escape(&state.buf),
+        }
     };
     // Buffer vuoto → mostra "0" (display da calcolatrice a riposo).
     let display = if display.is_empty() { "0".to_string() } else { display };
 
     // Eco dell'input grezzo (verbatim, no render 2D):
-    //   - dopo "=" mostra l'espressione che ha prodotto il risultato (last_expr);
-    //   - mentre si digita mostra il buffer corrente.
     let echo_src = if state.last_was_result { &state.last_expr } else { &state.buf };
     let echo = html_escape(echo_src);
 
-    // La classe `lare-calc` marca questa come la finestra calcolatrice: la UI ci aggancia
-    // il display grow-only (min-height high-water) senza toccare gli altri plugin.
-    //
-    // v2: l'indicatore DEG/RAD si sposta dal `.lare-expr` al `.lare-status` separato.
-    // Struttura: display → expr(eco) → status(DEG|RAD) → key_grid.
-    // `.lare-status` è tra l'eco e la griglia: sempre visibile, non scorre col testo.
+    // Indicatori di stato: DEG/RAD + (se base_mode != Dec) base + larghezza.
     let mode_label = match state.angle_mode {
         AngleMode::Deg => "DEG",
         AngleMode::Rad => "RAD",
     };
+    // La larghezza bit NON compare mai se base_mode == Dec (è inerte, §6 —
+    // mostrarla sarebbe fuorviante), indipendentemente da prog_visible.
+    let status_line = if state.base_mode == NumBase::Dec {
+        mode_label.to_string()
+    } else {
+        let base_label = match state.base_mode {
+            NumBase::Dec => unreachable!(),
+            NumBase::Hex => "HEX",
+            NumBase::Oct => "OCT",
+            NumBase::Bin => "BIN",
+        };
+        let width_label = match state.bit_width {
+            BitWidth::Byte => "BYTE",
+            BitWidth::Word => "WORD",
+            BitWidth::Dword => "DWORD",
+            BitWidth::Qword => "QWORD",
+        };
+        format!("{mode_label} · {base_label} · {width_label}")
+    };
+    // Toggle programmatore: piccolo controllo nella riga di stato.
+    let toggle_label = if state.prog_visible { "▲ PROG" } else { "▼ PROG" };
+    let toggle = format!("<span class=\"lare-prog-toggle\" data-evt=\"toggle_prog\">{toggle_label}</span>");
+
     let grid = key_grid(state);
+    // Sezione programmatore: visibile solo se state.prog_visible.
+    let prog_html = if state.prog_visible {
+        programmer_key_grid(state)
+    } else {
+        String::new()
+    };
+
     format!(
         "<div class=\"lare-window lare-calc\">\
            <div class=\"lare-display\">{display}</div>\
            <div class=\"lare-expr\">{echo}</div>\
-           <div class=\"lare-status\">{mode_label}</div>\
+           <div class=\"lare-status\">{status_line}{toggle}</div>\
            {grid}\
+           {prog_html}\
          </div>"
     )
 }
@@ -416,6 +520,51 @@ fn key_grid(state: &CalcState) -> String {
     )
 }
 
+/// Genera la griglia HTML della sezione programmatore: 4 righe × 5 colonne, 20 tasti.
+/// Visibile solo quando `state.prog_visible` — toggle nella riga di stato.
+///
+/// Layout (4 righe × 5 colonne):
+///   Riga 1: DEC | HEX | OCT | BIN | NOT
+///   Riga 2: A   | B   | C   | D   | E
+///   Riga 3: F   | AND | OR  | XOR | SHL/SHR (2nd)
+///   Riga 4: BYTE| WORD| DWORD|QWORD| ROL/ROR (2nd)
+///
+/// Etichette shift-aware per shift e rotate (stesso pattern di sqrt/square_label).
+fn programmer_key_grid(state: &CalcState) -> String {
+    let shift_label = if state.shift { "SHR" } else { "SHL" };
+    let rotate_label = if state.shift { "ROR" } else { "ROL" };
+
+    format!(
+        "<div class=\"lare-prog-section\">\
+          <div class=\"lare-key-grid\">\
+            <button class=\"lare-key\" data-evt=\"base_dec\">DEC</button>\
+            <button class=\"lare-key\" data-evt=\"base_hex\">HEX</button>\
+            <button class=\"lare-key\" data-evt=\"base_oct\">OCT</button>\
+            <button class=\"lare-key\" data-evt=\"base_bin\">BIN</button>\
+            <button class=\"lare-key\" data-evt=\"fn_not\">NOT</button>\
+            \
+            <button class=\"lare-key\" data-evt=\"hexA\" data-key=\"a A\">A</button>\
+            <button class=\"lare-key\" data-evt=\"hexB\" data-key=\"b B\">B</button>\
+            <button class=\"lare-key\" data-evt=\"hexC\" data-key=\"c C\">C</button>\
+            <button class=\"lare-key\" data-evt=\"hexD\" data-key=\"d D\">D</button>\
+            <button class=\"lare-key\" data-evt=\"hexE\" data-key=\"e E\">E</button>\
+            \
+            <button class=\"lare-key\" data-evt=\"hexF\" data-key=\"f F\">F</button>\
+            <button class=\"lare-key\" data-evt=\"op_and\">AND</button>\
+            <button class=\"lare-key\" data-evt=\"op_or\">OR</button>\
+            <button class=\"lare-key\" data-evt=\"op_xor\">XOR</button>\
+            <button class=\"lare-key\" data-evt=\"op_shift\">{shift_label}</button>\
+            \
+            <button class=\"lare-key\" data-evt=\"width_byte\">BYTE</button>\
+            <button class=\"lare-key\" data-evt=\"width_word\">WORD</button>\
+            <button class=\"lare-key\" data-evt=\"width_dword\">DWORD</button>\
+            <button class=\"lare-key\" data-evt=\"width_qword\">QWORD</button>\
+            <button class=\"lare-key\" data-evt=\"op_rotate\">{rotate_label}</button>\
+          </div>\
+        </div>"
+    )
+}
+
 /// Loop principale: legge messaggi JSON dal host (stdin) riga per riga, risponde su stdout.
 ///
 /// Protocollo (Contract P):
@@ -494,6 +643,8 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    // `evaluate` è usato solo dai test (il codice non-test usa `evaluate_with_width`).
+    use engine::evaluate;
 
     /// Helper: parte da uno stato default e applica una sequenza di tasti.
     /// Equivalente a "l'utente ha premuto questi tasti dall'inizio".
@@ -892,5 +1043,136 @@ mod tests {
         // 4. Il vecchio span lare-mode è rimosso (l'indicatore non è più nell'eco).
         assert!(!h.contains("lare-mode"),
             "la classe 'lare-mode' non deve più comparire nell'eco, html={h:?}");
+    }
+
+    // ══ Modalità programmatore (Parte C) — nuovi tasti, UI, conversione ═══════
+
+    #[test]
+    fn toggle_prog_visibility() {
+        let s = keys(&["toggle_prog"]);
+        assert!(s.prog_visible, "toggle_prog deve attivare prog_visible");
+        let s2 = keys(&["toggle_prog", "toggle_prog"]);
+        assert!(!s2.prog_visible, "doppio toggle deve tornare falso");
+        // Nascondere la sezione non resetta base/larghezza.
+        assert_eq!(s2.base_mode, NumBase::Dec);
+    }
+
+    #[test]
+    fn prog_section_not_visible_by_default() {
+        let h = render_window(&CalcState::default());
+        assert!(!h.contains("lare-prog-section"),
+            "di default la sezione programmatore non deve essere visibile");
+    }
+
+    #[test]
+    fn prog_section_visible_after_toggle() {
+        let s = keys(&["toggle_prog"]);
+        let h = render_window(&s);
+        assert!(h.contains("lare-prog-section"),
+            "dopo toggle la sezione programmatore deve apparire");
+        assert!(h.contains("DEC"), "i tasti base devono essere presenti");
+    }
+
+    /// Conversione: 255 in Dec, poi switch a Hex (a Qword default) → 16 cifre.
+    #[test]
+    fn convert_dec_to_hex_qword() {
+        let s = keys(&["d2", "d5", "d5", "base_hex"]);
+        assert_eq!(s.buf, "0000_0000_0000_00FF",
+            "255 in Hex a Qword: {}, want 16 cifre raggruppate", s.buf);
+        assert_eq!(s.base_mode, NumBase::Hex);
+    }
+
+    /// Conversione con Byte prima: 255 → Byte → Hex → "FF" nudo.
+    #[test]
+    fn convert_dec_to_hex_byte() {
+        let s = keys(&["d2", "d5", "d5", "width_byte", "base_hex"]);
+        assert_eq!(s.buf, "FF",
+            "255 in Hex a Byte: {}, want solo FF", s.buf);
+        assert_eq!(s.base_mode, NumBase::Hex);
+        assert_eq!(s.bit_width, BitWidth::Byte);
+    }
+
+    /// Test integrato end-to-end: intera catena Hex→Byte, AND, Bin→Dec.
+    #[test]
+    fn integrated_programmer_sequence() {
+        let s = keys(&[
+            "base_hex", "width_byte", "hexF", "hexF", "eq",
+        ]);
+        assert_eq!(s.buf, "FF", "0xFF=255 a Byte → FF");
+
+        let s = keys(&[
+            "base_hex", "width_byte", "hexF", "hexF", "eq",
+            "op_and", "d0", "hexF", "eq",
+        ]);
+        assert_eq!(s.buf, "0F", "0xFF AND 0x0F = 0x0F");
+
+        let s = keys(&[
+            "base_hex", "width_byte", "hexF", "hexF", "eq",
+            "op_and", "d0", "hexF", "eq",
+            "base_bin",
+        ]);
+        assert_eq!(s.buf, "0000_1111", "15 in Bin/Byte deve essere 0000_1111");
+
+        let s = keys(&[
+            "base_hex", "width_byte", "hexF", "hexF", "eq",
+            "op_and", "d0", "hexF", "eq",
+            "base_bin",
+            "base_dec",
+        ]);
+        assert_eq!(s.buf, "15", "tornando a Dec mostra il valore reale 15");
+    }
+
+    /// Espressione incompleta: cambio base non converte il buffer.
+    #[test]
+    fn incomplete_expression_no_conversion() {
+        let s = keys(&["d5", "op_add", "base_hex"]);
+        assert_eq!(s.buf, "5+", "espressione incompleta → buffer invariato");
+        assert_eq!(s.base_mode, NumBase::Hex, "la modalità base cambia comunque");
+    }
+
+    /// Overflow silenzioso: 9 cifre binarie a Byte → troncate.
+    #[test]
+    fn overflow_input_truncates() {
+        // 1 seguito da 8 "0" = "100000000" (9 cifre) = 256 decimale.
+        // In Bin a Byte: troncato a 8 bit bassi → 0 → "0000_0000".
+        let mut v = vec!["width_byte", "base_bin", "d1"];
+        v.extend_from_slice(&["d0"; 8]);
+        v.push("eq");
+        let seq = v;
+        let s = keys(&seq);
+        assert_eq!(s.buf, "0000_0000",
+            "overflow di input (9 bit in Byte) deve essere troncato a 0");
+    }
+
+    /// Larghezza bit è inerte in Dec: la riga stato mostra solo "DEG".
+    #[test]
+    fn status_line_dec_shows_only_deg() {
+        let h = render_window(&CalcState::default());
+        assert!(h.contains("DEG"), "status line con Dec default deve contenere DEG");
+        assert!(!h.contains("HEX"), "status line con Dec NON deve mostrare base");
+        assert!(!h.contains("QWORD"), "status line con Dec NON deve mostrare larghezza");
+    }
+
+    /// In Hex, la riga stato mostra base + larghezza.
+    #[test]
+    fn status_line_hex_shows_base_and_width() {
+        let s = keys(&["base_hex"]);
+        let h = render_window(&s);
+        assert!(h.contains("HEX"), "status line in Hex deve contenere HEX");
+        assert!(h.contains("QWORD"), "status line in Hex deve contenere la larghezza");
+    }
+
+    /// NOT bitwise end-to-end.
+    #[test]
+    fn not_bitwise_end_to_end() {
+        let s = keys(&["base_hex", "width_byte", "fn_not", "d0", "paren_close", "eq"]);
+        assert_eq!(s.buf, "FF", "¬(0) in Hex/Byte deve essere FF, got {}", s.buf);
+    }
+
+    /// Shift end-to-end: 1≪4 in Dec → 16.
+    #[test]
+    fn shift_end_to_end() {
+        let s = keys(&["d1", "op_shift", "d4", "eq"]);
+        assert_eq!(s.buf, "16", "1≪4 deve essere 16, got {}", s.buf);
     }
 }

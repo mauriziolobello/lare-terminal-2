@@ -30,6 +30,10 @@ pub enum FuncId {
     Ln,                    // logaritmo naturale
     Sqrt,                  // radice quadrata (simbolo √, U+221A)
     Cbrt,                  // radice cubica (simbolo ∛, U+221B); Refinements v2
+    /// NOT bitwise unario (simbolo ¬, U+00AC) — modalità programmatore.
+    /// Prefisso come √/∛: il parser lo gestisce già come `Func '(' expr ')'`
+    /// senza alcuna modifica alla grammatica (basta la variante nell'enum).
+    Not,
 }
 
 /// Modalità angolare per le funzioni trigonometriche.
@@ -44,6 +48,56 @@ impl Default for AngleMode {
     /// Necessario per far derivare `Default` su `CalcState` dopo l'aggiunta del campo
     /// `angle_mode: AngleMode` (Task 3).
     fn default() -> Self { AngleMode::Deg }
+}
+
+/// Base numerica per la modalità programmatore. `Dec` è il default — comportamento
+/// identico alla calcolatrice scientifica esistente in ogni sua parte.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum NumBase { Dec, Hex, Oct, Bin }
+
+impl Default for NumBase {
+    /// Default: Dec (comportamento storico della calcolatrice scientifica).
+    fn default() -> Self { NumBase::Dec }
+}
+
+impl NumBase {
+    /// Base numerica (10/16/8/2) usata da `char::is_digit`/`u64::from_str_radix`.
+    /// Non chiamata mai per `Dec` nel branch cifre (quel ramo ha la sua logica
+    /// dedicata), ma resta definita per completezza e per uso diretto nei test.
+    pub fn radix(self) -> u32 {
+        match self {
+            NumBase::Dec => 10,
+            NumBase::Hex => 16,
+            NumBase::Oct => 8,
+            NumBase::Bin => 2,
+        }
+    }
+}
+
+/// Larghezza del "registro" su cui operano NOT/shift/rotate e la formattazione
+/// in base non-decimale. Default: Qword (64 bit) — comportamento a piena
+/// ampiezza i64, coerente con l'unica larghezza che esisteva prima di questo
+/// compito. **Non si applica MAI in modalità Dec**: lì il valore mostrato è il
+/// numero reale, non mascherato — la larghezza bit è uno stato "inerte" finché
+/// `base_mode != Dec`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum BitWidth { Byte, Word, Dword, Qword }
+
+impl Default for BitWidth {
+    /// Default: Qword (64 bit), coerente con l'unica larghezza pre-modalità programmatore.
+    fn default() -> Self { BitWidth::Qword }
+}
+
+impl BitWidth {
+    /// Numero di bit: 8/16/32/64.
+    pub fn bits(self) -> u32 {
+        match self {
+            BitWidth::Byte => 8,
+            BitWidth::Word => 16,
+            BitWidth::Dword => 32,
+            BitWidth::Qword => 64,
+        }
+    }
 }
 
 /// Nodo dell'AST (Abstract Syntax Tree).
@@ -79,6 +133,23 @@ pub enum BinOp {
     /// Stesso livello di precedenza di `×` e `÷` (livello `term`), left-associativo.
     /// `r == 0.0` → `CalcError::DivByZero` (come la divisione).
     Mod,
+    // ── Operatori bitwise (modalità programmatore) ─────────────────────────────
+    // Precedenza C-like, inseriti SOPRA i livelli aritmetici esistenti:
+    //   × ÷ %  >  + −  >  shift/rotate  >  AND  >  XOR  >  OR
+    /// AND bitwise `l ∧ r` (simbolo ∧, U+2227).
+    And,
+    /// OR bitwise `l ∨ r` (simbolo ∨, U+2228).
+    Or,
+    /// XOR bitwise `l ⊻ r` (simbolo ⊻, U+22BB).
+    Xor,
+    /// Shift a sinistra `l ≪ r` (simbolo ≪, U+226A).
+    Shl,
+    /// Shift a destra `l ≫ r` (simbolo ≫, U+226B).
+    Shr,
+    /// Rotazione a sinistra (ROL) `l ↺ r` (simbolo ↺, U+21BA).
+    Rol,
+    /// Rotazione a destra (ROR) `l ↻ r` (simbolo ↻, U+21BB).
+    Ror,
 }
 
 /// Errori del parser/valutatore.
@@ -109,21 +180,42 @@ enum Token {
     Percent,
     /// Costante matematica (π oppure e come identificatore standalone).
     Const(ConstId),
-    /// Funzione matematica (sin, cos, …, ln, √, ∛).
+    /// Funzione matematica (sin, cos, …, ln, √, ∛, ¬).
     Func(FuncId),
+    // ── Operatori bitwise (simboli Unicode) — modalità programmatore ────────────
+    /// `∧` (U+2227) — AND bitwise.
+    And,
+    /// `∨` (U+2228) — OR bitwise.
+    Or,
+    /// `⊻` (U+22BB) — XOR bitwise.
+    Xor,
+    /// `≪` (U+226A) — shift a sinistra.
+    Shl,
+    /// `≫` (U+226B) — shift a destra.
+    Shr,
+    /// `↺` (U+21BA) — rotazione a sinistra (ROL).
+    Rol,
+    /// `↻` (U+21BB) — rotazione a destra (ROR).
+    Ror,
 }
 
-/// Tokenizer: converte la stringa in una sequenza di Token.
+/// Tokenizer base-aware: converte la stringa in una sequenza di Token,
+/// con il comportamento per le CIFRE che dipende da `base`.
+///
+/// In Dec: comportamento **identico** al tokenizer originale in ogni sua parte.
+/// In Hex/Oct/Bin: consuma cifre valide per quella base PIÙ eventuali separatori
+/// `_` (per poter ri-leggere un risultato formattato con raggruppamento),
+/// NIENTE punto decimale, NIENTE esponente (interi soltanto).
+///
 /// Accetta sia ASCII (`* / -`) sia i simboli display Unicode (`× ÷ −`).
+/// Nuovi simboli bitwise (§2): ∧ ∨ ⊻ ¬ ≪ ≫ ↺ ↻ — tutti glyph Unicode a carattere singolo.
 ///
 /// Ordine dei branch importante:
 ///   1. Whitespace, operatori semplici, parentesi, `^`, π, √ — O(1) per carattere.
-///   2. Branch numerico (`c.is_ascii_digit() || c == '.'`) — consuma `1e5` INTERO
-///      (incluso l'esponente scientifico) prima che l'`e` possa finire nel branch alfabetico.
-///   3. Branch alfabetico (`c.is_ascii_alphabetic()`) — raccoglie un run `[A-Za-z]+` e lo
-///      mappa a funzione nota / costante; identificatore sconosciuto → Err(Syntax).
+///   2. Branch numerico (cifre con guardia base-aware) — consuma letterale numerico.
+///   3. Branch alfabetico (`c.is_ascii_alphabetic()`) — funzioni/costanti note.
 ///   4. `_` — qualsiasi altro carattere → Err(Syntax).
-fn tokenize(s: &str) -> Result<Vec<Token>, CalcError> {
+fn tokenize_with_base(s: &str, base: NumBase) -> Result<Vec<Token>, CalcError> {
     // Raccogliamo i char in un Vec per poter accedere per indice.
     let chars: Vec<char> = s.chars().collect();
     let mut out = Vec::new();
@@ -170,55 +262,91 @@ fn tokenize(s: &str) -> Result<Vec<Token>, CalcError> {
             // Stesso livello di `×` e `÷`; viene gestito in `term`.
             '%' => { out.push(Token::Percent); i += 1; }
 
-            // ── Numero: cifre ASCII e punto decimale, con esponente scientifico ──
+            // ── Operatori bitwise (modalità programmatore) — simboli Unicode ───
+            // Usiamo glyph dedicati a carattere singolo per evitare collisioni
+            // con le cifre esadecimali A-F: un token testuale "AND" comincerebbe
+            // per 'A' che in modalità Hex è una cifra, rompendo il tokenizer.
+            '\u{2227}' => { out.push(Token::And);  i += 1; }  // ∧ AND
+            '\u{2228}' => { out.push(Token::Or);   i += 1; }  // ∨ OR
+            '\u{22BB}' => { out.push(Token::Xor);  i += 1; }  // ⊻ XOR
+            '\u{226A}' => { out.push(Token::Shl);  i += 1; }  // ≪ shift left
+            '\u{226B}' => { out.push(Token::Shr);  i += 1; }  // ≫ shift right
+            '\u{21BA}' => { out.push(Token::Rol);  i += 1; }  // ↺ rotate left
+            '\u{21BB}' => { out.push(Token::Ror);  i += 1; }  // ↻ rotate right
+
+            // '¬' U+00AC — NOT bitwise unario/prefisso (stesso schema di √/∛).
+            // Gestito dal parser come `Func '(' expr ')'` — nessuna nuova grammatica.
+            '\u{00AC}' => { out.push(Token::Func(FuncId::Not)); i += 1; }
+
+            // ── Numero: branch base-aware ─────────────────────────────────────
             //
             // NOTA CRITICA: questo branch DEVE venire prima del branch alfabetico.
-            // Motivo: in "1e5" la 'e' è già consumata qui come parte dell'esponente.
-            // Se il branch alfabetico venisse prima, "1e5" potrebbe essere tokenizzato
-            // come [Num(1), Const(E), Num(5)] — errato!
+            // In Dec: comportamento IDENTICO all'originale (mantissa + punto + esponente).
+            // In Hex/Oct/Bin: solo cifre valide nella base + separatore `_`;
+            // NIENTE punto decimale, NIENTE esponente (interi soltanto).
             //
-            // Una 'e' *standalone* (non preceduta da cifre) non fa mai partire questo
-            // branch (le cifre lo avviano), quindi cade correttamente nel branch alfabetico.
-            c if c.is_ascii_digit() || c == '.' => {
-                let start = i;
-                // Fase 1: consuma la mantissa (cifre + eventuale punto decimale).
-                while i < chars.len() && (chars[i].is_ascii_digit() || chars[i] == '.') {
-                    i += 1;
-                }
-
-                // Fase 2: esponente scientifico opzionale (e/E, segno opzionale, ≥1 cifra).
-                //
-                // Perché serve: format_number PRODUCE notazione esponenziale ("1e12", "4.5e-9")
-                // quando |x| ≥ 1e12 o |x| < 1e-6. Se l'utente preme = e poi un operatore,
-                // handle_key costruisce es. "1e12+3" e lo manda al parser — che senza questo
-                // blocco ritornerebbe CalcError::Syntax (bug C-1).
-                //
-                // Strategia "lookahead-guarded": consumiamo l'esponente SOLO se è ben formato
-                // (e/E seguita da cifre, con segno opzionale). Se la 'e' è malformata (es. "2e"
-                // o "3e+"), non consumiamo nulla — la 'e' rimane a `i` e cade nel branch
-                // alfabetico → Const(E) → token in eccesso nel parser → Syntax (non panic).
-                if i < chars.len() && (chars[i] == 'e' || chars[i] == 'E') {
-                    let mut j = i + 1; // j punta al char dopo 'e'
-                    // Segno opzionale: '+' o '-' (solo se presente, poi j avanza oltre).
-                    if j < chars.len() && (chars[j] == '+' || chars[j] == '-') {
-                        j += 1;
+            // Il guard richiede che il carattere DI INNESCO sia una cifra vera — mai `_`.
+            // Questo garantisce che un run non possa MAI iniziare con `_`
+            // (un buffer tipo "_FF" cade nel branch "carattere sconosciuto" → Syntax).
+            c if (base == NumBase::Dec && (c.is_ascii_digit() || c == '.'))
+                 || (base != NumBase::Dec && c.is_digit(base.radix())) =>
+            {
+                if base == NumBase::Dec {
+                    let start = i;
+                    // Fase 1: consuma la mantissa (cifre + eventuale punto decimale).
+                    while i < chars.len() && (chars[i].is_ascii_digit() || chars[i] == '.') {
+                        i += 1;
                     }
-                    // L'esponente è valido SOLO se c'è almeno una cifra dopo (segno compreso).
-                    if j < chars.len() && chars[j].is_ascii_digit() {
-                        // Esponente valido: avanza i fino alla fine delle cifre dell'esponente.
-                        i = j;
-                        while i < chars.len() && chars[i].is_ascii_digit() {
-                            i += 1;
+
+                    // Fase 2: esponente scientifico opzionale (e/E, segno opzionale, ≥1 cifra).
+                    //
+                    // Perché serve: format_number PRODUCE notazione esponenziale ("1e12", "4.5e-9")
+                    // quando |x| ≥ 1e12 o |x| < 1e-6. Se l'utente preme = e poi un operatore,
+                    // handle_key costruisce es. "1e12+3" e lo manda al parser — che senza questo
+                    // blocco ritornerebbe CalcError::Syntax (bug C-1).
+                    //
+                    // Strategia "lookahead-guarded": consumiamo l'esponente SOLO se è ben formato
+                    // (e/E seguita da cifre, con segno opzionale). Se la 'e' è malformata (es. "2e"
+                    // o "3e+"), non consumiamo nulla — la 'e' rimane a `i` e cade nel branch
+                    // alfabetico → Const(E) → token in eccesso nel parser → Syntax (non panic).
+                    if i < chars.len() && (chars[i] == 'e' || chars[i] == 'E') {
+                        let mut j = i + 1; // j punta al char dopo 'e'
+                        // Segno opzionale: '+' o '-' (solo se presente, poi j avanza oltre).
+                        if j < chars.len() && (chars[j] == '+' || chars[j] == '-') {
+                            j += 1;
                         }
-                        // i ora punta al primo char dopo l'esponente.
+                        // L'esponente è valido SOLO se c'è almeno una cifra dopo (segno compreso).
+                        if j < chars.len() && chars[j].is_ascii_digit() {
+                            // Esponente valido: avanza i fino alla fine delle cifre dell'esponente.
+                            i = j;
+                            while i < chars.len() && chars[i].is_ascii_digit() {
+                                i += 1;
+                            }
+                            // i ora punta al primo char dopo l'esponente.
+                        }
+                        // (else: 'e' malformata → i NON avanza → la 'e' resta a chars[i]
+                        //  → nell'iterazione successiva cade nel branch alfabetico → Const(E)
+                        //  → token in eccesso nel parser → Syntax. Non panico, non crash.)
                     }
-                    // (else: 'e' malformata → i NON avanza → la 'e' resta a chars[i]
-                    //  → nell'iterazione successiva cade nel branch alfabetico → Const(E)
-                    //  → token in eccesso nel parser → Syntax. Non panico, non crash.)
-                }
 
-                let lit: String = chars[start..i].iter().collect();
-                out.push(Token::Num(lit.parse().map_err(|_| CalcError::Syntax)?));
+                    let lit: String = chars[start..i].iter().collect();
+                    out.push(Token::Num(lit.parse().map_err(|_| CalcError::Syntax)?));
+                } else {
+                    // Hex/Oct/Bin: consuma cifre valide nella base + separatori '_'.
+                    let start = i;
+                    while i < chars.len() && (chars[i].is_digit(base.radix()) || chars[i] == '_') {
+                        i += 1;
+                    }
+                    let raw: String = chars[start..i].iter().collect();
+                    let digits: String = raw.chars().filter(|c| *c != '_').collect();
+                    // u64, NON i64: `from_str_radix::<i64>` fallirebbe su "FFFFFFFFFFFFFFFF"
+                    // (tutti i bit a 1 su 64 bit è un u64 valido ma supera i64::MAX). Il cast
+                    // `as i64` reinterpreta il pattern di bit in complemento a due — corretto
+                    // per rappresentare valori "negativi" a 64 bit (es. ¬(0) = tutti 1 = -1).
+                    let n = u64::from_str_radix(&digits, base.radix())
+                        .map_err(|_| CalcError::Syntax)? as i64 as f64;
+                    out.push(Token::Num(n));
+                }
             }
 
             // ── Identificatori: nomi di funzioni e costanti alfabetiche ──────
@@ -453,20 +581,89 @@ impl Parser {
             _ => Err(CalcError::Syntax),
         }
     }
+
+    // ── Livelli bitwise (modalità programmatore) — SOPRA `expr`, precedenza C-like ──
+    // Da stretta a larga: shift/rotate > AND > XOR > OR.
+    // Riusano il nodo `Expr::Bin` esistente: zero nuove varianti di `Expr`.
+
+    /// Livello OR bitwise — precedenza più bassa di tutte (nuovo entry point di `parse_with_base`).
+    fn or_expr(&mut self) -> Result<Expr, CalcError> {
+        let mut lhs = self.xor_expr()?;
+        while let Some(Token::Or) = self.peek() {
+            self.bump();
+            let rhs = self.xor_expr()?;
+            lhs = Expr::Bin { op: BinOp::Or, lhs: Box::new(lhs), rhs: Box::new(rhs) };
+        }
+        Ok(lhs)
+    }
+
+    /// Livello XOR bitwise — più stretto di OR, più largo di AND.
+    fn xor_expr(&mut self) -> Result<Expr, CalcError> {
+        let mut lhs = self.and_expr()?;
+        while let Some(Token::Xor) = self.peek() {
+            self.bump();
+            let rhs = self.and_expr()?;
+            lhs = Expr::Bin { op: BinOp::Xor, lhs: Box::new(lhs), rhs: Box::new(rhs) };
+        }
+        Ok(lhs)
+    }
+
+    /// Livello AND bitwise — più stretto di XOR, più largo di shift/rotate.
+    fn and_expr(&mut self) -> Result<Expr, CalcError> {
+        let mut lhs = self.shift_expr()?;
+        while let Some(Token::And) = self.peek() {
+            self.bump();
+            let rhs = self.shift_expr()?;
+            lhs = Expr::Bin { op: BinOp::And, lhs: Box::new(lhs), rhs: Box::new(rhs) };
+        }
+        Ok(lhs)
+    }
+
+    /// Shift E rotazione condividono lo stesso livello (4 token invece di 2):
+    /// concettualmente la stessa famiglia "riposiziona i bit di N posizioni".
+    /// Il livello più stretto chiamato qui è `expr()` (aritmetica esistente, invariata).
+    fn shift_expr(&mut self) -> Result<Expr, CalcError> {
+        let mut lhs = self.expr()?;   // ← livello esistente, invariato
+        loop {
+            let op = match self.peek() {
+                Some(Token::Shl) => BinOp::Shl,
+                Some(Token::Shr) => BinOp::Shr,
+                Some(Token::Rol) => BinOp::Rol,
+                Some(Token::Ror) => BinOp::Ror,
+                _ => break,
+            };
+            self.bump();
+            let rhs = self.expr()?;
+            lhs = Expr::Bin { op, lhs: Box::new(lhs), rhs: Box::new(rhs) };
+        }
+        Ok(lhs)
+    }
 }
 
 // ─── API pubblica ─────────────────────────────────────────────────────────────
 
-/// Parse di una stringa in un AST (tokenize + recursive descent).
+/// Parse di una stringa in un AST in base decimale (wrapper di compatibilità).
 /// Restituisce `CalcError::Empty` per stringa vuota e `CalcError::Syntax`
 /// se ci sono token in eccesso dopo la fine dell'espressione.
+///
+/// Questo wrapper mantiene il comportamento storico di `parse`: il default
+/// `NumBase::Dec` produce un risultato byte-identico a prima dell'introduzione
+/// della modalità programmatore. Tutti i chiamanti esistenti restano invariati.
 pub fn parse(s: &str) -> Result<Expr, CalcError> {
-    let toks = tokenize(s)?;
+    parse_with_base(s, NumBase::Dec)
+}
+
+/// Parse di una stringa in un AST con la base numerica esplicita.
+/// L'entry point è `or_expr()` (precedenza più bassa, OR bitwise): la catena
+/// di discesa termina su `expr()` esistente, quindi tutte le espressioni
+/// puramente aritmetiche si comportano esattamente come prima.
+pub fn parse_with_base(s: &str, base: NumBase) -> Result<Expr, CalcError> {
+    let toks = tokenize_with_base(s, base)?;
     if toks.is_empty() {
         return Err(CalcError::Empty);
     }
     let mut p = Parser { toks, pos: 0 };
-    let e = p.expr()?;
+    let e = p.or_expr()?;
     // Se ci sono token rimasti (es. "2 3" → l'AST è `2`, il `3` è in eccesso), è un errore.
     if p.pos != p.toks.len() {
         return Err(CalcError::Syntax);
@@ -474,22 +671,40 @@ pub fn parse(s: &str) -> Result<Expr, CalcError> {
     Ok(e)
 }
 
+/// Converte un f64 in i64 SOLO se rappresenta esattamente un intero nel range i64.
+/// None per: parte frazionaria non nulla, fuori range [i64::MIN, i64::MAX].
+///
+/// Limite noto: f64 ha 53 bit di mantissa — interi oltre ±2^53 potrebbero non essere
+/// rappresentati esattamente anche se in teoria dentro il range i64. Per l'uso da
+/// calcolatrice (conteggi, byte, maschere di bit, indirizzi) è un limite accettabile
+/// e coerente con TUTTO il resto di questo engine (già basato su f64 ovunque).
+pub(crate) fn to_i64_checked(v: f64) -> Option<i64> {
+    if v.fract() != 0.0 { return None; }
+    if v < -(2f64.powi(63)) || v >= 2f64.powi(63) { return None; }
+    Some(v as i64)
+}
+
 /// Valuta l'AST ricorsivamente, dato il modo angolare per le funzioni trig.
 ///
-/// `mode` influenza solo le funzioni trigonometriche:
-///   - Trig dirette (sin/cos/tan): se `Deg`, l'argomento viene convertito da gradi a radianti
-///     prima di chiamare le funzioni f64 (che lavorano in radianti).
-///   - Trig inverse (asin/acos/atan): il risultato f64 è in radianti; se `Deg`, viene
-///     convertito a gradi prima di restituirlo.
-///
-/// Le altre funzioni (Log, Ln, Sqrt) e tutte le operazioni aritmetiche ignorano `mode`.
-///
-/// Argomenti fuori dominio (es. √(-1), ln(-1), log(0)):
-///   Non sono trattati come errori: Rust restituisce NaN per queste operazioni f64,
-///   e l'engine propaga Ok(NaN). Il formatter (`format_number`) converte NaN in "Error".
-///   Questo mantiene il tipo di errore `CalcError` focalizzato su errori *strutturali*
-///   (sintassi, divisione per zero), non su condizioni di dominio che dipendono dal valore.
+/// Wrapper di compatibilità: chiama `evaluate_with_width` con `BitWidth::Qword`
+/// (64 bit, comportamento invariato — l'unica larghezza che esisteva prima
+/// della modalità programmatore). Mantenuto come API pubblica per i test;
+/// il codice di produzione usa direttamente `evaluate_with_width`.
+#[allow(dead_code)] // usato solo dai test del crate; l'API pubblica è `evaluate_with_width`
 pub fn evaluate(e: &Expr, mode: AngleMode) -> Result<f64, CalcError> {
+    evaluate_with_width(e, mode, BitWidth::Qword)
+}
+
+/// Valuta l'AST ricorsivamente, con modo angolare E larghezza bit esplicita.
+///
+/// `mode` influenza solo le funzioni trigonometriche (vedi `evaluate` originale).
+/// `width` influenza SOLO la validità di shift/rotate (§4) — NON maschera i
+/// risultati (la mascheratura è compito del formatter, §6).
+///
+/// NOT bitwise non riceve `width`: la mascheratura a valle nel formatter
+/// basta da sola — come per gli operandi di AND/OR/XOR, il risultato bitwise
+/// di due operandi già dentro la larghezza resta naturalmente dentro la larghezza.
+pub fn evaluate_with_width(e: &Expr, mode: AngleMode, width: BitWidth) -> Result<f64, CalcError> {
     match e {
         // Foglie: numeri e costanti.
         Expr::Num(n) => Ok(*n),
@@ -500,11 +715,11 @@ pub fn evaluate(e: &Expr, mode: AngleMode) -> Result<f64, CalcError> {
         }),
 
         // Meno unario: nega ricorsivamente il sottoalbero.
-        Expr::Neg(x) => Ok(-evaluate(x, mode)?),
+        Expr::Neg(x) => Ok(-evaluate_with_width(x, mode, width)?),
 
         // Applicazione di funzione: valuta l'argomento, poi applica la funzione.
         Expr::Func { id, arg } => {
-            let a = evaluate(arg, mode)?;
+            let a = evaluate_with_width(arg, mode, width)?;
             let result = match id {
                 // Trig dirette: converti l'argomento gradi → radianti se siamo in DEG.
                 FuncId::Sin => {
@@ -534,67 +749,113 @@ pub fn evaluate(e: &Expr, mode: AngleMode) -> Result<f64, CalcError> {
                     if mode == AngleMode::Deg { r.to_degrees() } else { r }
                 }
                 // Log/Ln/Sqrt/Cbrt: argomento fuori dominio → NaN (non Err).
-                // f64::log10(x) con x ≤ 0 → NaN; sqrt(x) con x < 0 → NaN; ln(x) con x ≤ 0 → NaN.
-                // cbrt(x) è definita per tutti i reali (incluso x < 0: ∛(-8) = -2 in f64).
                 FuncId::Log  => a.log10(),
                 FuncId::Ln   => a.ln(),
                 FuncId::Sqrt => a.sqrt(),
                 FuncId::Cbrt => a.cbrt(),
+                // NOT bitwise unario (¬): stesso dominio di AND/OR/XOR.
+                // La mascheratura alla larghezza avviene a valle nel formatter
+                // (come per tutti gli operatori bitwise — la larghezza non è
+                // applicata durante la valutazione, §4/§6).
+                FuncId::Not => match to_i64_checked(a) {
+                    Some(n) => !n as f64,
+                    None => f64::NAN,
+                },
             };
             Ok(result)
         }
 
         // Potenza: base^exp tramite f64::powf.
-        // powf gestisce correttamente valori negativi (es. 2.0.powf(-3.0) = 0.125).
         Expr::Pow { base, exp } => {
-            Ok(evaluate(base, mode)?.powf(evaluate(exp, mode)?))
+            Ok(evaluate_with_width(base, mode, width)?.powf(evaluate_with_width(exp, mode, width)?))
         }
 
         // Fattoriale postfisso: n! dove n deve essere un intero non-negativo.
-        //
-        // Strategia: valutiamo il sottoalbero, poi verifichiamo il dominio.
-        //   - v < 0.0 o v.fract() != 0.0 → dominio invalido → NaN (come Sqrt(-1)).
-        //   - v ∈ {0,1,...,170} → calcolo esatto tramite moltiplicazione f64.
-        //   - v > 170 → il prodotto supera f64::MAX (170! ≈ 7.2e306) → diventa f64::INFINITY
-        //     che il formatter converte in "Error". Il loop si interrompe appena il prodotto
-        //     diventa infinito per evitare di iterare inutilmente su valori enormi.
         Expr::Factorial(inner) => {
-            let v = evaluate(inner, mode)?;
-            // Dominio: deve essere un intero non-negativo.
+            let v = evaluate_with_width(inner, mode, width)?;
             if v < 0.0 || v.fract() != 0.0 {
                 return Ok(f64::NAN);
             }
-            // Calcolo: accumula il prodotto 1 × 2 × … × n in f64.
-            // Il cast `v as u64` è sicuro perché abbiamo già verificato v >= 0 e v.fract()==0.
-            // Per valori enormi (es. 1e300 come intero), v as u64 saturates a u64::MAX —
-            // ma in pratica il prodotto diventa infinito molto prima (dopo 170 iterazioni).
             let n = v as u64;
             let mut acc = 1.0_f64;
             for k in 2..=n {
                 acc *= k as f64;
-                // Interrompi appena si supera f64::MAX: il risultato è già infinito/inutile.
                 if acc.is_infinite() { break; }
             }
             Ok(acc)
         }
 
-        // Operazioni binarie: + − × ÷ %.
+        // Operazioni binarie: + − × ÷ % e operatori bitwise.
         Expr::Bin { op, lhs, rhs } => {
-            let (l, r) = (evaluate(lhs, mode)?, evaluate(rhs, mode)?);
+            let (l, r) = (evaluate_with_width(lhs, mode, width)?, evaluate_with_width(rhs, mode, width)?);
             Ok(match op {
                 BinOp::Add => l + r,
                 BinOp::Sub => l - r,
                 BinOp::Mul => l * r,
                 BinOp::Div => {
-                    // f64 == 0.0 è bit-exact qui: l'input è un letterale "0" → nessun problema di FP.
                     if r == 0.0 { return Err(CalcError::DivByZero); }
                     l / r
                 }
                 BinOp::Mod => {
-                    // Il modulo f64 (`%`) calcola il resto della divisione: `l - r * (l/r).floor()`.
-                    // `r == 0.0` → lo stesso errore della divisione (divisore nullo).
                     if r == 0.0 { return Err(CalcError::DivByZero); }
                     l % r
+                }
+                // ── Operatori bitwise ─────────────────────────────────────────
+                // Dominio invalido (non-intero, fuori range i64) → f64::NAN,
+                // mai Err — stesso principio di √(-1). Il formatter trasforma
+                // NaN in "Error".
+                BinOp::And | BinOp::Or | BinOp::Xor => {
+                    match (to_i64_checked(l), to_i64_checked(r)) {
+                        (Some(a), Some(b)) => (match op {
+                            BinOp::And => a & b,
+                            BinOp::Or  => a | b,
+                            BinOp::Xor => a ^ b,
+                            _ => unreachable!(),
+                        }) as f64,
+                        _ => f64::NAN,
+                    }
+                }
+                BinOp::Shl | BinOp::Shr => {
+                    // checked_shl/checked_shr: MAI l'operatore `<<`/`>>` grezzo —
+                    // panica in debug/test per shift >= 64, raggiungibile da tastiera.
+                    // L'ammontare valido dipende da `width`: `1≪9` con BitWidth::Byte
+                    // deve dare NaN (Windows Calc fa così), non essere silenziosamente
+                    // troncato — la larghezza bit limita anche COSA è uno shift legale.
+                    match (to_i64_checked(l), to_i64_checked(r)) {
+                        (Some(a), Some(b)) if (0..width.bits() as i64).contains(&b) => {
+                            let shifted = if *op == BinOp::Shl {
+                                a.checked_shl(b as u32)
+                            } else {
+                                a.checked_shr(b as u32)
+                            };
+                            shifted.map(|x| x as f64).unwrap_or(f64::NAN)
+                        }
+                        _ => f64::NAN,
+                    }
+                }
+                BinOp::Rol | BinOp::Ror => {
+                    // Rotazione: un ammontare >= width è LEGALE (si riduce modulo
+                    // width — ruotare un byte di 8 posizioni è un giro completo).
+                    // Solo un ammontare negativo è invalido.
+                    match (to_i64_checked(l), to_i64_checked(r)) {
+                        (Some(a), Some(b)) if b >= 0 => {
+                            let w = width.bits();
+                            let n = (b as u32) % w;
+                            let bits_mask: u64 = if w == 64 { u64::MAX } else { (1u64 << w) - 1 };
+                            let v = (a as u64) & bits_mask;
+                            let rotated = if n == 0 {
+                                v
+                            } else if *op == BinOp::Rol {
+                                ((v << n) | (v >> (w - n))) & bits_mask
+                            } else {
+                                ((v >> n) | (v << (w - n))) & bits_mask
+                            };
+                            // Reinterpretazione bit u64→i64→f64: stesso limite di
+                            // precisione ±2^53 già documentato per to_i64_checked.
+                            rotated as i64 as f64
+                        }
+                        _ => f64::NAN,
+                    }
                 }
             })
         }
@@ -940,5 +1201,145 @@ mod tests {
             (v - 2.0).abs() < 1e-9,
             "8^(1/3) deve essere ≈ 2.0, got {v}"
         );
+    }
+
+    // ══ Modalità programmatore (Parte A) — RED prima, GREEN dopo ══════════════
+
+    /// Helper: parse in una base esplicita + evaluate a larghezza Qword.
+    fn ev_base(s: &str, base: NumBase) -> Result<f64, CalcError> {
+        evaluate_with_width(&parse_with_base(s, base)?, AngleMode::Rad, BitWidth::Qword)
+    }
+
+    /// Helper: parse decimale + evaluate a larghezza esplicita.
+    fn ev_w(s: &str, width: BitWidth) -> Result<f64, CalcError> {
+        evaluate_with_width(&parse(s)?, AngleMode::Rad, width)
+    }
+
+    /// Operatori bitwise di base: AND, OR, XOR.
+    #[test]
+    fn bitwise_and_or_xor_values() {
+        assert_eq!(ev("5∧3", AngleMode::Rad).unwrap(), 1.0, "5∧3 deve essere 1");
+        assert_eq!(ev("5∨2", AngleMode::Rad).unwrap(), 7.0, "5∨2 deve essere 7");
+        assert_eq!(ev("5⊻1", AngleMode::Rad).unwrap(), 4.0, "5⊻1 deve essere 4");
+    }
+
+    /// Shift di base: sinistra e destra.
+    #[test]
+    fn shift_values() {
+        assert_eq!(ev("1≪4", AngleMode::Rad).unwrap(), 16.0, "1≪4 deve essere 16");
+        assert_eq!(ev("256≫4", AngleMode::Rad).unwrap(), 16.0, "256≫4 deve essere 16");
+    }
+
+    /// NOT bitwise unario: ¬(0) = tutti i bit a 1 = -1 a piena ampiezza i64.
+    #[test]
+    fn not_bitwise_value() {
+        assert_eq!(ev("¬(0)", AngleMode::Rad).unwrap(), -1.0, "¬(0) deve essere -1");
+    }
+
+    /// Precedenza discriminante 1: AND più stretto di OR.
+    /// `2∨1∧0` = `2∨(1∧0)` = `2∨0` = 2 (NON `(2∨1)∧0` = `3∧0` = 0).
+    #[test]
+    fn precedence_and_tighter_than_or() {
+        assert_eq!(ev("2∨1∧0", AngleMode::Rad).unwrap(), 2.0,
+            "2∨1∧0 deve essere 2 (AND più stretto di OR)");
+    }
+
+    /// Precedenza discriminante 2: shift più largo di `+`.
+    /// `1≪2+3` = `1≪(2+3)` = `1≪5` = 32 (NON `(1≪2)+3` = 4+3 = 7).
+    #[test]
+    fn precedence_shift_wider_than_add() {
+        assert_eq!(ev("1≪2+3", AngleMode::Rad).unwrap(), 32.0,
+            "1≪2+3 deve essere 32 (shift più largo di +)");
+    }
+
+    /// Precedenza discriminante 3: AND più largo di shift.
+    /// `8≫1∧3` = `(8≫1)∧3` = `4∧3` = 0 (NON `8≫(1∧3)` = `8≫1` = 4).
+    #[test]
+    fn precedence_and_wider_than_shift() {
+        assert_eq!(ev("8≫1∧3", AngleMode::Rad).unwrap(), 0.0,
+            "8≫1∧3 deve essere 0 (AND più largo di shift)");
+    }
+
+    /// Bonus verificato: gli operatori bitwise funzionano anche in modalità Dec.
+    /// Non è vietato usarli fuori dalla modalità programmatore.
+    #[test]
+    fn bitwise_works_in_dec() {
+        assert_eq!(ev("255∧15", AngleMode::Rad).unwrap(), 15.0,
+            "255∧15 deve essere 15 anche in Dec");
+    }
+
+    /// `to_i64_checked`: conversione f64 → i64 esatta e con i confini giusti.
+    #[test]
+    fn to_i64_checked_boundaries() {
+        // 2^53 - 1: il massimo intero esattamente rappresentabile in f64.
+        let two53_minus_1 = 2f64.powi(53) - 1.0;
+        assert_eq!(to_i64_checked(two53_minus_1), Some(2i64.pow(53) - 1),
+            "2^53-1 deve convertire esattamente");
+        // i64::MIN è rappresentabile esattamente in f64 (potenza di due negativa).
+        assert_eq!(to_i64_checked(i64::MIN as f64), Some(i64::MIN),
+            "i64::MIN deve convertire esattamente");
+        // 2^63 va fuori dal range i64 (>= i64::MAX + 1) → None.
+        assert_eq!(to_i64_checked(2f64.powi(63)), None,
+            "2^63 deve essere fuori range (None)");
+        // Non-intero → None.
+        assert_eq!(to_i64_checked(0.5), None, "0.5 non è un intero");
+    }
+
+    /// Shift: l'ammontare valido dipende dalla larghezza, non è un limite assoluto.
+    #[test]
+    fn shift_amount_depends_on_width() {
+        // 1≪9 è VALIDO a Qword (9 < 64): binario 10_0000_0000 = 512.
+        assert_eq!(ev_w("1≪9", BitWidth::Qword).unwrap(), 512.0,
+            "1≪9 deve essere valido a Qword");
+        // 1≪9 è INVALIDO a Byte (9 >= 8) → NaN, mai panic.
+        assert!(ev_w("1≪9", BitWidth::Byte).unwrap().is_nan(),
+            "1≪9 deve essere NaN a Byte (larghezza limita la legalità)");
+        // Ammontare negativo → NaN.
+        assert!(ev("1≪-1", AngleMode::Rad).unwrap().is_nan(),
+            "1≪-1 deve essere NaN");
+    }
+
+    /// Rotazione: ammontare >= width è legale (modulo width).
+    #[test]
+    fn rotate_byte_values() {
+        // 0b0001 ruotato a sinistra di 1 con Byte → 0b0010 = 2.
+        assert_eq!(ev_w("1↺1", BitWidth::Byte).unwrap(), 2.0,
+            "1↺1 a Byte deve essere 2");
+        // Ruotato di 8 posizioni con Byte → giro completo → torna 1.
+        assert_eq!(ev_w("1↺8", BitWidth::Byte).unwrap(), 1.0,
+            "1↺8 a Byte deve essere 1 (giro completo)");
+        // Ammontare negativo → NaN.
+        assert!(ev_w("1↺-1", BitWidth::Byte).unwrap().is_nan(),
+            "1↺-1 deve essere NaN");
+    }
+
+    /// Parsing di letterali nelle basi non-decimali.
+    #[test]
+    fn non_decimal_literal_parsing() {
+        assert_eq!(ev_base("FF", NumBase::Hex).unwrap(), 255.0, "FF hex = 255");
+        assert_eq!(ev_base("177", NumBase::Oct).unwrap(), 127.0, "177 oct = 127");
+        assert_eq!(ev_base("1010", NumBase::Bin).unwrap(), 10.0, "1010 bin = 10");
+        // "FFFFFFFFFFFFFFFF" (tutti i bit a 1) è un u64 valido → reinterpretato come -1.
+        assert_eq!(ev_base("FFFFFFFFFFFFFFFF", NumBase::Hex).unwrap(), -1.0,
+            "FFFFFFFFFFFFFFFF hex = -1 (complemento a due)");
+    }
+
+    /// Il separatore `_` è ignorato in Hex/Oct/Bin (per ri-leggere un risultato
+    /// formattato con raggruppamento), ma resta Syntax in Dec.
+    #[test]
+    fn underscore_separator_only_non_decimal() {
+        assert_eq!(ev_base("FF_FF", NumBase::Hex).unwrap(), 65535.0,
+            "FF_FF hex deve essere 65535 (separatore ignorato)");
+        assert_eq!(parse("1_000"), Err(CalcError::Syntax),
+            "in Dec il separatore '_' resta un errore di sintassi");
+        // Un run non può MAI iniziare con '_': "_FF" → Syntax.
+        assert_eq!(parse_with_base("_FF", NumBase::Hex), Err(CalcError::Syntax),
+            "un token che inizia con '_' deve essere Syntax");
+    }
+
+    /// Shift a destra con segno: 256≫4 = 16 a Qword.
+    #[test]
+    fn shift_right_value() {
+        assert_eq!(ev("256≫4", AngleMode::Rad).unwrap(), 16.0);
     }
 }

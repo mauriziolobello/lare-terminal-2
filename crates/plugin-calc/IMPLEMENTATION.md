@@ -1,8 +1,8 @@
 # IMPLEMENTATION — plugin-calc
 
-**Version:** 0.2.0 (calcolatrice scientifica completa: engine Const/Func/Pow + v2 ∛/n!/%, render apice 2D, Shift sticky + DEG/RAD, layout 7×5 + riga stato + nuovi tasti x²/e/n!/mod)  
+**Version:** 2.3.0 (Parte C: UI — tasti base/larghezza/bitwise, programmer_key_grid, display lineare non-Dec, toggle, CSS, conversione)  
 **Binary:** `calc` (discovered as `plugins/calc/calc.exe` on Windows)  
-**Role:** Slice 2 aritmetica base + Slice scientifica Tasks 1–4 (engine esteso, render scientifico, Shift sticky + DEG/RAD + tasti scientifici, CSS) + Refinements v2 Task vA (engine: ∛, n!, %) + Task vB (layout 7×5, nuovi tasti UI, Shift v2, riga stato).
+**Role:** Slice 2 aritmetica base + Slice scientifica Tasks 1–4 (engine esteso, render scientifico, Shift sticky + DEG/RAD + tasti scientifici, CSS) + Refinements v2 Task vA (engine: ∛, n!, %) + Task vB (layout 7×5, nuovi tasti UI, Shift v2, riga stato) + modalità programmatore Parte A (engine base-aware).
 
 ## Files
 
@@ -80,6 +80,32 @@ Parser recursive-descent a **6 livelli** (grammatica v2 con `postfix`):
 **Task 3 fix (completato):**
 - `main.rs` ramo `"eq"`: usa `state.angle_mode` al posto di `AngleMode::Rad` hardcoded.
 
+### Modalità programmatore — Parte A (engine base-aware)
+
+Due nuovi enum pubblici in `engine.rs`:
+
+```
+NumBase:  Dec | Hex | Oct | Bin            (impl Default → Dec;  radix() → 10/16/8/2)
+BitWidth: Byte | Word | Dword | Qword      (impl Default → Qword; bits() → 8/16/32/64)
+```
+
+- **Tokenizer** `tokenize_with_base(s, base)`: il branch cifre è l'unico a dipendere da `base`.
+  In `Dec` è **identico** all'originale (mantissa + punto + esponente scientifico; `_` resta
+  un errore di sintassi). In `Hex/Oct/Bin` consuma cifre valide nella base + separatori `_`,
+  niente punto/esponente. Il guard del match richiede che il char d'innesco sia una cifra vera
+  (mai `_` → un buffer `"_FF"` dà Syntax). I valori sono letti via `u64::from_str_radix` e
+  reinterpretati in complemento a due (`as i64 as f64`) così `FFFFFFFFFFFFFFFF` = -1.
+- **8 simboli Unicode dedicati** (mai parole testuali — "AND" inizierebbe per 'A', che in Hex
+  è una cifra): `∧ ∨ ⊻ ≪ ≫ ↺ ↻` + `¬` (NOT, via `FuncId::Not`, prefisso come √/∛).
+- **Precedenza C-like** sopra `expr`: `or_expr` > `xor_expr` > `and_expr` > `shift_expr` > `expr`.
+  Entry point di `parse_with_base` = `or_expr`. `shift_expr` gestisce 4 token (shift E rotate,
+  stesso livello). I nodi riusano `Expr::Bin` — zero nuove varianti di `Expr`.
+- **Valutazione** `evaluate_with_width(e, mode, width)`: `width` limita SOLO la legalità dello
+  shift e il modulo della rotazione, NON maschera i risultati (compito del formatter, §6).
+  `to_i64_checked` (pub(crate)) valida il dominio intero i64; operandi non-interi → `f64::NAN`.
+  Shift via `checked_shl`/`checked_shr` (mai `<<`/`>>` grezzi), rotate con maschera a `width` bit.
+  NOT (`FuncId::Not`) → `!n as f64` — la mascheratura a valle è del formatter.
+
 ### format.rs — smart output
 
 | Condizione | Output |
@@ -89,6 +115,44 @@ Parser recursive-descent a **6 livelli** (grammatica v2 con `postfix`):
 | `abs ∈ [1e-6, 1e12)` | float con zeri finali tagliati |
 | fuori range | `"{m}e{e}"` con mantissa trimmata |
 | NaN o Inf | `"Error"` |
+
+### Modalità programmatore — Parte B (format_integer_in_base)
+
+`format_integer_in_base(x, base, width) -> Option<String>` (`format.rs`):
+formattazione in Hex/Oct/Bin con mascheratura alla larghezza, zero-padding e raggruppamento `_`.
+
+| Base | Cifre per larghezza | Raggruppamento |
+|---|---|---|
+| Hex | width/4 (Byte=2, Word=4, Dword=8, Qword=16) | ogni 4, `_` |
+| Bin | width (Byte=8, Word=16, Dword=32, Qword=64) | ogni 4, `_` |
+| Oct | ⌈width/3⌉ (Byte=3, Word=6, Dword=11, Qword=22) | nessuno |
+
+Non chiamabile con `NumBase::Dec` (unreachable — la larghezza bit è inerte in Dec).
+Usa `to_i64_checked` (pub(crate)) per la validazione intero. Il troncamento degli
+overflow di input è intenzionale (comportamento Windows Calculator).
+
+### Modalità programmatore — Parte C (main.rs, render_window, CSS)
+
+**`CalcState`** guadagna tre campi: `base_mode: NumBase` (Dec), `bit_width: BitWidth` (Qword),
+`prog_visible: bool` (false). Tutti con default via derive. I tasti base/larghezza chiamano
+`try_convert_buf` che, se il buffer valuta a un intero, riformatta nella nuova base/larghezza
+prima di cambiare modalità — comportamento "conversione" stile Windows Calculator.
+
+**Nuovi `data-evt`** in `handle_key`: `base_dec`/`hex`/`oct`/`bin`, `width_byte`/`word`/`dword`/
+`qword` (entrambi chiamano `try_convert_buf` + cambiano lo stato), `toggle_prog` (inverte
+`prog_visible`), `hexA`-`hexF` (ramo `ch: Option<char>` generico), `op_and`/`op_or`/`op_xor`
+(appendono i glyph Unicode `∧` `∨` `⊻`), `fn_not` (appende `¬(`, prefisso is_fresh=true),
+`op_shift` (≪ o ≫ via was_shifted), `op_rotate` (↺ o ↻ via was_shifted).
+
+**`eq` ramifica su `state.base_mode`**: Dec → `format_number(v)`, Hex/Oct/Bin →
+`format_integer_in_base(v, …)`. `render_window` mostra solo il testo lineare escaped per
+`base_mode != Dec` (evita `render::render` che in Dec potrebbe interpretare `"E+1"` come
+Costante e + costante di Eulero). Lo stato `prog_visible` controlla se `programmer_key_grid`
+è inclusa nell'HTML.
+
+**CSS** (`plugin-catalog.css`): `.lare-prog-section` con bordo/sfondo ambra (rgba(240,180,80,…))
+per delimitare visivamente la sezione programmatore; `.lare-prog-toggle` come controllo cliccabile
+nella riga di stato. Zero codice JS toccato — `plugin-window.js` delega su `[data-evt]` generico.
 
 ### render.rs — HTML 2D (Task 2 aggiornato, Task vA aggiornato)
 

@@ -25,6 +25,30 @@
 
 ## FATTO
 
+- **plugin-calc 2.3.0 — Modalità programmatore Parte C: UI, tasti, CSS, conversione (2026-09-10)** —
+  `CalcState` guadagna `base_mode`, `bit_width`, `prog_visible`. Nuovi rami `handle_key` per
+  basi (DEC/HEX/OCT/BIN), larghezze (BYTE/WORD/DWORD/QWORD), operatori bitwise (AND/OR/XOR/NOT),
+  shift/rotate con 2nd, toggle sezione programmatore. Nuova funzione `programmer_key_grid`
+  (4 righe × 5, 20 tasti ambra). Display lineare (mai 2D) in base non-Dec. Righello stato
+  mostra base+larghezza quando non-Dec. CSS: `.lare-prog-section` ambra, `.lare-prog-toggle`.
+  12 nuovi test. 129 totali (43 engine + 64 format/render/main esistenti + 22 nuovi), tutti
+  verdi, clippy pulito. plugin-calc 2.2.0 → 2.3.0.
+
+- **plugin-calc 2.2.0 — Modalità programmatore Parte B: format_integer_in_base (2026-09-10)** —
+  Aggiunto `format_integer_in_base(x, base, width)` in `format.rs`: formattazione in
+  Hex/Oct/Bin con mascheratura alla larghezza bit, zero-padding SEMPRE a cifre piene
+  e raggruppamento `_` per Hex/Bin. 8 nuovi test; 114 totali, tutti verdi.
+
+- **plugin-calc 2.1.0 — Modalità programmatore Parte A: engine base-aware (2026-09-10)** —
+  Compito `Docs/i18n/ita/compiti-ai-esterne/2026-09-10-calc-modalita-programmatore.md`:
+  introdotti `NumBase` (Dec/Hex/Oct/Bin) e `BitWidth` (Byte/Word/Dword/Qword) in `engine.rs`.
+  Tokenizer base-aware con `tokenize_with_base`, parser esteso con 4 nuovi livelli di
+  precedenza C-like (shift/rotate > AND > XOR > OR sopra `expr`), valutatore
+  `evaluate_with_width` con `to_i64_checked`. 8 nuovi operatori bitwise/shift/rotate/NOT
+  a simboli Unicode dedicati. 15 nuovi test. Render.rs: `prec()` rinumerata + nuovi rami
+  (necessario per compilare, i branch esaustivi richiedevano i nuovi pattern). Tutti i
+  106 test passano. Bump plugin-calc a 2.1.0.
+
 - **Doc `/help`: chiarito che `/open <target>` non vuole virgolette (2026-09-10)** —
   segnalazione dal vivo di Maurizio: `/open "https://www.linux.org"` (con virgolette, per
   abitudine da riga di comando) produceva `target non trovato o non riconosciuto:

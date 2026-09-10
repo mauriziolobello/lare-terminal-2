@@ -3,6 +3,97 @@
 All notable changes to this crate will be documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/). Semver from `0.1.0`.
 
+## [2.3.0] — 2026-09-10 — Modalità programmatore, Parte C (UI, tasti, CSS, conversione)
+
+### Added
+- **`CalcState::{base_mode, bit_width, prog_visible}`** (`main.rs`): tre nuovi campi di
+  stato con default Dec/Qword/false via `#[derive(Default)]`.
+- **`try_convert_buf`**: helper che riformatta il buffer nella nuova base/larghezza quando
+  valuta correttamente (comportamento "conversione" stile Windows Calculator).
+- **Nuovi rami `handle_key`**: `base_dec`/`hex`/`oct`/`bin`, `width_byte`/`word`/`dword`/`qword`,
+  `toggle_prog`, `op_and`/`op_or`/`op_xor`, `fn_not` (¬(, prefisso), `op_shift` (≪/≫ via 2nd),
+  `op_rotate` (↺/↻ via 2nd). Cifre esadecimali `hexA`–`hexF` nel ramo `ch: Option<char>`.
+- **`eq` base-aware**: ramifica su `state.base_mode` — in Dec usa `format_number`, in
+  Hex/Oct/Bin usa `format_integer_in_base`.
+- **`programmer_key_grid(state)`**: griglia 4 righe × 5 colonne (20 tasti) con layout DEC/HEX/
+  OCT/BIN/NOT, A–F, AND/OR/XOR/SHL–SHR, BYTE/WORD/DWORD/QWORD/ROL–ROR. Etichette shift-aware
+  (SHL↔SHR, ROL↔ROR).
+- **Display lineare in Hex/Oct/Bin**: `render_window` ora evita `render::render` quando
+  `base_mode != Dec` — evita che `parse("E+1")` venga letto come Const(E)+Num(1).
+- **Riga stato estesa**: mostra `base_label · width_label` quando `base_mode != Dec`; la
+  larghezza bit non compare mai in Dec (è inerte). Toggle `▼ PROG`/`▲ PROG` nella riga stato.
+- **CSS** (`plugin-catalog.css`): `.lare-prog-section` (bordo ambra, sfondo caldo),
+  `.lare-prog-toggle` (controllo cliccabile nella riga stato). Zero codice JS toccato.
+- **Nuovi test render** (`render_bitwise_binary_ops`, `render_not_bitwise`,
+  `render_shift_wider_than_add_no_parens`): coprono i nuovi rami di `render.rs`.
+- **12 nuovi test main** TDD (RED → GREEN): `toggle_prog_visibility`,
+  `prog_section_not_visible_by_default`, `prog_section_visible_after_toggle`,
+  `convert_dec_to_hex_qword`, `convert_dec_to_hex_byte`, `integrated_programmer_sequence`,
+  `incomplete_expression_no_conversion`, `overflow_input_truncates`,
+  `status_line_dec_shows_only_deg`, `status_line_hex_shows_base_and_width`,
+  `not_bitwise_end_to_end`, `shift_end_to_end`.
+
+## [2.2.0] — 2026-09-10 — Modalità programmatore, Parte B (format_integer_in_base)
+
+### Added
+- **`format_integer_in_base(x, base, width) -> Option<String>`** (`format.rs`): formattazione
+  di un f64 come intero senza segno in Hex/Oct/Bin. Mascheratura alla larghezza bit (padding
+  a cifre piene, troncamento degli overflow di input — comportamento Windows Calculator).
+  Zero-padding SEMPRE alla larghezza piena (¬(0) a Byte in Hex = "FF", non "F").
+  Raggruppamento `_` ogni 4 cifre per Hex/Bin; Oct senza raggruppamento. Non chiamabile
+  con `NumBase::Dec` (la larghezza bit è inerte in Dec — vedi §6).
+- **`group_every(s, n, sep)`**: helper privato — inserisce sep ogni n caratteri contando
+  DA DESTRA, così il gruppo corto arriva all'inizio. Usata per il raggruppamento `_`.
+- **8 nuovi test TDD** (RED → GREEN): `format_hex_byte_255_is_ff`,
+  `format_hex_qword_255_is_sixteen_digits_grouped`, `format_oct_byte_8_is_010`,
+  `format_bin_byte_5_is_grouped`, `format_not_zero_hex_byte_ff`,
+  `format_not_zero_hex_qword_all_f`, `format_overflow_truncates_silently`,
+  `format_non_integer_returns_none`.
+
+## [2.1.0] — 2026-09-10 — Modalità programmatore, Parte A (engine: basi numeriche, bitwise, shift/rotate)
+
+Prima parte del compito `Docs/i18n/ita/compiti-ai-esterne/2026-09-10-calc-modalita-programmatore.md`.
+Estende `engine.rs` con il supporto alle basi non-decimali (Hex/Oct/Bin) e agli operatori
+bitwise/shift/rotate, mantenendo il comportamento decimale **byte-identico**.
+
+### Added (Parte A — engine base-aware)
+- **`NumBase`** (`Dec | Hex | Oct | Bin`, default `Dec`) e **`BitWidth`**
+  (`Byte | Word | Dword | Qword`, default `Qword`) — nuovi enum pubblici con `impl Default`
+  e `radix()`/`bits()`.
+- **`tokenize_with_base(s, base)`**: sostituisce il `tokenize` esistente. In `Dec` il branch
+  numerico è **identico** all'originale (mantissa + punto + esponente scientifico, nessun
+  separatore `_`); in `Hex/Oct/Bin` consuma cifre valide nella base + separatori `_`, niente
+  punto né esponente. Il guard del branch richiede che il primo char sia una cifra vera (mai `_`).
+- **8 nuovi token a simbolo singolo** (glyph Unicode dedicati, mai parole testuali per non
+  collidere con le cifre esadecimali A-F): `∧` AND, `∨` OR, `⊻` XOR, `≪` SHL, `≫` SHR,
+  `↺` ROL, `↻` ROR, e `¬` NOT (via `FuncId::Not`, prefisso come √/∛).
+- **`BinOp::{And, Or, Xor, Shl, Shr, Rol, Ror}`** — riusano il nodo `Expr::Bin` esistente.
+- **`FuncId::Not`** — NOT bitwise unario, gestito dal ramo `Func '(' expr ')'` già esistente.
+- **Nuovi livelli di precedenza C-like** (`or_expr` → `xor_expr` → `and_expr` → `shift_expr` →
+  `expr` esistente): shift/rotate > AND > XOR > OR. Entry point di `parse_with_base` = `or_expr`.
+- **`parse_with_base(s, base)`** (nuova) + `parse(s)` come wrapper su `NumBase::Dec`.
+- **`evaluate_with_width(e, mode, width)`** (nuova) + `evaluate(e, mode)` come wrapper su
+  `BitWidth::Qword`. Valutazione bitwise con `to_i64_checked` (dominio invalido → NaN, mai Err);
+  shift con `checked_shl`/`checked_shr` (mai `<<`/`>>` grezzi, niente panic); rotate con
+  riduzione modulo `width`; l'ammontare di shift valido dipende da `width` (`1≪9` valido a
+  Qword, NaN a Byte).
+- **`to_i64_checked(v)`** (`pub(crate)`): conversione esatta f64 → i64 con confini di range.
+
+### Tests (Parte A — 15 nuovi, RED → GREEN)
+`bitwise_and_or_xor_values`, `shift_values`, `not_bitwise_value`,
+`precedence_and_tighter_than_or`, `precedence_shift_wider_than_add`,
+`precedence_and_wider_than_shift`, `bitwise_works_in_dec`, `to_i64_checked_boundaries`,
+`shift_amount_depends_on_width`, `rotate_byte_values`, `non_decimal_literal_parsing`,
+`underscore_separator_only_non_decimal`, `shift_right_value`, più i test discriminanti di
+precedenza. I 91 test esistenti restano verdi **senza essere stati modificati**.
+
+### Changed (Parte A — necessario per compilare)
+- **`render.rs`**: `prec()` rinumerata (atomici 7, `×÷%` 6, `+−` 5, shift 4, AND 3, XOR 2, OR 1)
+  e nuovi rami per i 7 `BinOp` + `FuncId::Not`. Necessario perché i match di `render`/`prec`
+  sono esaustivi: senza questi rami il crate non compila. Le soglie `operand(…, 3)` di
+  `Neg`/`Factorial`/`Pow` sono state aggiornate a `7` (prec dei nodi atomici) per preservare
+  l'output HTML esistente.
+
 ## 2.0.0 — 2026-09-05 — fork da v1 0.2.0
 
 Copia del crate dalla v1 (`mauriziolobello/lare-terminal`) nel repo 2.0. Nessuna modifica
