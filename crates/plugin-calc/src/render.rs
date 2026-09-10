@@ -33,36 +33,42 @@ use crate::format::format_number;
 /// Returns the display precedence of an expression node.
 ///
 /// Higher value = binds tighter (like in algebra):
-///   3  — Num (atomic) and Neg (treated as a single unit for wrapping purposes)
-///   2  — Mul / Div (the fraction bar handles Div grouping)
-///   1  — Add / Sub
+///   7  — Num, Neg, Const, Func, Pow, Factorial (atomic / self-delimiting)
+///   6  — Mul / Div / Mod
+///   5  — Add / Sub
+///   4  — Shl / Shr / Rol / Ror (shift e rotazione, stesso livello)
+///   3  — And
+///   2  — Xor
+///   1  — Or
 ///
 /// In OOP terms this would be a virtual method on an `Expr` interface;
 /// in Rust we use a plain function on the enum.
+///
+/// Nota: i valori numerici sono puramente relativi (conta solo l'ordine) — la
+/// rinumerazione rispetto alla versione scientifica (3/2/1 → 7/6/5…) è invisibile
+/// alle stringhe HTML prodotte, che sono ciò che i test verificano.
 fn prec(e: &Expr) -> u8 {
     match e {
         // Atomic or already-prefixed: no wrapping needed as a child.
-        Expr::Num(_) | Expr::Neg(_) => 3,
-        // Multiplicative group: Mul, Div, Mod — tutti allo stesso livello di precedenza 2.
+        Expr::Num(_) | Expr::Neg(_) => 7,
+        // Multiplicative group: Mul, Div, Mod — tutti allo stesso livello.
         // Div rende come frazione (la barra raggruppa), Mod rende inline con `%`.
-        Expr::Bin { op: BinOp::Mul | BinOp::Div | BinOp::Mod, .. } => 2,
+        Expr::Bin { op: BinOp::Mul | BinOp::Div | BinOp::Mod, .. } => 6,
         // Additive group.
-        Expr::Bin { op: BinOp::Add | BinOp::Sub, .. } => 1,
+        Expr::Bin { op: BinOp::Add | BinOp::Sub, .. } => 5,
+        // Shift e rotazione — stesso livello (famiglia "riposiziona i bit").
+        Expr::Bin { op: BinOp::Shl | BinOp::Shr | BinOp::Rol | BinOp::Ror, .. } => 4,
+        // Bitwise AND.
+        Expr::Bin { op: BinOp::And, .. } => 3,
+        // Bitwise XOR.
+        Expr::Bin { op: BinOp::Xor, .. } => 2,
+        // Bitwise OR — precedenza più bassa di tutte.
+        Expr::Bin { op: BinOp::Or, .. } => 1,
         // Const e Func sono nodi atomici (foglie o con delimitatori propri): non hanno mai
-        // bisogno di essere avvolti in parentesi come figli di un altro operatore → prec=3.
+        // bisogno di essere avvolti in parentesi come figli di un altro operatore.
         //
-        // Pow: il nodo stesso (quando appare come FIGLIO di un operatore esterno) non ha bisogno
-        // di parentesi aggiuntive perché il markup HTML `<span class="lare-pow">…<sup>…</sup></span>`
-        // lo delimita visivamente da solo.  prec=3 è anche il valore che usiamo come soglia
-        // "contesto di ^" quando si decide se parentesizzare la BASE di una potenza
-        // (vedi `render` → `operand(base, 3)`): scegliere prec(Pow)=3 è forzato — deve essere
-        //   > 2 (perché Mul/Add come base di ^ richiedono parentesi: `(2×3)²`, `(2+3)²`)
-        //   ≤ 3 (perché Num come base NON deve avere parentesi: `5²` non `(5)²`).
-        // Il valore 3 è quindi l'unico corretto; nessuna ulteriore rifinitura è necessaria.
-        //
-        // Factorial: il fattoriale è postfisso e lega più stretto di `^`; come nodo FIGLIO
-        // non ha bisogno di parentesi — l'`!` suffisso lo delimita visivamente → prec=3.
-        Expr::Const(_) | Expr::Func { .. } | Expr::Pow { .. } | Expr::Factorial(_) => 3,
+        // Pow/Factorial: nodi auto-delimitanti (<span class="lare-pow">… / `!` suffisso).
+        Expr::Const(_) | Expr::Func { .. } | Expr::Pow { .. } | Expr::Factorial(_) => 7,
     }
 }
 
@@ -93,10 +99,11 @@ pub fn render(e: &Expr) -> String {
         Expr::Num(n) => format_number(*n),
 
         // Unary minus: "−" (U+2212, the proper math minus sign) followed by the operand.
-        // We pass parent_prec=3 so that a complex child (Add, Sub, …) gets wrapped.
+        // We pass parent_prec=7 (prec of atomic/self-delimiting nodes) so that a complex
+        // child (Add, Sub, …) gets wrapped.
         // Example: render(Neg(Add{2,3})) → "−(2 + 3)".
-        // Example: render(Neg(Num(3)))   → "−3" (Num has prec=3, 3 < 3 is false → no wrap).
-        Expr::Neg(x) => format!("−{}", operand(x, 3)),
+        // Example: render(Neg(Num(3)))   → "−3" (Num has prec=7, 7 < 7 is false → no wrap).
+        Expr::Neg(x) => format!("−{}", operand(x, 7)),
 
         // Division → stacked fraction.
         // The bar groups numerator and denominator exactly as parentheses would,
@@ -136,6 +143,7 @@ pub fn render(e: &Expr) -> String {
                 FuncId::Ln   => "ln",
                 FuncId::Sqrt => "√",
                 FuncId::Cbrt => "∛",   // U+221B, radice cubica (Refinements v2)
+                FuncId::Not  => "¬",   // U+00AC, NOT bitwise (modalità programmatore)
             };
             format!("{}({})", nome, render(arg))
         }
@@ -148,7 +156,7 @@ pub fn render(e: &Expr) -> String {
         //   `(2+3)!`    → prec(Add)=1, 1<3 è vero  → "(2 + 3)!"  (parentesi necessarie) ✓
         //   `(2×3)!`    → prec(Mul)=2, 2<3 è vero  → "(2 × 3)!"  (parentesi necessarie) ✓
         Expr::Factorial(inner) => {
-            format!("{}!", operand(inner, 3))
+            format!("{}!", operand(inner, 7))
         }
 
         // Potenza: apice 2D tramite HTML superscript.
@@ -169,7 +177,7 @@ pub fn render(e: &Expr) -> String {
                <span class=\"lare-pow-base\">{}</span>\
                <sup class=\"lare-pow-exp\">{}</sup>\
              </span>",
-            operand(base, 3),   // 3 = prec(^), vedi commento in prec()
+            operand(base, 7),   // 7 = prec dei nodi atomici/auto-delimitanti
             render(exp)
         ),
 
@@ -181,9 +189,17 @@ pub fn render(e: &Expr) -> String {
             // Map operator to display symbol (Unicode, not ASCII).
             let sym = match op {
                 BinOp::Add => "+",
-                BinOp::Sub => "−",  // U+2212 — matches the unary minus sign for visual consistency
+                BinOp::Sub => "−",  // U+2212
                 BinOp::Mul => "×",  // U+00D7
-                BinOp::Mod => "%",  // modulo (Refinements v2) — stesso livello di ×
+                BinOp::Mod => "%",
+                // ── Operatori bitwise (stessi glyph della tabella §2 — coerenza display/input)
+                BinOp::And => "∧",  // U+2227
+                BinOp::Or  => "∨",  // U+2228
+                BinOp::Xor => "⊻",  // U+22BB
+                BinOp::Shl => "≪",  // U+226A
+                BinOp::Shr => "≫",  // U+226B
+                BinOp::Rol => "↺",  // U+21BA
+                BinOp::Ror => "↻",  // U+21BB
                 // Div is handled above; this arm is unreachable but Rust requires exhaustiveness.
                 BinOp::Div => unreachable!("Div handled in the previous arm"),
             };

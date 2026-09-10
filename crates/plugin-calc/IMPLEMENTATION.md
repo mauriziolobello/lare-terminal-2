@@ -1,8 +1,8 @@
 # IMPLEMENTATION — plugin-calc
 
-**Version:** 0.2.0 (calcolatrice scientifica completa: engine Const/Func/Pow + v2 ∛/n!/%, render apice 2D, Shift sticky + DEG/RAD, layout 7×5 + riga stato + nuovi tasti x²/e/n!/mod)  
+**Version:** 2.1.0 (Parte A modalità programmatore: `NumBase`/`BitWidth`, tokenizer base-aware, operatori bitwise/shift/rotate, precedenza C-like)  
 **Binary:** `calc` (discovered as `plugins/calc/calc.exe` on Windows)  
-**Role:** Slice 2 aritmetica base + Slice scientifica Tasks 1–4 (engine esteso, render scientifico, Shift sticky + DEG/RAD + tasti scientifici, CSS) + Refinements v2 Task vA (engine: ∛, n!, %) + Task vB (layout 7×5, nuovi tasti UI, Shift v2, riga stato).
+**Role:** Slice 2 aritmetica base + Slice scientifica Tasks 1–4 (engine esteso, render scientifico, Shift sticky + DEG/RAD + tasti scientifici, CSS) + Refinements v2 Task vA (engine: ∛, n!, %) + Task vB (layout 7×5, nuovi tasti UI, Shift v2, riga stato) + modalità programmatore Parte A (engine base-aware).
 
 ## Files
 
@@ -79,6 +79,32 @@ Parser recursive-descent a **6 livelli** (grammatica v2 con `postfix`):
 
 **Task 3 fix (completato):**
 - `main.rs` ramo `"eq"`: usa `state.angle_mode` al posto di `AngleMode::Rad` hardcoded.
+
+### Modalità programmatore — Parte A (engine base-aware)
+
+Due nuovi enum pubblici in `engine.rs`:
+
+```
+NumBase:  Dec | Hex | Oct | Bin            (impl Default → Dec;  radix() → 10/16/8/2)
+BitWidth: Byte | Word | Dword | Qword      (impl Default → Qword; bits() → 8/16/32/64)
+```
+
+- **Tokenizer** `tokenize_with_base(s, base)`: il branch cifre è l'unico a dipendere da `base`.
+  In `Dec` è **identico** all'originale (mantissa + punto + esponente scientifico; `_` resta
+  un errore di sintassi). In `Hex/Oct/Bin` consuma cifre valide nella base + separatori `_`,
+  niente punto/esponente. Il guard del match richiede che il char d'innesco sia una cifra vera
+  (mai `_` → un buffer `"_FF"` dà Syntax). I valori sono letti via `u64::from_str_radix` e
+  reinterpretati in complemento a due (`as i64 as f64`) così `FFFFFFFFFFFFFFFF` = -1.
+- **8 simboli Unicode dedicati** (mai parole testuali — "AND" inizierebbe per 'A', che in Hex
+  è una cifra): `∧ ∨ ⊻ ≪ ≫ ↺ ↻` + `¬` (NOT, via `FuncId::Not`, prefisso come √/∛).
+- **Precedenza C-like** sopra `expr`: `or_expr` > `xor_expr` > `and_expr` > `shift_expr` > `expr`.
+  Entry point di `parse_with_base` = `or_expr`. `shift_expr` gestisce 4 token (shift E rotate,
+  stesso livello). I nodi riusano `Expr::Bin` — zero nuove varianti di `Expr`.
+- **Valutazione** `evaluate_with_width(e, mode, width)`: `width` limita SOLO la legalità dello
+  shift e il modulo della rotazione, NON maschera i risultati (compito del formatter, §6).
+  `to_i64_checked` (pub(crate)) valida il dominio intero i64; operandi non-interi → `f64::NAN`.
+  Shift via `checked_shl`/`checked_shr` (mai `<<`/`>>` grezzi), rotate con maschera a `width` bit.
+  NOT (`FuncId::Not`) → `!n as f64` — la mascheratura a valle è del formatter.
 
 ### format.rs — smart output
 

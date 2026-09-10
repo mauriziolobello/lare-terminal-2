@@ -25,6 +25,16 @@
 
 ## FATTO
 
+- **plugin-calc 2.1.0 — Modalità programmatore Parte A: engine base-aware (2026-09-10)** —
+  Compito `Docs/i18n/ita/compiti-ai-esterne/2026-09-10-calc-modalita-programmatore.md`:
+  introdotti `NumBase` (Dec/Hex/Oct/Bin) e `BitWidth` (Byte/Word/Dword/Qword) in `engine.rs`.
+  Tokenizer base-aware con `tokenize_with_base`, parser esteso con 4 nuovi livelli di
+  precedenza C-like (shift/rotate > AND > XOR > OR sopra `expr`), valutatore
+  `evaluate_with_width` con `to_i64_checked`. 8 nuovi operatori bitwise/shift/rotate/NOT
+  a simboli Unicode dedicati. 15 nuovi test. Render.rs: `prec()` rinumerata + nuovi rami
+  (necessario per compilare, i branch esaustivi richiedevano i nuovi pattern). Tutti i
+  106 test passano. Bump plugin-calc a 2.1.0.
+
 - **Doc `/help`: chiarito che `/open <target>` non vuole virgolette (2026-09-10)** —
   segnalazione dal vivo di Maurizio: `/open "https://www.linux.org"` (con virgolette, per
   abitudine da riga di comando) produceva `target non trovato o non riconosciuto:

@@ -3,6 +3,50 @@
 All notable changes to this crate will be documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/). Semver from `0.1.0`.
 
+## [2.1.0] — 2026-09-10 — Modalità programmatore, Parte A (engine: basi numeriche, bitwise, shift/rotate)
+
+Prima parte del compito `Docs/i18n/ita/compiti-ai-esterne/2026-09-10-calc-modalita-programmatore.md`.
+Estende `engine.rs` con il supporto alle basi non-decimali (Hex/Oct/Bin) e agli operatori
+bitwise/shift/rotate, mantenendo il comportamento decimale **byte-identico**.
+
+### Added (Parte A — engine base-aware)
+- **`NumBase`** (`Dec | Hex | Oct | Bin`, default `Dec`) e **`BitWidth`**
+  (`Byte | Word | Dword | Qword`, default `Qword`) — nuovi enum pubblici con `impl Default`
+  e `radix()`/`bits()`.
+- **`tokenize_with_base(s, base)`**: sostituisce il `tokenize` esistente. In `Dec` il branch
+  numerico è **identico** all'originale (mantissa + punto + esponente scientifico, nessun
+  separatore `_`); in `Hex/Oct/Bin` consuma cifre valide nella base + separatori `_`, niente
+  punto né esponente. Il guard del branch richiede che il primo char sia una cifra vera (mai `_`).
+- **8 nuovi token a simbolo singolo** (glyph Unicode dedicati, mai parole testuali per non
+  collidere con le cifre esadecimali A-F): `∧` AND, `∨` OR, `⊻` XOR, `≪` SHL, `≫` SHR,
+  `↺` ROL, `↻` ROR, e `¬` NOT (via `FuncId::Not`, prefisso come √/∛).
+- **`BinOp::{And, Or, Xor, Shl, Shr, Rol, Ror}`** — riusano il nodo `Expr::Bin` esistente.
+- **`FuncId::Not`** — NOT bitwise unario, gestito dal ramo `Func '(' expr ')'` già esistente.
+- **Nuovi livelli di precedenza C-like** (`or_expr` → `xor_expr` → `and_expr` → `shift_expr` →
+  `expr` esistente): shift/rotate > AND > XOR > OR. Entry point di `parse_with_base` = `or_expr`.
+- **`parse_with_base(s, base)`** (nuova) + `parse(s)` come wrapper su `NumBase::Dec`.
+- **`evaluate_with_width(e, mode, width)`** (nuova) + `evaluate(e, mode)` come wrapper su
+  `BitWidth::Qword`. Valutazione bitwise con `to_i64_checked` (dominio invalido → NaN, mai Err);
+  shift con `checked_shl`/`checked_shr` (mai `<<`/`>>` grezzi, niente panic); rotate con
+  riduzione modulo `width`; l'ammontare di shift valido dipende da `width` (`1≪9` valido a
+  Qword, NaN a Byte).
+- **`to_i64_checked(v)`** (`pub(crate)`): conversione esatta f64 → i64 con confini di range.
+
+### Tests (Parte A — 15 nuovi, RED → GREEN)
+`bitwise_and_or_xor_values`, `shift_values`, `not_bitwise_value`,
+`precedence_and_tighter_than_or`, `precedence_shift_wider_than_add`,
+`precedence_and_wider_than_shift`, `bitwise_works_in_dec`, `to_i64_checked_boundaries`,
+`shift_amount_depends_on_width`, `rotate_byte_values`, `non_decimal_literal_parsing`,
+`underscore_separator_only_non_decimal`, `shift_right_value`, più i test discriminanti di
+precedenza. I 91 test esistenti restano verdi **senza essere stati modificati**.
+
+### Changed (Parte A — necessario per compilare)
+- **`render.rs`**: `prec()` rinumerata (atomici 7, `×÷%` 6, `+−` 5, shift 4, AND 3, XOR 2, OR 1)
+  e nuovi rami per i 7 `BinOp` + `FuncId::Not`. Necessario perché i match di `render`/`prec`
+  sono esaustivi: senza questi rami il crate non compila. Le soglie `operand(…, 3)` di
+  `Neg`/`Factorial`/`Pow` sono state aggiornate a `7` (prec dei nodi atomici) per preservare
+  l'output HTML esistente.
+
 ## 2.0.0 — 2026-09-05 — fork da v1 0.2.0
 
 Copia del crate dalla v1 (`mauriziolobello/lare-terminal`) nel repo 2.0. Nessuna modifica
