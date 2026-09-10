@@ -25,6 +25,11 @@
 
 ## FATTO
 
+- **plugin-calc 2.2.0 — Modalità programmatore Parte B: format_integer_in_base (2026-09-10)** —
+  Aggiunto `format_integer_in_base(x, base, width)` in `format.rs`: formattazione in
+  Hex/Oct/Bin con mascheratura alla larghezza bit, zero-padding SEMPRE a cifre piene
+  e raggruppamento `_` per Hex/Bin. 8 nuovi test; 114 totali, tutti verdi.
+
 - **plugin-calc 2.1.0 — Modalità programmatore Parte A: engine base-aware (2026-09-10)** —
   Compito `Docs/i18n/ita/compiti-ai-esterne/2026-09-10-calc-modalita-programmatore.md`:
   introdotti `NumBase` (Dec/Hex/Oct/Bin) e `BitWidth` (Byte/Word/Dword/Qword) in `engine.rs`.

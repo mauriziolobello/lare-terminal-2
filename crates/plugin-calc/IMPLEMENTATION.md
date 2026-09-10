@@ -1,6 +1,6 @@
 # IMPLEMENTATION — plugin-calc
 
-**Version:** 2.1.0 (Parte A modalità programmatore: `NumBase`/`BitWidth`, tokenizer base-aware, operatori bitwise/shift/rotate, precedenza C-like)  
+**Version:** 2.2.0 (Parte B: `format_integer_in_base` con mascheratura/padding/raggruppamento per Hex/Oct/Bin)  
 **Binary:** `calc` (discovered as `plugins/calc/calc.exe` on Windows)  
 **Role:** Slice 2 aritmetica base + Slice scientifica Tasks 1–4 (engine esteso, render scientifico, Shift sticky + DEG/RAD + tasti scientifici, CSS) + Refinements v2 Task vA (engine: ∛, n!, %) + Task vB (layout 7×5, nuovi tasti UI, Shift v2, riga stato) + modalità programmatore Parte A (engine base-aware).
 
@@ -115,6 +115,21 @@ BitWidth: Byte | Word | Dword | Qword      (impl Default → Qword; bits() → 8
 | `abs ∈ [1e-6, 1e12)` | float con zeri finali tagliati |
 | fuori range | `"{m}e{e}"` con mantissa trimmata |
 | NaN o Inf | `"Error"` |
+
+### Modalità programmatore — Parte B (format_integer_in_base)
+
+`format_integer_in_base(x, base, width) -> Option<String>` (`format.rs`):
+formattazione in Hex/Oct/Bin con mascheratura alla larghezza, zero-padding e raggruppamento `_`.
+
+| Base | Cifre per larghezza | Raggruppamento |
+|---|---|---|
+| Hex | width/4 (Byte=2, Word=4, Dword=8, Qword=16) | ogni 4, `_` |
+| Bin | width (Byte=8, Word=16, Dword=32, Qword=64) | ogni 4, `_` |
+| Oct | ⌈width/3⌉ (Byte=3, Word=6, Dword=11, Qword=22) | nessuno |
+
+Non chiamabile con `NumBase::Dec` (unreachable — la larghezza bit è inerte in Dec).
+Usa `to_i64_checked` (pub(crate)) per la validazione intero. Il troncamento degli
+overflow di input è intenzionale (comportamento Windows Calculator).
 
 ### render.rs — HTML 2D (Task 2 aggiornato, Task vA aggiornato)
 

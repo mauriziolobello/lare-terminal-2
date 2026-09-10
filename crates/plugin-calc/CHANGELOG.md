@@ -3,6 +3,23 @@
 All notable changes to this crate will be documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/). Semver from `0.1.0`.
 
+## [2.2.0] — 2026-09-10 — Modalità programmatore, Parte B (format_integer_in_base)
+
+### Added
+- **`format_integer_in_base(x, base, width) -> Option<String>`** (`format.rs`): formattazione
+  di un f64 come intero senza segno in Hex/Oct/Bin. Mascheratura alla larghezza bit (padding
+  a cifre piene, troncamento degli overflow di input — comportamento Windows Calculator).
+  Zero-padding SEMPRE alla larghezza piena (¬(0) a Byte in Hex = "FF", non "F").
+  Raggruppamento `_` ogni 4 cifre per Hex/Bin; Oct senza raggruppamento. Non chiamabile
+  con `NumBase::Dec` (la larghezza bit è inerte in Dec — vedi §6).
+- **`group_every(s, n, sep)`**: helper privato — inserisce sep ogni n caratteri contando
+  DA DESTRA, così il gruppo corto arriva all'inizio. Usata per il raggruppamento `_`.
+- **8 nuovi test TDD** (RED → GREEN): `format_hex_byte_255_is_ff`,
+  `format_hex_qword_255_is_sixteen_digits_grouped`, `format_oct_byte_8_is_010`,
+  `format_bin_byte_5_is_grouped`, `format_not_zero_hex_byte_ff`,
+  `format_not_zero_hex_qword_all_f`, `format_overflow_truncates_silently`,
+  `format_non_integer_returns_none`.
+
 ## [2.1.0] — 2026-09-10 — Modalità programmatore, Parte A (engine: basi numeriche, bitwise, shift/rotate)
 
 Prima parte del compito `Docs/i18n/ita/compiti-ai-esterne/2026-09-10-calc-modalita-programmatore.md`.
