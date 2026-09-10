@@ -25,6 +25,15 @@
 
 ## FATTO
 
+- **plugin-calc 2.3.0 — Modalità programmatore Parte C: UI, tasti, CSS, conversione (2026-09-10)** —
+  `CalcState` guadagna `base_mode`, `bit_width`, `prog_visible`. Nuovi rami `handle_key` per
+  basi (DEC/HEX/OCT/BIN), larghezze (BYTE/WORD/DWORD/QWORD), operatori bitwise (AND/OR/XOR/NOT),
+  shift/rotate con 2nd, toggle sezione programmatore. Nuova funzione `programmer_key_grid`
+  (4 righe × 5, 20 tasti ambra). Display lineare (mai 2D) in base non-Dec. Righello stato
+  mostra base+larghezza quando non-Dec. CSS: `.lare-prog-section` ambra, `.lare-prog-toggle`.
+  12 nuovi test. 129 totali (43 engine + 64 format/render/main esistenti + 22 nuovi), tutti
+  verdi, clippy pulito. plugin-calc 2.2.0 → 2.3.0.
+
 - **plugin-calc 2.2.0 — Modalità programmatore Parte B: format_integer_in_base (2026-09-10)** —
   Aggiunto `format_integer_in_base(x, base, width)` in `format.rs`: formattazione in
   Hex/Oct/Bin con mascheratura alla larghezza bit, zero-padding SEMPRE a cifre piene

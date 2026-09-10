@@ -1,6 +1,6 @@
 # IMPLEMENTATION — plugin-calc
 
-**Version:** 2.2.0 (Parte B: `format_integer_in_base` con mascheratura/padding/raggruppamento per Hex/Oct/Bin)  
+**Version:** 2.3.0 (Parte C: UI — tasti base/larghezza/bitwise, programmer_key_grid, display lineare non-Dec, toggle, CSS, conversione)  
 **Binary:** `calc` (discovered as `plugins/calc/calc.exe` on Windows)  
 **Role:** Slice 2 aritmetica base + Slice scientifica Tasks 1–4 (engine esteso, render scientifico, Shift sticky + DEG/RAD + tasti scientifici, CSS) + Refinements v2 Task vA (engine: ∛, n!, %) + Task vB (layout 7×5, nuovi tasti UI, Shift v2, riga stato) + modalità programmatore Parte A (engine base-aware).
 
@@ -130,6 +130,29 @@ formattazione in Hex/Oct/Bin con mascheratura alla larghezza, zero-padding e rag
 Non chiamabile con `NumBase::Dec` (unreachable — la larghezza bit è inerte in Dec).
 Usa `to_i64_checked` (pub(crate)) per la validazione intero. Il troncamento degli
 overflow di input è intenzionale (comportamento Windows Calculator).
+
+### Modalità programmatore — Parte C (main.rs, render_window, CSS)
+
+**`CalcState`** guadagna tre campi: `base_mode: NumBase` (Dec), `bit_width: BitWidth` (Qword),
+`prog_visible: bool` (false). Tutti con default via derive. I tasti base/larghezza chiamano
+`try_convert_buf` che, se il buffer valuta a un intero, riformatta nella nuova base/larghezza
+prima di cambiare modalità — comportamento "conversione" stile Windows Calculator.
+
+**Nuovi `data-evt`** in `handle_key`: `base_dec`/`hex`/`oct`/`bin`, `width_byte`/`word`/`dword`/
+`qword` (entrambi chiamano `try_convert_buf` + cambiano lo stato), `toggle_prog` (inverte
+`prog_visible`), `hexA`-`hexF` (ramo `ch: Option<char>` generico), `op_and`/`op_or`/`op_xor`
+(appendono i glyph Unicode `∧` `∨` `⊻`), `fn_not` (appende `¬(`, prefisso is_fresh=true),
+`op_shift` (≪ o ≫ via was_shifted), `op_rotate` (↺ o ↻ via was_shifted).
+
+**`eq` ramifica su `state.base_mode`**: Dec → `format_number(v)`, Hex/Oct/Bin →
+`format_integer_in_base(v, …)`. `render_window` mostra solo il testo lineare escaped per
+`base_mode != Dec` (evita `render::render` che in Dec potrebbe interpretare `"E+1"` come
+Costante e + costante di Eulero). Lo stato `prog_visible` controlla se `programmer_key_grid`
+è inclusa nell'HTML.
+
+**CSS** (`plugin-catalog.css`): `.lare-prog-section` con bordo/sfondo ambra (rgba(240,180,80,…))
+per delimitare visivamente la sezione programmatore; `.lare-prog-toggle` come controllo cliccabile
+nella riga di stato. Zero codice JS toccato — `plugin-window.js` delega su `[data-evt]` generico.
 
 ### render.rs — HTML 2D (Task 2 aggiornato, Task vA aggiornato)
 

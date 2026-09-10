@@ -339,4 +339,34 @@ mod tests {
     fn render_mod() {
         assert_eq!(r("7%3"), "7 % 3", "render di 7%3 deve essere '7 % 3'");
     }
+
+    // ── Modalità programmatore — render degli operatori bitwise (parte C §11) ──
+    // In Dec gli stessi glyph funzionano comunque (bonus del design §1):
+    // questi test verificano la mappa `sym`/`nome` dei nuovi rami.
+
+    #[test]
+    fn render_bitwise_binary_ops() {
+        assert_eq!(r("5∧3"), "5 ∧ 3", "AND inline con spazi");
+        assert_eq!(r("5∨3"), "5 ∨ 3", "OR inline con spazi");
+        assert_eq!(r("5⊻3"), "5 ⊻ 3", "XOR inline con spazi");
+        assert_eq!(r("5≪3"), "5 ≪ 3", "SHL inline con spazi");
+        assert_eq!(r("5≫3"), "5 ≫ 3", "SHR inline con spazi");
+        assert_eq!(r("5↺3"), "5 ↺ 3", "ROL inline con spazi");
+        assert_eq!(r("5↻3"), "5 ↻ 3", "ROR inline con spazi");
+    }
+
+    #[test]
+    fn render_not_bitwise() {
+        assert_eq!(r("¬(5)"), "¬(5)", "NOT unario: ¬(5)");
+    }
+
+    #[test]
+    fn render_shift_wider_than_add_no_parens() {
+        // `1≪2+3` parsa come `1≪(2+3)` (shift più largo di `+`, precedenza C-like).
+        // Nel render, operand(rhs=Add{2,3}, p=prec(Shl)=4): prec(Add)=5 NON < 4 →
+        // nessuna parentesi intorno alla somma. L'AST già codifica la semantica;
+        // il render la riflette solo con la precedenza (vedi docstring di `render`).
+        assert!(!r("1≪2+3").contains('('),
+            "1≪2+3 non richiede parentesi: prec(Add)=5 >= prec(Shl)=4");
+    }
 }

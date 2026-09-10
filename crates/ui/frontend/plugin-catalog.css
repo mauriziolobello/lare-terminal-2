@@ -253,6 +253,32 @@
   color: var(--text-muted, rgba(160, 185, 220, 0.7));
 }
 
+/* ── Sezione programmatore — sfondo leggermente diverso (ambra) ─────────────
+   Delimita visivamente i tasti bitwise/base/larghezza dall'arancione caldo,
+   in contrasto con il blu dei tasti scientifici. Appare solo dopo il toggle
+   `data-evt="toggle_prog"` nella riga di stato. */
+.lare-prog-section {
+  margin-top: 8px;
+  padding: 6px;
+  border: 1px solid rgba(240, 180, 80, 0.30);
+  border-radius: 8px;
+  background: rgba(240, 180, 80, 0.05);
+}
+.lare-prog-section .lare-key-grid { margin: 0; }
+
+/* ── Toggle sezione programmatore — piccolo controllo nella riga di stato ──
+   NON è un `.lare-key`: la delega generica su `[data-evt]` di plugin-window.js
+   lo rende cliccabile senza consumare uno slot della griglia 5 colonne. */
+.lare-prog-toggle {
+  cursor: pointer;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border: 1px solid rgba(240, 180, 80, 0.4);
+  border-radius: 4px;
+  font-size: 0.85em;
+}
+.lare-prog-toggle:hover { background: rgba(240, 180, 80, 0.15); }
+
 /* ── Potenza in apice 2D — <span class="lare-pow"><span class="lare-pow-base">…</span>
    <sup class="lare-pow-exp">…</sup></span> emesso da render.rs ──────────────────── */
 .lare-pow {

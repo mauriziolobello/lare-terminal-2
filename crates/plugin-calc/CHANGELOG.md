@@ -3,6 +3,36 @@
 All notable changes to this crate will be documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/). Semver from `0.1.0`.
 
+## [2.3.0] — 2026-09-10 — Modalità programmatore, Parte C (UI, tasti, CSS, conversione)
+
+### Added
+- **`CalcState::{base_mode, bit_width, prog_visible}`** (`main.rs`): tre nuovi campi di
+  stato con default Dec/Qword/false via `#[derive(Default)]`.
+- **`try_convert_buf`**: helper che riformatta il buffer nella nuova base/larghezza quando
+  valuta correttamente (comportamento "conversione" stile Windows Calculator).
+- **Nuovi rami `handle_key`**: `base_dec`/`hex`/`oct`/`bin`, `width_byte`/`word`/`dword`/`qword`,
+  `toggle_prog`, `op_and`/`op_or`/`op_xor`, `fn_not` (¬(, prefisso), `op_shift` (≪/≫ via 2nd),
+  `op_rotate` (↺/↻ via 2nd). Cifre esadecimali `hexA`–`hexF` nel ramo `ch: Option<char>`.
+- **`eq` base-aware**: ramifica su `state.base_mode` — in Dec usa `format_number`, in
+  Hex/Oct/Bin usa `format_integer_in_base`.
+- **`programmer_key_grid(state)`**: griglia 4 righe × 5 colonne (20 tasti) con layout DEC/HEX/
+  OCT/BIN/NOT, A–F, AND/OR/XOR/SHL–SHR, BYTE/WORD/DWORD/QWORD/ROL–ROR. Etichette shift-aware
+  (SHL↔SHR, ROL↔ROR).
+- **Display lineare in Hex/Oct/Bin**: `render_window` ora evita `render::render` quando
+  `base_mode != Dec` — evita che `parse("E+1")` venga letto come Const(E)+Num(1).
+- **Riga stato estesa**: mostra `base_label · width_label` quando `base_mode != Dec`; la
+  larghezza bit non compare mai in Dec (è inerte). Toggle `▼ PROG`/`▲ PROG` nella riga stato.
+- **CSS** (`plugin-catalog.css`): `.lare-prog-section` (bordo ambra, sfondo caldo),
+  `.lare-prog-toggle` (controllo cliccabile nella riga stato). Zero codice JS toccato.
+- **Nuovi test render** (`render_bitwise_binary_ops`, `render_not_bitwise`,
+  `render_shift_wider_than_add_no_parens`): coprono i nuovi rami di `render.rs`.
+- **12 nuovi test main** TDD (RED → GREEN): `toggle_prog_visibility`,
+  `prog_section_not_visible_by_default`, `prog_section_visible_after_toggle`,
+  `convert_dec_to_hex_qword`, `convert_dec_to_hex_byte`, `integrated_programmer_sequence`,
+  `incomplete_expression_no_conversion`, `overflow_input_truncates`,
+  `status_line_dec_shows_only_deg`, `status_line_hex_shows_base_and_width`,
+  `not_bitwise_end_to_end`, `shift_end_to_end`.
+
 ## [2.2.0] — 2026-09-10 — Modalità programmatore, Parte B (format_integer_in_base)
 
 ### Added
