@@ -570,11 +570,11 @@ fn key_grid(state: &CalcState) -> String {
 ///
 /// Layout (4 righe × 5 colonne):
 ///   Riga 1 (in cima):        D   | E   | F   | AND | OR
-///   Riga 2:                  A   | B   | C   | XOR | SHL/SHR (2nd)
-///   Riga 3:                  DEC | HEX | OCT | BIN | NOT
+///   Riga 2:                  A   | B   | C   | XOR | NOT
+///   Riga 3:                  DEC | HEX | OCT | BIN | SHL/SHR (2nd)
 ///   Riga 4 (in fondo):       BYTE| WORD| DWORD|QWORD| ROL/ROR (2nd)
 ///
-/// Ordine A-F (fix 2026-09-10, due giri di correzione su indicazione di
+/// Ordine A-F (fix 2026-09-10, tre giri di correzione su indicazione di
 /// Maurizio): coerente con la tastiera decimale esistente, dove le cifre
 /// iniziano dal BASSO (0 in fondo) e salgono (1-2-3, poi 4-5-6, poi 7-8-9 in
 /// cima) — sempre da sinistra a destra dentro ogni riga. Le 6 cifre
@@ -582,8 +582,13 @@ fn key_grid(state: &CalcState) -> String {
 /// occupano (colonne 1-3 di Riga 1/2): contando le 4 righe DAL BASSO, A parte
 /// dalla 3ª riga (= Riga 2 qui, la seconda dall'alto) e prosegue prima a
 /// destra (A→B→C) poi in alto, alla 4ª riga dal basso (= Riga 1, la
-/// TOPMOST) per D→E→F. Gli altri tasti (base/larghezza/booleani) sono stati
-/// riorganizzati di conseguenza nelle 2 righe restanti, in basso.
+/// TOPMOST) per D→E→F.
+///
+/// Colonna 5 (terzo giro): NOT spostato in Riga 2, accanto ad AND/OR/XOR —
+/// i 4 operatori booleani ora stanno tutti in un blocco 2×2 (AND/OR sopra,
+/// XOR/NOT sotto), invece di avere NOT isolato nella riga base. SHL/SHR
+/// scende in Riga 3, così ROL/ROR (Riga 4, stessa colonna) sta subito sotto
+/// — shift e rotazione, stessa famiglia concettuale, ora impilati insieme.
 ///
 /// Etichette shift-aware per shift e rotate (stesso pattern di sqrt/square_label).
 fn programmer_key_grid(state: &CalcState) -> String {
@@ -603,13 +608,13 @@ fn programmer_key_grid(state: &CalcState) -> String {
             <button class=\"lare-key\" data-evt=\"hexB\" data-key=\"b B\">B</button>\
             <button class=\"lare-key\" data-evt=\"hexC\" data-key=\"c C\">C</button>\
             <button class=\"lare-key\" data-evt=\"op_xor\">XOR</button>\
-            <button class=\"lare-key\" data-evt=\"op_shift\">{shift_label}</button>\
+            <button class=\"lare-key\" data-evt=\"fn_not\">NOT</button>\
             \
             <button class=\"lare-key\" data-evt=\"base_dec\">DEC</button>\
             <button class=\"lare-key\" data-evt=\"base_hex\">HEX</button>\
             <button class=\"lare-key\" data-evt=\"base_oct\">OCT</button>\
             <button class=\"lare-key\" data-evt=\"base_bin\">BIN</button>\
-            <button class=\"lare-key\" data-evt=\"fn_not\">NOT</button>\
+            <button class=\"lare-key\" data-evt=\"op_shift\">{shift_label}</button>\
             \
             <button class=\"lare-key\" data-evt=\"width_byte\">BYTE</button>\
             <button class=\"lare-key\" data-evt=\"width_word\">WORD</button>\
@@ -1164,6 +1169,28 @@ mod tests {
             "il blocco esadecimale deve stare sopra la riga base (DEC/HEX/OCT/BIN)");
         assert!(pos_base_dec < pos_width_byte,
             "la riga base deve stare sopra la riga larghezza (BYTE/WORD/DWORD/QWORD)");
+    }
+
+    /// Raggruppamento operatori (fix 2026-09-10, terzo giro): AND/OR/XOR/NOT
+    /// devono stare tutti in un blocco 2×2, NOT non isolato nella riga base.
+    /// SHL/SHR deve stare subito sopra ROL/ROR (stessa colonna, righe
+    /// adiacenti) — famiglia concettuale comune (shift/rotazione).
+    #[test]
+    fn boolean_ops_grouped_and_shift_above_rotate() {
+        let h = render_window(&keys(&["toggle_prog"]));
+        let pos_xor = h.find("data-evt=\"op_xor\"").expect("op_xor presente");
+        let pos_not = h.find("data-evt=\"fn_not\"").expect("fn_not presente");
+        let pos_base_dec = h.find("data-evt=\"base_dec\"").expect("base_dec presente");
+        assert!(pos_not < pos_base_dec,
+            "NOT deve stare nel blocco booleano (sopra la riga base), non isolato lì dentro");
+        // NOT deve comparire SUBITO dopo XOR (stesso ordine di lettura AND-OR-XOR-NOT).
+        assert!(pos_xor < pos_not,
+            "NOT deve seguire XOR nell'ordine di lettura, per formare il blocco 2×2 con AND/OR");
+
+        let pos_shift = h.find("data-evt=\"op_shift\"").expect("op_shift presente");
+        let pos_rotate = h.find("data-evt=\"op_rotate\"").expect("op_rotate presente");
+        assert!(pos_shift < pos_rotate,
+            "SHL/SHR deve comparire prima (sopra) di ROL/ROR nell'HTML");
     }
 
     /// Conversione: 255 in Dec, poi switch a Hex (a Qword default) → 16 cifre.

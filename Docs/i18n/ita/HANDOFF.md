@@ -16,9 +16,10 @@
 - plugin-protocol 2.0.0 (da v1 0.2.1)
 - plugin-ping 2.0.0 (da v1 0.1.0)
 - plugin-counter 2.0.0 (da v1 0.1.0)
-- plugin-calc 2.3.1 (da v1 0.2.0; 2.1.0-2.3.0 — modalità programmatore hex/oct/bin/bitwise/
+- plugin-calc 2.3.2 (da v1 0.2.0; 2.1.0-2.3.0 — modalità programmatore hex/oct/bin/bitwise/
   shift/rotate/larghezza bit; 2.3.1 — fix cifre fuori dall'alfabeto della base accettate nel
-  buffer, riga di stato mostra sempre la base, layout tasti A-F riordinato)
+  buffer, riga di stato mostra sempre la base, layout tasti A-F riordinato; 2.3.2 — NOT e
+  SHL/SHR riposizionati nel layout)
 - plugin-lc 2.0.0 (da v1 0.4.5)
 - plugin-crypto 2.0.0 (da v1 1.0.1)
 - ui 2.3.3 (da v1 0.47.1; 2.3.3 — limite tentativi di reconnect canali esterni e fix reset backoff)
@@ -26,6 +27,13 @@
   `--no-terminal` — non un crate Cargo: `shell/lare-shell/`, .NET/C#)
 
 ## FATTO
+
+- **plugin-calc 2.3.2 — Fix: NOT e SHL/SHR riposizionati nella sezione programmatore
+  (2026-09-10)** — segnalato da Maurizio dal vivo (screenshot): NOT stava isolato nella riga
+  base, separato da AND/OR/XOR; SHL/SHR stava lontano da ROL/ROR. Scambiati: NOT ora accanto a
+  XOR (blocco booleano 2×2 con AND/OR), SHL/SHR ora subito sopra ROL/ROR (stessa colonna).
+  Solo uno scambio di due `data-evt` nel markup di `programmer_key_grid`, nessuna logica
+  toccata. 1 nuovo test, 136 totali, tutti verdi, clippy pulito. Fix diretto del supervisore.
 
 - **plugin-calc 2.3.1 — Fix: cifre fuori dall'alfabeto della base accettate nel buffer
   (2026-09-10)** — segnalato da Maurizio dal vivo: in Bin il tasto "2" veniva accettato dopo

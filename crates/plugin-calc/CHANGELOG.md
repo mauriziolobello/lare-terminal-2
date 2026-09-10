@@ -41,6 +41,25 @@ non valido, rilevato solo al successivo "=" (mostrando "Error").
   `hex_block_sits_above_base_and_width_rows`.
 - 135 test totali (129 esistenti + 6 nuovi), tutti verdi. `cargo clippy`: 0 warning.
 
+## [2.3.2] — 2026-09-10 — Fix: NOT isolato dal blocco booleano, SHL/SHR lontano da ROL/ROR
+
+Segnalato da Maurizio dal vivo (screenshot allegato): NOT stava da solo nella riga base
+(DEC/HEX/OCT/BIN/NOT), separato da AND/OR/XOR; SHL/SHR stava nella riga A/B/C, lontano da
+ROL/ROR (stessa famiglia concettuale — shift e rotazione).
+
+### Fixed
+- **NOT spostato accanto a XOR** (colonna 5, riga A-B-C): i 4 operatori booleani (AND/OR/XOR/NOT)
+  formano ora un blocco 2×2 (AND/OR sopra, XOR/NOT sotto), invece di avere NOT isolato nella riga
+  base.
+- **SHL/SHR spostato nella riga base** (colonna 5, dove prima stava NOT): ora subito sopra
+  ROL/ROR (stessa colonna, righe adiacenti) — shift e rotazione impilati insieme.
+- Solo uno scambio di posizione di due `data-evt` nel markup di `programmer_key_grid` — nessuna
+  logica di `handle_key` toccata.
+
+### Tests
+- 1 nuovo test: `boolean_ops_grouped_and_shift_above_rotate`.
+- 136 test totali, tutti verdi. `cargo clippy`: 0 warning.
+
 ## [2.3.0] — 2026-09-10 — Modalità programmatore, Parte C (UI, tasti, CSS, conversione)
 
 ### Added

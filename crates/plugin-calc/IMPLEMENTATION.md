@@ -1,6 +1,6 @@
 # IMPLEMENTATION — plugin-calc
 
-**Version:** 2.3.1 (fix: `is_valid_digit_for_base` — cifre fuori dall'alfabeto della base attiva ignorate al momento della pressione, non solo a "="; riga di stato mostra sempre la base, anche Dec)  
+**Version:** 2.3.2 (fix: `is_valid_digit_for_base` — cifre fuori dall'alfabeto della base attiva ignorate al momento della pressione, non solo a "="; riga di stato mostra sempre la base, anche Dec; layout A-F riordinato; NOT/SHL-SHR riposizionati accanto ai rispettivi gruppi)  
 **Binary:** `calc` (discovered as `plugins/calc/calc.exe` on Windows)  
 **Role:** Slice 2 aritmetica base + Slice scientifica Tasks 1–4 (engine esteso, render scientifico, Shift sticky + DEG/RAD + tasti scientifici, CSS) + Refinements v2 Task vA (engine: ∛, n!, %) + Task vB (layout 7×5, nuovi tasti UI, Shift v2, riga stato) + modalità programmatore Parte A (engine base-aware).
 
@@ -178,10 +178,20 @@ anche questa regola.
 **Layout `programmer_key_grid` riorganizzato** (stesso fix 2.3.1, richiesta separata di
 Maurizio): l'ordine A-F ora rispecchia la tastiera decimale — dal basso verso l'alto, sinistra
 verso destra. Contando le 4 righe della sezione DAL BASSO: riga 1 (in fondo) = larghezza
-(BYTE/WORD/DWORD/QWORD/ROL-ROR, invariata); riga 2 = base (DEC/HEX/OCT/BIN/NOT, spostata qui da
-dove stava prima, in cima); riga 3 = A,B,C + XOR + SHL/SHR; riga 4 (in cima) = D,E,F + AND + OR.
+(BYTE/WORD/DWORD/QWORD/ROL-ROR, invariata); riga 2 = base (DEC/HEX/OCT/BIN, colonna 5 vedi sotto);
+riga 3 = A,B,C + XOR + colonna 5 (vedi sotto); riga 4 (in cima) = D,E,F + AND + OR.
 Nessun cambio ai `data-evt`/`data-key` dei singoli tasti, solo all'ordine nel markup HTML — le
 funzioni di `handle_key` restano identiche.
+
+### Fix 2.3.2 — NOT e SHL/SHR riposizionati (main.rs, `programmer_key_grid`)
+
+Segnalato da Maurizio dal vivo (screenshot): NOT stava isolato nella riga base (colonna 5,
+separato da AND/OR/XOR); SHL/SHR stava nella riga A-B-C, lontano da ROL/ROR (stessa famiglia
+concettuale — shift e rotazione). Scambiati di posto: **NOT** ora colonna 5 della riga A-B-C
+(accanto a XOR — i 4 operatori booleani formano un blocco 2×2, AND/OR sopra e XOR/NOT sotto);
+**SHL/SHR** ora colonna 5 della riga base (DEC/HEX/OCT/BIN), subito sopra ROL/ROR (riga
+larghezza, stessa colonna) — shift e rotazione impilati insieme. Solo uno scambio di posizione
+di due `data-evt` nel markup, nessuna logica di `handle_key` toccata.
 
 ### render.rs — HTML 2D (Task 2 aggiornato, Task vA aggiornato)
 
