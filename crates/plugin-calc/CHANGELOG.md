@@ -3,6 +3,44 @@
 All notable changes to this crate will be documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/). Semver from `0.1.0`.
 
+## [2.3.1] — 2026-09-10 — Fix: cifre fuori dall'alfabeto della base accettate nel buffer
+
+Segnalato da Maurizio dal vivo, due casi concreti: in modalità Bin, il tasto "2" veniva accettato
+dopo "1101" (invalido, solo "0"/"1" sono cifre binarie); in modalità Dec, i tasti esadecimali
+A-F (es. "C") venivano accettati anch'essi. In entrambi i casi il buffer accumulava un letterale
+non valido, rilevato solo al successivo "=" (mostrando "Error").
+
+### Fixed
+- **`is_valid_digit_for_base(c, base)`** (`main.rs`, nuova funzione): cifre/lettere esadecimali/
+  punto fuori dall'alfabeto della base numerica attiva vengono ora ignorate silenziosamente al
+  momento della pressione del tasto — mai inserite nel buffer. Gli operatori/parentesi restano
+  sempre validi indipendentemente dalla base (invariato). I tasti restano tutti visibili
+  (nessun tasto nascosto/disabilitato in UI — semplicemente non succede nulla alla pressione,
+  come un tasto disabilitato su una calcolatrice fisica).
+- **Regola "smart clear after result" estesa alle cifre esadecimali**: prima usava solo
+  `is_ascii_digit()`, quindi una cifra A-F dopo un risultato in Hex concatenava invece di
+  iniziare un nuovo input (incoerente col comportamento già corretto delle cifre 0-9).
+- **Riga di stato: la base è sempre mostrata, anche `DEC`** — prima la modalità Dec non
+  mostrava alcuna etichetta di base (solo l'angolo), incoerente con Hex/Oct/Bin che la
+  mostrano sempre. La larghezza bit resta l'unica cosa nascosta in Dec (è inerte lì).
+
+- **Layout tasti esadecimali A-F riorganizzato** (`programmer_key_grid`, `main.rs`): ordine
+  precedente (A-B-C-D-E-F letto dall'alto verso il basso) sostituito con l'ordine richiesto da
+  Maurizio, coerente con la tastiera decimale esistente — contando le 4 righe della sezione
+  programmatore DAL BASSO, A parte dalla 3ª riga e prosegue a destra (A→B→C) poi in alto alla
+  4ª riga/cima (D→E→F), esattamente come 0 in fondo e 9 in cima a destra nella tastiera
+  decimale. Riga base (DEC/HEX/OCT/BIN/NOT) e riga larghezza (BYTE/WORD/DWORD/QWORD/ROL-ROR)
+  riorganizzate di conseguenza nelle due righe restanti, sotto il blocco esadecimale.
+
+### Tests
+- 4 nuovi test TDD (RED→GREEN): `bin_mode_rejects_digit_2` (il caso esatto segnalato),
+  `oct_mode_rejects_digits_8_and_9`, `hex_digits_rejected_outside_hex_mode`,
+  `hex_digit_after_result_starts_fresh`. Un test esistente rinominato/esteso:
+  `status_line_dec_shows_only_deg` → `status_line_dec_shows_deg_and_dec`.
+- 2 nuovi test per il layout A-F: `hex_digit_order_matches_decimal_keypad_convention`,
+  `hex_block_sits_above_base_and_width_rows`.
+- 135 test totali (129 esistenti + 6 nuovi), tutti verdi. `cargo clippy`: 0 warning.
+
 ## [2.3.0] — 2026-09-10 — Modalità programmatore, Parte C (UI, tasti, CSS, conversione)
 
 ### Added

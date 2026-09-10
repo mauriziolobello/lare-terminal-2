@@ -85,6 +85,38 @@ fn append_str(state: &mut CalcState, text: &str, is_fresh: bool) {
     state.buf.push_str(text);
 }
 
+/// Vero se `c` è una cifra (0-9, A-F esadecimale, o punto decimale) valida per
+/// l'alfabeto della base numerica corrente.
+///
+/// Fix 2026-09-10 (segnalato da Maurizio dal vivo, due casi concreti: "2" accettato
+/// in modalità Bin dopo "1101"; "C" — un tasto esadecimale — accettato in modalità
+/// Dec): prima di questo fix, i tasti cifra (d0-d9, hexA-F, '.') finivano SEMPRE
+/// nel buffer indipendentemente dalla base attiva — solo l'engine, al momento di
+/// "=", rifiutava il letterale non valido (mostrando "Error" a posteriori). I tasti
+/// restano SEMPRE visibili (Maurizio: "tutti i tasti numerici vengono mostrati"),
+/// ma solo quelli che appartengono davvero all'alfabeto della base corrente vengono
+/// accettati nel buffer — esattamente come un tasto disabilitato su una calcolatrice
+/// fisica, semplicemente non succede nulla alla pressione.
+///
+/// Operatori e parentesi (+, −, ×, ÷, (, )) NON passano da questo controllo — sono
+/// sempre validi indipendentemente dalla base (gli operatori bitwise funzionano
+/// anche in Dec, vedi il compito 2026-09-10-calc-modalita-programmatore.md §1); la
+/// funzione chiamante applica questo controllo solo ai caratteri "cifra-simili"
+/// (vedi `is_ascii_alphanumeric() || c == '.'` nel chiamante).
+fn is_valid_digit_for_base(c: char, base: NumBase) -> bool {
+    match base {
+        // Dec: invariato rispetto al comportamento storico — cifre 0-9 e punto.
+        NumBase::Dec => c.is_ascii_digit() || c == '.',
+        // Hex: 0-9 e A-F (case-insensitive; i tasti emettono solo maiuscole,
+        // `is_ascii_hexdigit` accetta comunque entrambi i casi senza problemi).
+        NumBase::Hex => c.is_ascii_hexdigit(),
+        // Oct: solo 0-7.
+        NumBase::Oct => ('0'..='7').contains(&c),
+        // Bin: solo 0/1.
+        NumBase::Bin => c == '0' || c == '1',
+    }
+}
+
 /// Se il buffer corrente valuta a un intero rappresentabile nella VECCHIA base/
 /// larghezza, lo riformatta nella NUOVA base/larghezza e lo scrive nel buffer
 /// (comportamento "conversione", imita Windows Calculator modalità Programmatore).
@@ -314,12 +346,22 @@ fn handle_key(state: &mut CalcState, key: &str) {
         // Tasto con carattere associato (cifre, operatori base, parentesi).
         _ => {
             if let Some(c) = ch {
+                // Cifra/lettera esadecimale/punto fuori dall'alfabeto della base
+                // corrente → ignorata silenziosamente, non entra nel buffer (fix
+                // 2026-09-10: prima veniva accettata e falliva solo dopo, a "=").
+                // Operatori/parentesi non sono "cifra-simili" e bypassano il controllo.
+                let is_digit_like = c.is_ascii_alphanumeric() || c == '.';
+                if is_digit_like && !is_valid_digit_for_base(c, state.base_mode) {
+                    return;
+                }
+
                 // Regola "smart clear after result":
-                //   - Se l'ultimo evento era `=` e l'utente preme una cifra / '.' / '(' → nuovo input.
+                //   - Se l'ultimo evento era `=` e l'utente preme una cifra (anche
+                //     esadecimale A-F) / '.' / '(' → nuovo input.
                 //   - Se l'ultimo evento era `=` e l'utente preme un operatore → concatena al risultato.
                 //   - Se il buffer è "Error" (risultato di errore) → qualsiasi nuovo tasto lo cancella.
                 if state.last_was_result {
-                    let is_digit_or_open = c.is_ascii_digit() || c == '.' || c == '(';
+                    let is_digit_or_open = is_digit_like || c == '(';
                     if is_digit_or_open || state.buf == "Error" {
                         state.buf.clear();
                     }
@@ -379,17 +421,20 @@ fn render_window(state: &CalcState) -> String {
         AngleMode::Deg => "DEG",
         AngleMode::Rad => "RAD",
     };
-    // La larghezza bit NON compare mai se base_mode == Dec (è inerte, §6 —
-    // mostrarla sarebbe fuorviante), indipendentemente da prog_visible.
+    // La base è SEMPRE mostrata (anche Dec, per simmetria — fix 2026-09-10,
+    // segnalato da Maurizio: prima Dec non mostrava nulla, incoerente con
+    // Hex/Oct/Bin che mostrano sempre la propria etichetta). La larghezza bit
+    // resta l'unica cosa nascosta in Dec: è inerte lì (§6 del compito
+    // 2026-09-10-calc-modalita-programmatore.md), mostrarla sarebbe fuorviante.
+    let base_label = match state.base_mode {
+        NumBase::Dec => "DEC",
+        NumBase::Hex => "HEX",
+        NumBase::Oct => "OCT",
+        NumBase::Bin => "BIN",
+    };
     let status_line = if state.base_mode == NumBase::Dec {
-        mode_label.to_string()
+        format!("{mode_label} · {base_label}")
     } else {
-        let base_label = match state.base_mode {
-            NumBase::Dec => unreachable!(),
-            NumBase::Hex => "HEX",
-            NumBase::Oct => "OCT",
-            NumBase::Bin => "BIN",
-        };
         let width_label = match state.bit_width {
             BitWidth::Byte => "BYTE",
             BitWidth::Word => "WORD",
@@ -524,10 +569,21 @@ fn key_grid(state: &CalcState) -> String {
 /// Visibile solo quando `state.prog_visible` — toggle nella riga di stato.
 ///
 /// Layout (4 righe × 5 colonne):
-///   Riga 1: DEC | HEX | OCT | BIN | NOT
-///   Riga 2: A   | B   | C   | D   | E
-///   Riga 3: F   | AND | OR  | XOR | SHL/SHR (2nd)
-///   Riga 4: BYTE| WORD| DWORD|QWORD| ROL/ROR (2nd)
+///   Riga 1 (in cima):        D   | E   | F   | AND | OR
+///   Riga 2:                  A   | B   | C   | XOR | SHL/SHR (2nd)
+///   Riga 3:                  DEC | HEX | OCT | BIN | NOT
+///   Riga 4 (in fondo):       BYTE| WORD| DWORD|QWORD| ROL/ROR (2nd)
+///
+/// Ordine A-F (fix 2026-09-10, due giri di correzione su indicazione di
+/// Maurizio): coerente con la tastiera decimale esistente, dove le cifre
+/// iniziano dal BASSO (0 in fondo) e salgono (1-2-3, poi 4-5-6, poi 7-8-9 in
+/// cima) — sempre da sinistra a destra dentro ogni riga. Le 6 cifre
+/// esadecimali seguono la STESSA logica sul blocco 3 colonne × 2 righe che
+/// occupano (colonne 1-3 di Riga 1/2): contando le 4 righe DAL BASSO, A parte
+/// dalla 3ª riga (= Riga 2 qui, la seconda dall'alto) e prosegue prima a
+/// destra (A→B→C) poi in alto, alla 4ª riga dal basso (= Riga 1, la
+/// TOPMOST) per D→E→F. Gli altri tasti (base/larghezza/booleani) sono stati
+/// riorganizzati di conseguenza nelle 2 righe restanti, in basso.
 ///
 /// Etichette shift-aware per shift e rotate (stesso pattern di sqrt/square_label).
 fn programmer_key_grid(state: &CalcState) -> String {
@@ -537,23 +593,23 @@ fn programmer_key_grid(state: &CalcState) -> String {
     format!(
         "<div class=\"lare-prog-section\">\
           <div class=\"lare-key-grid\">\
+            <button class=\"lare-key\" data-evt=\"hexD\" data-key=\"d D\">D</button>\
+            <button class=\"lare-key\" data-evt=\"hexE\" data-key=\"e E\">E</button>\
+            <button class=\"lare-key\" data-evt=\"hexF\" data-key=\"f F\">F</button>\
+            <button class=\"lare-key\" data-evt=\"op_and\">AND</button>\
+            <button class=\"lare-key\" data-evt=\"op_or\">OR</button>\
+            \
+            <button class=\"lare-key\" data-evt=\"hexA\" data-key=\"a A\">A</button>\
+            <button class=\"lare-key\" data-evt=\"hexB\" data-key=\"b B\">B</button>\
+            <button class=\"lare-key\" data-evt=\"hexC\" data-key=\"c C\">C</button>\
+            <button class=\"lare-key\" data-evt=\"op_xor\">XOR</button>\
+            <button class=\"lare-key\" data-evt=\"op_shift\">{shift_label}</button>\
+            \
             <button class=\"lare-key\" data-evt=\"base_dec\">DEC</button>\
             <button class=\"lare-key\" data-evt=\"base_hex\">HEX</button>\
             <button class=\"lare-key\" data-evt=\"base_oct\">OCT</button>\
             <button class=\"lare-key\" data-evt=\"base_bin\">BIN</button>\
             <button class=\"lare-key\" data-evt=\"fn_not\">NOT</button>\
-            \
-            <button class=\"lare-key\" data-evt=\"hexA\" data-key=\"a A\">A</button>\
-            <button class=\"lare-key\" data-evt=\"hexB\" data-key=\"b B\">B</button>\
-            <button class=\"lare-key\" data-evt=\"hexC\" data-key=\"c C\">C</button>\
-            <button class=\"lare-key\" data-evt=\"hexD\" data-key=\"d D\">D</button>\
-            <button class=\"lare-key\" data-evt=\"hexE\" data-key=\"e E\">E</button>\
-            \
-            <button class=\"lare-key\" data-evt=\"hexF\" data-key=\"f F\">F</button>\
-            <button class=\"lare-key\" data-evt=\"op_and\">AND</button>\
-            <button class=\"lare-key\" data-evt=\"op_or\">OR</button>\
-            <button class=\"lare-key\" data-evt=\"op_xor\">XOR</button>\
-            <button class=\"lare-key\" data-evt=\"op_shift\">{shift_label}</button>\
             \
             <button class=\"lare-key\" data-evt=\"width_byte\">BYTE</button>\
             <button class=\"lare-key\" data-evt=\"width_word\">WORD</button>\
@@ -1073,6 +1129,43 @@ mod tests {
         assert!(h.contains("DEC"), "i tasti base devono essere presenti");
     }
 
+    /// Ordine dei tasti esadecimali A-F: fix 2026-09-10, segnalato da Maurizio —
+    /// deve rispecchiare la tastiera decimale esistente (cifre basse in basso,
+    /// alte in alto, sinistra-destra dentro ogni riga). Nell'HTML generato
+    /// (reso riga per riga dall'alto) questo significa D-E-F PRIMA di A-B-C:
+    /// la riga D-E-F è visivamente sopra, la riga A-B-C sotto — A in basso a
+    /// sinistra, F in alto a destra, come 0 in basso e 9 in alto a destra.
+    #[test]
+    fn hex_digit_order_matches_decimal_keypad_convention() {
+        let h = render_window(&keys(&["toggle_prog"]));
+        let pos_d = h.find("data-evt=\"hexD\"").expect("hexD deve essere presente");
+        let pos_a = h.find("data-evt=\"hexA\"").expect("hexA deve essere presente");
+        assert!(pos_d < pos_a,
+            "hexD deve comparire PRIMA di hexA nell'HTML (riga D-E-F sopra, A-B-C sotto)");
+        let pos_f = h.find("data-evt=\"hexF\"").expect("hexF deve essere presente");
+        let pos_c = h.find("data-evt=\"hexC\"").expect("hexC deve essere presente");
+        assert!(pos_f < pos_c,
+            "hexF (fine della riga alta) deve comparire prima di hexC (fine della riga bassa)");
+    }
+
+    /// Posizione dell'intero blocco esadecimale rispetto alle altre righe: fix
+    /// 2026-09-10 (bis) — Maurizio ha chiesto che A parta dalla 3ª riga contando
+    /// dal basso, quindi il blocco D-E-F/A-B-C deve stare SOPRA la riga
+    /// base (DEC/HEX/OCT/BIN/NOT), che a sua volta sta sopra la riga larghezza
+    /// (BYTE/WORD/DWORD/QWORD/ROL-ROR) — quest'ultima resta l'ultima riga (in
+    /// fondo, come già prima di questo fix).
+    #[test]
+    fn hex_block_sits_above_base_and_width_rows() {
+        let h = render_window(&keys(&["toggle_prog"]));
+        let pos_hex_a = h.find("data-evt=\"hexA\"").expect("hexA presente");
+        let pos_base_dec = h.find("data-evt=\"base_dec\"").expect("base_dec presente");
+        let pos_width_byte = h.find("data-evt=\"width_byte\"").expect("width_byte presente");
+        assert!(pos_hex_a < pos_base_dec,
+            "il blocco esadecimale deve stare sopra la riga base (DEC/HEX/OCT/BIN)");
+        assert!(pos_base_dec < pos_width_byte,
+            "la riga base deve stare sopra la riga larghezza (BYTE/WORD/DWORD/QWORD)");
+    }
+
     /// Conversione: 255 in Dec, poi switch a Hex (a Qword default) → 16 cifre.
     #[test]
     fn convert_dec_to_hex_qword() {
@@ -1144,13 +1237,16 @@ mod tests {
             "overflow di input (9 bit in Byte) deve essere troncato a 0");
     }
 
-    /// Larghezza bit è inerte in Dec: la riga stato mostra solo "DEG".
+    /// La base è sempre mostrata (anche Dec, per simmetria con Hex/Oct/Bin —
+    /// segnalato da Maurizio dal vivo, 2026-09-10). La larghezza bit resta
+    /// inerte/nascosta in Dec (non è mai stata un problema, solo la base
+    /// mancava quando era Dec).
     #[test]
-    fn status_line_dec_shows_only_deg() {
+    fn status_line_dec_shows_deg_and_dec() {
         let h = render_window(&CalcState::default());
         assert!(h.contains("DEG"), "status line con Dec default deve contenere DEG");
-        assert!(!h.contains("HEX"), "status line con Dec NON deve mostrare base");
-        assert!(!h.contains("QWORD"), "status line con Dec NON deve mostrare larghezza");
+        assert!(h.contains("DEC"), "status line con Dec deve mostrare anche DEC (simmetria)");
+        assert!(!h.contains("QWORD"), "status line con Dec NON deve mostrare la larghezza");
     }
 
     /// In Hex, la riga stato mostra base + larghezza.
@@ -1160,6 +1256,59 @@ mod tests {
         let h = render_window(&s);
         assert!(h.contains("HEX"), "status line in Hex deve contenere HEX");
         assert!(h.contains("QWORD"), "status line in Hex deve contenere la larghezza");
+    }
+
+    // ══ Fix 2026-09-10 (bis) — cifre fuori dall'alfabeto della base corrente ═══
+    // Segnalato da Maurizio dal vivo: in Bin, digitando "1101" poi "2", il tasto
+    // "2" veniva accettato nel buffer (visibile solo come "Error" al successivo
+    // "="). Il gap: i tasti cifra (d0-d9, hexA-F, '.') non erano mai stati
+    // ristretti all'alfabeto della base attiva — solo l'engine, a "=", rifiutava
+    // il letterale. Fix: il tasto invalido per la base corrente viene ignorato
+    // silenziosamente (non entra nel buffer), come un tasto disabilitato su una
+    // calcolatrice fisica — non serve prima digitare ed errare dopo.
+
+    /// Il caso esatto segnalato da Maurizio: "2" in modalità Bin viene ignorato.
+    #[test]
+    fn bin_mode_rejects_digit_2() {
+        let s = keys(&["base_bin", "d1", "d1", "d0", "d1", "d2"]);
+        assert_eq!(s.buf, "1101",
+            "in Bin, il tasto '2' deve essere ignorato (non è una cifra binaria valida), got {:?}",
+            s.buf);
+    }
+
+    /// Oct rifiuta 8 e 9 (non cifre ottali valide).
+    #[test]
+    fn oct_mode_rejects_digits_8_and_9() {
+        let s = keys(&["base_oct", "d7", "d8", "d9"]);
+        assert_eq!(s.buf, "7",
+            "in Oct, '8' e '9' devono essere ignorati, got {:?}", s.buf);
+    }
+
+    /// Le cifre esadecimali A-F sono valide SOLO in Hex — rifiutate altrove
+    /// (anche in Dec, dove oggi "sin"/"cos" sono le uniche lettere ammesse
+    /// nel buffer, mai una cifra esadecimale isolata).
+    #[test]
+    fn hex_digits_rejected_outside_hex_mode() {
+        assert_eq!(keys(&["hexA"]).buf, "",
+            "in Dec, 'A' non è una cifra valida — deve essere ignorata");
+        assert_eq!(keys(&["base_bin", "hexA"]).buf, "",
+            "in Bin, 'A' non è una cifra valida — deve essere ignorata");
+        assert_eq!(keys(&["base_oct", "hexA"]).buf, "",
+            "in Oct, 'A' non è una cifra valida — deve essere ignorata");
+        // In Hex invece è valida.
+        assert_eq!(keys(&["base_hex", "hexA"]).buf, "A",
+            "in Hex, 'A' è una cifra valida e deve essere accettata");
+    }
+
+    /// Bonus verificato nello stesso punto di codice: la regola "smart clear
+    /// after result" ora si applica anche alle cifre esadecimali (prima solo
+    /// `is_ascii_digit()` la innescava — "F" dopo un "=" in Hex concatenava
+    /// invece di iniziare un nuovo input, incoerente col comportamento di "5").
+    #[test]
+    fn hex_digit_after_result_starts_fresh() {
+        let s = keys(&["base_hex", "width_byte", "hexF", "eq", "hexA"]);
+        assert_eq!(s.buf, "A",
+            "una cifra esadecimale dopo '=' deve iniziare un nuovo input, got {:?}", s.buf);
     }
 
     /// NOT bitwise end-to-end.

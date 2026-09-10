@@ -16,7 +16,9 @@
 - plugin-protocol 2.0.0 (da v1 0.2.1)
 - plugin-ping 2.0.0 (da v1 0.1.0)
 - plugin-counter 2.0.0 (da v1 0.1.0)
-- plugin-calc 2.0.0 (da v1 0.2.0)
+- plugin-calc 2.3.1 (da v1 0.2.0; 2.1.0-2.3.0 — modalità programmatore hex/oct/bin/bitwise/
+  shift/rotate/larghezza bit; 2.3.1 — fix cifre fuori dall'alfabeto della base accettate nel
+  buffer, riga di stato mostra sempre la base, layout tasti A-F riordinato)
 - plugin-lc 2.0.0 (da v1 0.4.5)
 - plugin-crypto 2.0.0 (da v1 1.0.1)
 - ui 2.3.3 (da v1 0.47.1; 2.3.3 — limite tentativi di reconnect canali esterni e fix reset backoff)
@@ -24,6 +26,22 @@
   `--no-terminal` — non un crate Cargo: `shell/lare-shell/`, .NET/C#)
 
 ## FATTO
+
+- **plugin-calc 2.3.1 — Fix: cifre fuori dall'alfabeto della base accettate nel buffer
+  (2026-09-10)** — segnalato da Maurizio dal vivo: in Bin il tasto "2" veniva accettato dopo
+  "1101"; in Dec i tasti esadecimali A-F (es. "C") venivano accettati anch'essi — in entrambi i
+  casi l'errore si vedeva solo al successivo "=". Nuova `is_valid_digit_for_base(c, base)` in
+  `main.rs`: cifra/lettera/punto fuori dall'alfabeto della base attiva ignorata silenziosamente
+  alla pressione (tasti restano tutti visibili, nessun tasto disabilitato in UI). Stessa
+  funzione estende la regola "smart clear after result" alle cifre esadecimali (prima solo
+  `is_ascii_digit()`). Riga di stato: la base è ora sempre mostrata, anche `DEC` (prima solo
+  Hex/Oct/Bin la mostravano) — la larghezza bit resta l'unica cosa nascosta in Dec (inerte lì).
+  Layout `programmer_key_grid` riorganizzato su richiesta di Maurizio: le cifre A-F ora seguono
+  lo stesso ordine "dal basso, sinistra poi alto" della tastiera decimale (A parte dalla 3ª riga
+  contando dal basso, D-E-F occupano la riga in cima) — le altre righe (base/larghezza)
+  riorganizzate di conseguenza. 6 nuovi test TDD, 135 totali, tutti verdi, clippy pulito. Fix
+  diretto del supervisore (non delegato — troppo piccolo/vincolato per giustificare il ciclo
+  compito→dispatch→revisione).
 
 - **plugin-calc 2.3.0 — Modalità programmatore Parte C: UI, tasti, CSS, conversione (2026-09-10)** —
   `CalcState` guadagna `base_mode`, `bit_width`, `prog_visible`. Nuovi rami `handle_key` per

@@ -1,6 +1,6 @@
 # IMPLEMENTATION — plugin-calc
 
-**Version:** 2.3.0 (Parte C: UI — tasti base/larghezza/bitwise, programmer_key_grid, display lineare non-Dec, toggle, CSS, conversione)  
+**Version:** 2.3.1 (fix: `is_valid_digit_for_base` — cifre fuori dall'alfabeto della base attiva ignorate al momento della pressione, non solo a "="; riga di stato mostra sempre la base, anche Dec)  
 **Binary:** `calc` (discovered as `plugins/calc/calc.exe` on Windows)  
 **Role:** Slice 2 aritmetica base + Slice scientifica Tasks 1–4 (engine esteso, render scientifico, Shift sticky + DEG/RAD + tasti scientifici, CSS) + Refinements v2 Task vA (engine: ∛, n!, %) + Task vB (layout 7×5, nuovi tasti UI, Shift v2, riga stato) + modalità programmatore Parte A (engine base-aware).
 
@@ -153,6 +153,35 @@ Costante e + costante di Eulero). Lo stato `prog_visible` controlla se `programm
 **CSS** (`plugin-catalog.css`): `.lare-prog-section` con bordo/sfondo ambra (rgba(240,180,80,…))
 per delimitare visivamente la sezione programmatore; `.lare-prog-toggle` come controllo cliccabile
 nella riga di stato. Zero codice JS toccato — `plugin-window.js` delega su `[data-evt]` generico.
+
+### Fix 2.3.1 — validazione cifre per base al momento della pressione (main.rs)
+
+Prima del fix, `handle_key` accettava QUALUNQUE cifra (0-9, A-F, `.`) nel buffer indipendentemente
+da `base_mode` — l'unico controllo avveniva a `"="`, tramite l'engine (che rifiuta correttamente
+un letterale non valido per la base, mostrando `"Error"`). Segnalato da Maurizio dal vivo: "2" in
+Bin, "C" (esadecimale) in Dec — entrambi accettati nel buffer, errore solo dopo.
+
+`is_valid_digit_for_base(c, base) -> bool`: nuova funzione pura, un match per base (Dec: cifre +
+punto, invariato; Hex: `is_ascii_hexdigit()`; Oct: `'0'..='7'`; Bin: `'0'|'1'`). Chiamata nel ramo
+generico `_ => { if let Some(c) = ch { … } }` di `handle_key`, solo per caratteri "cifra-simili"
+(`is_ascii_alphanumeric() || c == '.'` — operatori/parentesi bypassano il controllo, restano
+sempre validi indipendentemente dalla base). Se non valida per la base corrente → `return`
+immediato, il tasto non entra nel buffer (i tasti restano tutti visibili in UI, semplicemente non
+succede nulla alla pressione — nessun tasto disabilitato/nascosto).
+
+Stessa funzione riusata per estendere la regola "smart clear after result": prima usava solo
+`c.is_ascii_digit()`, quindi una cifra esadecimale A-F dopo un `"="` in Hex concatenava al
+risultato precedente invece di iniziare un nuovo input — incoerente col comportamento già
+corretto delle cifre 0-9. Ora `is_digit_like` (la stessa condizione "cifra-simile" sopra) guida
+anche questa regola.
+
+**Layout `programmer_key_grid` riorganizzato** (stesso fix 2.3.1, richiesta separata di
+Maurizio): l'ordine A-F ora rispecchia la tastiera decimale — dal basso verso l'alto, sinistra
+verso destra. Contando le 4 righe della sezione DAL BASSO: riga 1 (in fondo) = larghezza
+(BYTE/WORD/DWORD/QWORD/ROL-ROR, invariata); riga 2 = base (DEC/HEX/OCT/BIN/NOT, spostata qui da
+dove stava prima, in cima); riga 3 = A,B,C + XOR + SHL/SHR; riga 4 (in cima) = D,E,F + AND + OR.
+Nessun cambio ai `data-evt`/`data-key` dei singoli tasti, solo all'ordine nel markup HTML — le
+funzioni di `handle_key` restano identiche.
 
 ### render.rs — HTML 2D (Task 2 aggiornato, Task vA aggiornato)
 
