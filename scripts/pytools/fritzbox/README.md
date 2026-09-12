@@ -26,3 +26,5 @@ Il venv **non** va committato (`.gitignore` esiste già).
 
 Il router deve avere "Zugriff für Anwendungen zulassen" abilitato
 (Heimnetz → Netzwerk → Netzwerkeinstellungen).
+Traduzione: "Consenti accesso alle applicazioni" abilitato
+(Rete domestica → Rete → Impostazioni di rete).
