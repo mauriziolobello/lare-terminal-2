@@ -418,6 +418,33 @@ turno `/ai` reale, chiusura finestra, autostart di `ui.exe` dall'orchestratore, 
 
 ## DA FARE
 
+- **Idea (Maurizio, 2026-09-12) — evoluzione del canale `/netsec` (ex `/nmap`) verso uno
+  strumento di analisi/diagnostica di rete più ampio ("quasi pentesting").** Nata da: Maurizio ha
+  chiesto a `/nmap` di verificare tentativi di accesso dall'esterno sulla propria rete
+  (`192.168.178.x`) e il canale ha correttamente risposto di non avere gli strumenti per farlo.
+  Primo passo (stato FRITZ!Box via `fritzconnection`) è già stato progettato e affidato a un'AI
+  esterna nel compito `Docs/i18n/ita/compiti-ai-esterne/2026-09-12-netsec-rename-fritzbox.md`.
+  Idee ulteriori, deliberatamente RIMANDATE (non nel compito sopra) — ciascuna aggiungerebbe un
+  tool al canale `/netsec`, stesso principio di isolamento (tool fissi, mai una shell arbitraria):
+  - **arp-scan / scapy** — scoperta dispositivi sulla LAN a livello 2 (MAC/vendor), utile per
+    notare un dispositivo "rogue" mai visto prima sulla rete — complementare a
+    `nmap_host_discovery` (che lavora a livello 3/IP) e all'elenco host del FRITZ!Box.
+  - **Nikto** — scanner di vulnerabilità web (richiederebbe un binario esterno da installare,
+    stesso pattern di dipendenza di `nmap` stesso — vedi `crates/mcp-nmap/src/scan.rs`).
+  - **testssl.sh / sslyze** — verifica configurazione TLS di un host (cifrari deboli, certificati
+    scaduti/auto-firmati) — utile per controllare i propri servizi esposti.
+  - **tshark** — cattura pacchetti mirata (filtri, durata limitata) per diagnosi puntuali;
+    più delicato in termini di consenso/privacy degli altri device in rete rispetto ai tool sopra
+    — da progettare con più cautela (durata massima, gate di conferma esplicito, forse un
+    riepilogo invece del pcap grezzo).
+  - **Suricata / Zeek** — IDS/IDS-like vero e proprio: richiederebbe una porta mirror/span sul
+    router o switch per vedere il traffico passante, non solo probing attivo come gli altri tool
+    — cambio di scala rispetto a tutto il resto del canale (da processo "invocato su richiesta" a
+    "servizio sempre attivo che produce eventi"), probabilmente il pezzo più impegnativo e quello
+    da valutare per ultimo.
+  Nessuno di questi è ancora stato progettato in dettaglio (nessun compito scritto) — da riprendere
+  quando arriva il turno di questa idea, verosimilmente uno alla volta seguendo lo stesso schema
+  del compito FRITZ!Box (un tool nuovo per volta, con la propria dose di design/revisione).
 - **Idea (Maurizio, 2026-09-09) — metodologia guidata per assistere un sistemista verso un
   qualunque strumento/dispositivo esterno (nata da un caso reale: configurazione di uno switch
   di rete).** Non un plugin per UNO strumento specifico, ma un METODO ripetibile che Lare applica
