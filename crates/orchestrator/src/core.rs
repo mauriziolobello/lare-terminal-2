@@ -586,7 +586,7 @@ mod tests {
         let tmp = tempfile::tempdir().expect("tempdir");
         let help_dir = tmp.path().join("help");
         let _ = std::fs::create_dir_all(&help_dir);
-        let it_content = "# Lare \u{2014} Comandi\n\n## Comandi\n- /help\n- /ping\n- /config\n- /library\n- /aichat\n- /markets\n- /nmap\n- /pyping\n";
+        let it_content = "# Lare \u{2014} Comandi\n\n## Comandi\n- /help\n- /ping\n- /config\n- /library\n- /aichat\n- /markets\n- /netsec\n- /pyping\n";
         let _ = std::fs::write(help_dir.join("it.md"), it_content);
         let _ = std::fs::write(help_dir.join("en.md"), "# Lare \u{2014} Commands\n\n## Commands\n- /help\n- /config\n");
         crate::test_support::collect(|tx| {
@@ -1539,11 +1539,11 @@ mod tests {
             // Comandi core aggiunti dopo la scrittura originale di HELP_MARKDOWN
             // (v0.10.0) e mai riportati qui — /aichat (app.js, UI-local) e i tre
             // canali tool esterni cursor-typeable (external-channels.js /
-            // EXTERNAL_TOOL_CHANNELS): /markets, /nmap, /pyping. NON include i
+            // EXTERNAL_TOOL_CHANNELS): /markets, /netsec, /pyping. NON include i
             // comandi dei plugin (es. /calc, /lc, /crypto — scoperti a runtime
             // dal manifest, non fanno parte di questa costante statica) né
             // `/library-expand` (deliberatamente non digitabile da cursore).
-            for cmd in ["/aichat", "/markets", "/nmap", "/pyping"] {
+            for cmd in ["/aichat", "/markets", "/netsec", "/pyping"] {
                 assert!(
                     content.contains(cmd),
                     "content should contain '{cmd}', got {content:?}"

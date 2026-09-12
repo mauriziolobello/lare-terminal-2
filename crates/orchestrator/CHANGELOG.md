@@ -3,6 +3,12 @@
 All notable changes to this crate are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), versioning: [SemVer](https://semver.org/).
 
+## 2.2.7 — 2026-09-12 — rinomina canale /nmap → /netsec
+
+- Rinomina user-facing del canale esterno: slash trigger `/nmap` → `/netsec`, id canale `"nmap"` → `"netsec"`, titolo finestra `"Lare — nmap"` → `"Lare — netsec"`. I nomi Rust interni (crate `mcp-nmap`, `NmapToolClient`, `format_nmap_invocation`, `NMAP_SYSTEM_PROMPT`, tool `nmap_*`) restano invariati. Solo ciò che utente/AI vedono.
+- Modificati: `external_channel.rs` (entry registro, system prompt, test), `shell_slash.rs` (trigger, test), `core.rs` (fixture help, test help), `ws.rs` (commenti).
+- Bump orchestrator 2.2.6 → 2.2.7 (patch).
+
 ## 2.2.6 — 2026-09-09 — terza lingua: spagnolo (es) per AI e /help
 
 - **Supporto lingua spagnola per l'AI** (`crates/orchestrator/src/agent.rs`):

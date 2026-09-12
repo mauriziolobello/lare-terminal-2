@@ -25,7 +25,7 @@ El resultado de cada comando slash aparece en una ventana; en el terminal perman
 
 ## Herramientas externas (ventana dedicada)
 - `/markets` — herramientas sobre mercados financieros (búsqueda de ticker, informe bursátil, lista de valores, screener).
-- `/nmap` — herramientas de escaneo de red (escaneo rápido, detección de SO/versiones, descubrimiento de hosts, búsqueda de vulnerabilidades).
+- `/netsec` — herramientas de escaneo de red y diagnóstico (estado del router, escaneo rápido, detección de SO/versiones, descubrimiento de hosts, búsqueda de vulnerabilidades).
 - `/pyping` — canal de prueba para la infraestructura de herramientas Python (eco de un mensaje).
 
 ## Todo lo demás

@@ -3,6 +3,10 @@
 All notable changes to this package follow [Keep a Changelog](https://keepachangelog.com/) format.
 Versioning: `major.minor.update`.
 
+## 2.3.4 — 2026-09-12 — rinomina canale /nmap → /netsec (frontend)
+
+- Aggiornato `external-channels.js`: id `"nmap"` → `"netsec"`, slashTrigger `/nmap` → `/netsec`, windowTitle `"Lare — nmap"` → `"Lare — netsec"`. Mirror del registro Rust `external_channel.rs`.
+
 ## 2.3.3 — 2026-09-09 — limite tentativi di reconnect canali esterni e fix reset backoff
 
 - **Limite tentativi di riconnessione (`maxRetries`) in `LareWsClient`** (`crates/ui/frontend/ws-client.js`):

@@ -16,7 +16,7 @@
 
 /** @type {ExternalChannel[]} */
 export const EXTERNAL_TOOL_CHANNELS = [
-  { id: "nmap", slashTrigger: "/nmap", windowTitle: "Lare — nmap" },
+  { id: "netsec", slashTrigger: "/netsec", windowTitle: "Lare — netsec" },
   { id: "python-ping", slashTrigger: "/pyping", windowTitle: "Lare — Python ping" },
   { id: "financial-markets", slashTrigger: "/markets", windowTitle: "Lare — Financial Markets" },
 ];

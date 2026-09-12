@@ -24,7 +24,7 @@ The result of each slash command appears in a window; a confirmation line remain
 
 ## External tools (dedicated window)
 - `/markets` — financial market tools (ticker search, stock report, symbol list, screener).
-- `/nmap` — network scanning tools (quick scan, OS/version detection, host discovery, vulnerability scan).
+- `/netsec` — network scanning and diagnostics tools (router status, quick scan, OS/version detection, host discovery, vulnerability scan).
 - `/pyping` — test channel for the Python tool infrastructure (message echo).
 
 ## Everything else

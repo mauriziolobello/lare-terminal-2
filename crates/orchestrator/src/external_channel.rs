@@ -59,7 +59,7 @@ fn format_nmap_invocation(tool_name: &str, args: &serde_json::Value) -> String {
 /// descritto in modo esplicito come limitato alla categoria NSE `vuln`
 /// integrata in nmap, mai a uno script arbitrario, perché l'AI non dia
 /// all'utente l'impressione di poter eseguire NSE a piacere.
-const NMAP_SYSTEM_PROMPT: &str = "Sei l'assistente del canale nmap di Lare Terminal. Hai ESATTAMENTE sette strumenti: local_network_info (informazioni di rete della macchina locale — IP, subnet, gateway, ARP, routing — usalo PRIMA di uno scan se l'utente non specifica un target, per determinarlo da solo), traceroute (traccia il percorso di rete verso un host), nmap_quick_scan (scansione TCP connect rapida, nessun privilegio elevato), nmap_os_detect (rilevamento del sistema operativo, richiede privilegi elevati e un consenso esplicito dell'utente), nmap_version_scan (rilevamento delle versioni dei servizi in ascolto, -sV, nessun privilegio elevato), nmap_host_discovery (scoperta di quali host di una rete/range sono attivi, -sn, nessuna scansione porte, nessun privilegio elevato) e nmap_vuln_scan (verifica di vulnerabilità note tramite gli script NSE della categoria 'vuln' integrata in nmap — SOLO questa categoria fissa, non puoi eseguire né proporre script NSE diversi o personalizzati). Non hai accesso a una shell generica, non puoi aprire file o URL, non puoi mostrare finestre Markdown: il report di uno scan viene mostrato automaticamente all'utente, non serve che tu lo ripeta per intero — commenta brevemente l'esito. Rispondi in italiano, in modo conciso.";
+const NMAP_SYSTEM_PROMPT: &str = "Sei l'assistente del canale netsec di Lare Terminal. Hai ESATTAMENTE sette strumenti: local_network_info (informazioni di rete della macchina locale — IP, subnet, gateway, ARP, routing — usalo PRIMA di uno scan se l'utente non specifica un target, per determinarlo da solo), traceroute (traccia il percorso di rete verso un host), nmap_quick_scan (scansione TCP connect rapida, nessun privilegio elevato), nmap_os_detect (rilevamento del sistema operativo, richiede privilegi elevati e un consenso esplicito dell'utente), nmap_version_scan (rilevamento delle versioni dei servizi in ascolto, -sV, nessun privilegio elevato), nmap_host_discovery (scoperta di quali host di una rete/range sono attivi, -sn, nessuna scansione porte, nessun privilegio elevato) e nmap_vuln_scan (verifica di vulnerabilità note tramite gli script NSE della categoria 'vuln' integrata in nmap — SOLO questa categoria fissa, non puoi eseguire né proporre script NSE diversi o personalizzati). Non hai accesso a una shell generica, non puoi aprire file o URL, non puoi mostrare finestre Markdown: il report di uno scan viene mostrato automaticamente all'utente, non serve che tu lo ripeta per intero — commenta brevemente l'esito. Rispondi in italiano, in modo conciso.";
 
 /// `ToolClient` del canale `"library-expand"`: nessun tool custom (niente
 /// `run_in_session`/`open_target`/`show_markdown`) — l'AI di questo canale ha
@@ -237,9 +237,9 @@ pub struct ExternalToolChannel {
 /// futuro aggiunge una voce qui, senza toccare nessun'altra riga di questo file.
 pub const EXTERNAL_TOOL_CHANNELS: &[ExternalToolChannel] = &[
     ExternalToolChannel {
-        id: "nmap",
-        slash_trigger: "/nmap",
-        window_title: "Lare — nmap",
+        id: "netsec",
+        slash_trigger: "/netsec",
+        window_title: "Lare — netsec",
         tool_client: |rt, _default| {
             Ok(std::sync::Arc::new(crate::nmap_tool_client::NmapToolClient::resolve(&rt.config_dir, &rt.startup))
                 as std::sync::Arc<dyn ToolClient>)
@@ -571,10 +571,10 @@ mod tests {
     }
 
     #[test]
-    fn production_registry_starts_with_nmap_channel() {
-        assert!(!EXTERNAL_TOOL_CHANNELS.is_empty(), "registry deve avere almeno nmap come prima voce");
-        assert_eq!(EXTERNAL_TOOL_CHANNELS[0].id, "nmap");
-        assert_eq!(EXTERNAL_TOOL_CHANNELS[0].slash_trigger, "/nmap");
+    fn production_registry_starts_with_netsec_channel() {
+        assert!(!EXTERNAL_TOOL_CHANNELS.is_empty(), "registry deve avere almeno netsec come prima voce");
+        assert_eq!(EXTERNAL_TOOL_CHANNELS[0].id, "netsec");
+        assert_eq!(EXTERNAL_TOOL_CHANNELS[0].slash_trigger, "/netsec");
     }
 
     #[test]
