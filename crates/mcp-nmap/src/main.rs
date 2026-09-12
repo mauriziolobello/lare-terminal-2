@@ -205,12 +205,8 @@ impl NmapServer {
             Configuration/fritzbox.json (vedi fritzbox.example.json). Nessun parametro."
     )]
     async fn fritzbox_status(&self) -> String {
-        let outcome = fritzbox::fritzbox_status(
-            &self.python_path,
-            &self.script_path,
-            &self.config_dir,
-        )
-        .await;
+        let outcome =
+            fritzbox::fritzbox_status(&self.python_path, &self.script_path, &self.config_dir).await;
         serde_json::to_string(&outcome).unwrap()
     }
 }
@@ -233,15 +229,11 @@ async fn main() -> anyhow::Result<()> {
         .ok()
         .and_then(|p| p.parent().map(std::path::Path::to_path_buf))
         .unwrap_or_else(|| PathBuf::from("."));
-    let config_dir = startup_config::resolve_config_dir(
-        startup_config::parse_config_dir(&args),
-        &exe_dir,
-    );
+    let config_dir =
+        startup_config::resolve_config_dir(startup_config::parse_config_dir(&args), &exe_dir);
     let (startup_cfg, _warning) = startup_config::StartupConfig::load(&config_dir);
-    let pytools_root = startup_config::StartupConfig::resolve_path(
-        &config_dir,
-        &startup_cfg.paths.pytools_dir,
-    );
+    let pytools_root =
+        startup_config::StartupConfig::resolve_path(&config_dir, &startup_cfg.paths.pytools_dir);
 
     let python_path = pytools_root
         .join("fritzbox")

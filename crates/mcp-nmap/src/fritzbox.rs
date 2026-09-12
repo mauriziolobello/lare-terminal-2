@@ -18,7 +18,11 @@ struct FritzScriptJson {
 /// Interpreta l'esito grezzo del sotto-processo Python. Pura, senza I/O —
 /// testabile passando stringhe dirette, senza spawnare nulla (mirror di
 /// `network_info::decode_oem`, testato allo stesso modo).
-pub(crate) fn parse_script_output(stdout: &str, stderr: &str, exit_success: bool) -> NetworkInfoOutcome {
+pub(crate) fn parse_script_output(
+    stdout: &str,
+    stderr: &str,
+    exit_success: bool,
+) -> NetworkInfoOutcome {
     if !exit_success {
         return NetworkInfoOutcome {
             output: format!("script fritzbox terminato con errore.\nstderr:\n{stderr}"),
@@ -26,7 +30,10 @@ pub(crate) fn parse_script_output(stdout: &str, stderr: &str, exit_success: bool
         };
     }
     match serde_json::from_str::<FritzScriptJson>(stdout.trim()) {
-        Ok(v) => NetworkInfoOutcome { output: v.output, is_error: v.is_error },
+        Ok(v) => NetworkInfoOutcome {
+            output: v.output,
+            is_error: v.is_error,
+        },
         Err(e) => NetworkInfoOutcome {
             output: format!(
                 "output dello script fritzbox non interpretabile ({e}); output grezzo:\n{stdout}"
@@ -40,7 +47,11 @@ pub(crate) fn parse_script_output(stdout: &str, stderr: &str, exit_success: bool
 /// Verifica prima che python/script esistano (messaggio leggibile, stesso stile di
 /// `PythonMcpToolClient::resolve` — vedi crates/orchestrator/src/python_mcp_tool_client.rs)
 /// invece di lasciare che lo spawn fallisca con un errore OS opaco.
-pub async fn fritzbox_status(python_path: &Path, script_path: &Path, config_dir: &Path) -> NetworkInfoOutcome {
+pub async fn fritzbox_status(
+    python_path: &Path,
+    script_path: &Path,
+    config_dir: &Path,
+) -> NetworkInfoOutcome {
     if !python_path.exists() {
         return NetworkInfoOutcome {
             output: format!(
@@ -59,7 +70,11 @@ pub async fn fritzbox_status(python_path: &Path, script_path: &Path, config_dir:
     }
 
     let mut cmd = tokio::process::Command::new(python_path);
-    cmd.arg("-X").arg("utf8").arg(script_path).arg("--config-dir").arg(config_dir);
+    cmd.arg("-X")
+        .arg("utf8")
+        .arg(script_path)
+        .arg("--config-dir")
+        .arg(config_dir);
     cmd.stdin(std::process::Stdio::null());
     #[cfg(windows)]
     {
@@ -84,7 +99,8 @@ pub async fn fritzbox_status(python_path: &Path, script_path: &Path, config_dir:
             is_error: true,
         },
         Err(_) => NetworkInfoOutcome {
-            output: "timeout (30s) in attesa dello script fritzbox — router irraggiungibile?".to_string(),
+            output: "timeout (30s) in attesa dello script fritzbox — router irraggiungibile?"
+                .to_string(),
             is_error: true,
         },
     }
@@ -103,7 +119,11 @@ mod tests {
 
     #[test]
     fn parse_script_output_reports_error_flag_from_script() {
-        let out = parse_script_output(r#"{"output":"router irraggiungibile","is_error":true}"#, "", true);
+        let out = parse_script_output(
+            r#"{"output":"router irraggiungibile","is_error":true}"#,
+            "",
+            true,
+        );
         assert!(out.is_error);
         assert_eq!(out.output, "router irraggiungibile");
     }
