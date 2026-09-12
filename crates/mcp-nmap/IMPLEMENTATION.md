@@ -1,4 +1,4 @@
-# Implementation — `mcp-nmap` v2.0.1
+# Implementation — `mcp-nmap` v2.1.0
 
 ## Scope
 
@@ -1498,6 +1498,106 @@ surface). `main.rs`'s startup log line (`tracing::info!("Lare Terminal
 mcp-nmap v0.8.2 starting...")`) bumped alongside it, per this crate's own
 established precedent (this string has tracked the crate version since its
 first commit; see the 0.7.0/0.8.0/0.8.1 changelog entries).
+
+## `src/fritzbox.rs` — stato router FRITZ!Box + `--config-dir` in `main()` (2.1.0)
+
+Compito: `Docs/i18n/ita/compiti-ai-esterne/2026-09-12-netsec-rename-fritzbox.md` (Parte B),
+assegnato a DeepSeek. Canale (già rinominato `/nmap` → `/netsec` nella Parte A) guadagna un
+ottavo tool: `fritzbox_status`.
+
+### Perché non un server MCP persistente
+
+`scripts/pytools/{financial-markets,python-ping}` sono server MCP Python persistenti
+(`PythonMcpToolClient`, handshake MCP, restano vivi fra una chiamata e l'altra). Per una
+lettura periodica dello stato del router non c'è nessuno stato da mantenere fra chiamate — il
+pattern giusto è lo stesso shell-out one-shot già usato da `network_info.rs` per
+`local_network_info`/`traceroute`: qui il sotto-processo è uno script Python invece di un
+comando nativo Win32, quindi emette UTF-8 direttamente (`-X utf8`), niente decodifica OEM.
+
+### `parse_script_output` — pura, testabile senza spawnare nulla
+
+```rust
+pub(crate) fn parse_script_output(stdout: &str, stderr: &str, exit_success: bool) -> NetworkInfoOutcome
+```
+
+Tre esiti: exit non-zero → `is_error: true` con lo stderr in coda; JSON valido
+(`{"output": str, "is_error": bool}`) → passato attraverso invariato; stdout non interpretabile
+come JSON → `is_error: true`, messaggio che include l'errore di parsing E l'output grezzo (mai
+silenziosamente scartato). Mirror di `network_info::decode_oem`: la logica di interpretazione è
+factored out dalla I/O, testabile con stringhe dirette — nessun trait/seam di mocking per il
+sotto-processo stesso (un solo chiamante, mockare aggiungerebbe un'astrazione senza reale
+beneficio, stessa scelta YAGNI già documentata in `network_info.rs`).
+
+### `fritzbox_status` — lo shell-out
+
+```rust
+pub async fn fritzbox_status(python_path: &Path, script_path: &Path, config_dir: &Path) -> NetworkInfoOutcome
+```
+
+Verifica prima che `python_path`/`script_path` esistano (messaggio leggibile — stesso stile
+dell'errore "venv Python non trovato" di `PythonMcpToolClient::resolve` — invece di lasciare che
+lo spawn fallisca con un errore OS opaco), poi spawna
+`<python_path> -X utf8 <script_path> --config-dir <config_dir>` con `tokio::process::Command`
+(non `std::process::Command`: serve `.await`-abile per stare dentro un metodo `#[tool] async
+fn`), `CREATE_NO_WINDOW` su Windows (stesso motivo di `NmapToolClient`: niente console spuria
+quando il sidecar gira senza console propria). Nota: `tokio::process::Command::creation_flags` è
+un metodo **inerente** — a differenza di `std::process::Command`, non serve importare
+`CommandExt` (il compilatore segnala l'import come inutilizzato se presente).
+
+Timeout dedicato 30s (`tokio::time::timeout`), indipendente dal timeout di canale da 900s
+(`NMAP_CALL_TIMEOUT_SECS`, orchestrator): un router irraggiungibile non deve far attendere
+15 minuti prima di un errore leggibile — 30s bastano ampiamente per una chiamata TR-064 locale.
+
+### `main.rs` — `--config-dir` interpretato per la prima volta
+
+`NmapServer` era una unit struct; guadagna 3 campi (`config_dir`, `python_path`, `script_path`),
+risolti in `main()` PRIMA di costruire il server:
+
+```rust
+let args: Vec<String> = std::env::args().collect();
+let exe_dir = /* cartella dell'eseguibile, fallback "." */;
+let config_dir = startup_config::resolve_config_dir(startup_config::parse_config_dir(&args), &exe_dir);
+let (startup_cfg, _warning) = startup_config::StartupConfig::load(&config_dir);
+let pytools_root = startup_config::StartupConfig::resolve_path(&config_dir, &startup_cfg.paths.pytools_dir);
+```
+
+Correzione di una lacuna preesistente: `NmapToolClient::resolve` (orchestrator) passa
+`--config-dir` a ogni spawn di `mcp-nmap.exe` fin dalla 2.0.0, ma `main()` non lo interpretava
+mai — nessun bug visibile finché nessun tool ne aveva bisogno. `fritzbox_status` è il primo a
+usarlo: serve per (a) trovare `<config_dir>/fritzbox.json` e (b) calcolare la cartella del venv
+Python di `fritzbox`, con la STESSA formula già usata da `PythonMcpToolClient::resolve` lato
+orchestrator (`StartupConfig::resolve_path(cfg.paths.pytools_dir)`) — nessuna duplicazione di
+logica, nessun argomento CLI aggiuntivo da far passare all'orchestratore.
+
+### Configurazione: `<config_dir>/fritzbox.json`
+
+Schema `{ "host", "user", "password" }`. `Test Run/Configuration/fritzbox.example.json`
+committato con placeholder; il file reale in `.gitignore`. Lo script Python
+(`scripts/pytools/fritzbox/fritzbox_status.py`) legge questo file da solo — mai una password sul
+comando line, mai un valore che finisce nei log.
+
+### Onestà del tool
+
+Sia la `description` del tool `#[tool]` sia `NMAP_SYSTEM_PROMPT` (orchestrator,
+`external_channel.rs`) dicono esplicitamente che il registro eventi del router (`GetDeviceLog`)
+NON equivale a un rilevamento di intrusioni: riporta login falliti e tentativi VPN, non
+pacchetti bloccati dal firewall verso porte chiuse (quelli il FRITZ!Box tipicamente non li
+logga affatto).
+
+### Verification (build/test)
+
+- `cargo test -p mcp-nmap` → 70 passed, 0 failed (64 pre-esistenti + 6 nuovi in `fritzbox.rs`).
+- `cargo build` (whole workspace, default-members) → clean.
+- `cargo clippy -p mcp-nmap --all-targets` → nessun warning.
+- `cargo fmt -p mcp-nmap --check` → pulito (rustfmt ha rispezzato alcune righe lunghe di
+  `fritzbox.rs` — semantica invariata, 70 test ancora verdi dopo la riformattazione; verificato
+  dal supervisore durante la revisione, non nel report originale della Parte B).
+
+### `Cargo.toml` — version bump
+
+`version` bumped `2.0.1` → `2.1.0` (nuova funzionalità/nuovo tool, non solo un fix). Dipendenza
+`startup-config = { path = "../startup-config" }` aggiunta. `main.rs`'s log di avvio aggiornato
+alla stessa versione, per lo stesso precedente stabilito da questo crate.
 
 ## Not yet implemented (future work — outside this crate)
 

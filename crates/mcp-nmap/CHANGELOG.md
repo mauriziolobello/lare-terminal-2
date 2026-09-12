@@ -4,6 +4,55 @@ All notable changes to this crate are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Versioning: `major.minor.update` (SemVer).
 
+## [2.1.0] — 2026-09-12 — tool `fritzbox_status` + `--config-dir` interpretato in `main()`
+
+Compito: `Docs/i18n/ita/compiti-ai-esterne/2026-09-12-netsec-rename-fritzbox.md` (Parte B). Il
+canale (rinominato `/nmap` → `/netsec` nella Parte A, orchestrator 2.2.7 → 2.3.0) guadagna un
+ottavo tool: `fritzbox_status`, stato del router FRITZ!Box domestico via `fritzconnection`
+(registro eventi recenti, IP pubblico, dispositivi sulla rete locale). Stesso pattern di
+`local_network_info`/`traceroute` in `network_info.rs`: uno shell-out one-shot, nessuno stato fra
+una chiamata e l'altra — qui il sotto-processo è uno script Python
+(`scripts/pytools/fritzbox/fritzbox_status.py`) invece di un comando nativo Win32, quindi emette
+UTF-8 direttamente (`-X utf8`), nessuna decodifica OEM necessaria. Nessun trait/seam di mocking
+per il sotto-processo (un solo chiamante — YAGNI, stessa scelta già fatta in `network_info.rs`);
+la logica di INTERPRETAZIONE dell'output è invece fattorizzata in `parse_script_output`, pura e
+testabile senza spawnare nulla (mirror di `decode_oem`).
+
+**Correzione di una lacuna preesistente**: `main()` riceve `--config-dir` da
+`NmapToolClient::resolve` fin dalla 2.0.0, ma non lo interpretava mai. Ora lo fa (via
+`startup_config::parse_config_dir`/`resolve_config_dir`), e usa `StartupConfig::load` +
+`StartupConfig::resolve_path(cfg.paths.pytools_dir)` per calcolare la cartella del venv Python di
+`fritzbox` senza che l'orchestratore debba passarla come argomento separato — stessa formula già
+usata da `PythonMcpToolClient::resolve` lato orchestrator.
+
+**Onestà del tool**: sia la sua `description` sia `NMAP_SYSTEM_PROMPT` (lato orchestrator)
+dicono esplicitamente che il registro eventi del router NON equivale a un rilevamento di
+intrusioni — riporta login falliti/tentativi VPN, non pacchetti bloccati dal firewall.
+
+### Added
+
+- **`src/fritzbox.rs` (new module):**
+  - `parse_script_output(stdout, stderr, exit_success) -> NetworkInfoOutcome` — pura, interpreta
+    l'esito grezzo del sotto-processo: JSON valido passato attraverso, JSON malformato riportato
+    con l'output grezzo in coda, exit non-zero riportato con lo stderr.
+  - `fritzbox_status(python_path, script_path, config_dir) -> NetworkInfoOutcome` (`async`) —
+    verifica prima che `python_path`/`script_path` esistano (messaggio leggibile, stesso stile di
+    `PythonMcpToolClient::resolve`), poi spawna `<python> -X utf8 <script> --config-dir <dir>`
+    con `tokio::process::Command`, `CREATE_NO_WINDOW` su Windows, timeout dedicato 30s
+    (indipendente dal timeout di canale da 900s — un router irraggiungibile non deve bloccare
+    l'intera chiamata).
+  - 6 test: JSON valido, flag `is_error` dello script, stdout non-JSON, exit non-zero, venv
+    mancante, script mancante — nessuno richiede un venv reale né un router raggiungibile.
+- **`main.rs`**: `NmapServer` guadagna 3 campi (`config_dir`, `python_path`, `script_path`),
+  risolti in `main()`; nuovo metodo `#[tool] fritzbox_status`, nessun parametro.
+- **`scripts/pytools/fritzbox/`** (nuovo dominio pytools): `fritzbox_status.py` (script one-shot,
+  libreria `fritzconnection`), `requirements.txt`, `README.md`.
+- Dipendenza `startup-config` (path locale) aggiunta a `Cargo.toml`.
+
+### Changed
+
+- `main()`: interpreta `--config-dir`/carica `StartupConfig` (prima non lo faceva affatto).
+
 ## [2.0.1] — 2026-09-08 — fix: codepage OEM per i comandi nativi in `network_info.rs` (mojibake etichette accentate)
 
 **Il bug:** l'output dei comandi diagnostici di rete nativi Win32 (`ipconfig`, `arp`, `route`, `netstat`, `tracert`) invocati da `local_network_info` e `traceroute` mostrava le etichette accentate italiane come caratteri corrotti/mojibake (es. `Sì` diventava `S`, U+FFFD). I dati numerici (IP, subnet, gateway, MAC) non ne risentivano perché ASCII puro.

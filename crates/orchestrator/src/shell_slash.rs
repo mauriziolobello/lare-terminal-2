@@ -6,7 +6,7 @@
 //! PRIMA del routing v1 e agisce di conseguenza. Regole (tabella §3):
 //! - `/ai "testo"` e `/ "testo"` → turno AI con `testo` (virgolette
 //!   obbligatorie, D8; senza → errore di sintassi nel terminale);
-//! - `/config` `/library` `/aichat` e i canali esterni (`/nmap`, `/markets`,
+//! - `/config` `/library` `/aichat` e i canali esterni (`/netsec`, `/markets`,
 //!   `/pyping`) → `OpenUiLocal{name}` verso `ui` (singleton, D15);
 //! - `/reset` → messaggio "non applicabile"; `/ping` → built-in;
 //! - slash del backend v1 (`core::KNOWN_BACKEND_SLASHES`) → `handle_command`;
@@ -41,7 +41,7 @@ pub const UI_LOCAL_SLASHES: &[&str] = &["config", "library", "aichat"];
 /// Trigger dei canali esterni esposti all'utente (gli altri in
 /// `EXTERNAL_TOOL_CHANNELS` — `library-expand`, `config-market-data-test` —
 /// sono interni a `ui`). Stessa terna della tabella JS `external-channels.js`.
-const USER_FACING_CHANNEL_TRIGGERS: &[&str] = &["/nmap", "/pyping", "/markets"];
+const USER_FACING_CHANNEL_TRIGGERS: &[&str] = &["/netsec", "/pyping", "/markets"];
 
 /// Trigger → id canale dei canali esterni esposti all'utente, derivati dal
 /// registro reale (`EXTERNAL_TOOL_CHANNELS`) e filtrati con
@@ -216,8 +216,8 @@ mod tests {
             ShellInput::OpenUiLocal("aichat".into())
         );
         assert_eq!(
-            classify_shell_input("/nmap", &known),
-            ShellInput::OpenUiLocal("nmap".into())
+            classify_shell_input("/netsec", &known),
+            ShellInput::OpenUiLocal("netsec".into())
         );
         assert_eq!(
             classify_shell_input("/markets", &known),
@@ -280,7 +280,7 @@ mod tests {
             t,
             vec![
                 ("markets".to_string(), "financial-markets".to_string()),
-                ("nmap".to_string(), "nmap".to_string()),
+                ("netsec".to_string(), "netsec".to_string()),
                 ("pyping".to_string(), "python-ping".to_string()),
             ]
         );

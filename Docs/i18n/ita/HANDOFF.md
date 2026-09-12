@@ -11,8 +11,8 @@
 - startup-config 2.0.4 (da v1 0.1.0; `spawn_detached` piano 3 Task 3; 2.0.4 — modulo `logging`
   condiviso + stdio chiuse + `child_stderr_log_sink`, fix finestre console spurie)
 - mcp-server 2.0.1 (da v1 0.7.1)
-- mcp-nmap 2.0.1 (da v1 0.8.2; 2.0.1 — codepage OEM per comandi nativi Win32 in network_info.rs, fix mojibake accenti)
-- orchestrator 2.2.6 (da v1 0.41.21; 2.2.6 — terza lingua: spagnolo es per AI e /help)
+- mcp-nmap 2.1.0 (da v1 0.8.2; 2.1.0 — tool fritzbox_status + --config-dir in main)
+- orchestrator 2.3.0 (da v1 0.41.21; 2.3.0 — tool fritzbox_status nel canale netsec)
 - plugin-protocol 2.0.0 (da v1 0.2.1)
 - plugin-ping 2.0.0 (da v1 0.1.0)
 - plugin-counter 2.0.0 (da v1 0.1.0)
@@ -22,11 +22,28 @@
   SHL/SHR riposizionati nel layout)
 - plugin-lc 2.0.0 (da v1 0.4.5)
 - plugin-crypto 2.0.0 (da v1 1.0.1)
-- ui 2.3.3 (da v1 0.47.1; 2.3.3 — limite tentativi di reconnect canali esterni e fix reset backoff)
+- ui 2.3.4 (da v1 0.47.1; 2.3.4 — rinomina canale /nmap → /netsec nel frontend)
 - lare-shell 2.0.1 (piano 2b 2.0.0 → 2.0.1 nel piano 3, Task 3: `Launcher.EnsureUi()` passa
   `--no-terminal` — non un crate Cargo: `shell/lare-shell/`, .NET/C#)
 
 ## FATTO
+
+- **Rinomina canale `/nmap` → `/netsec` (2026-09-12)** — compito
+  `Docs/i18n/ita/compiti-ai-esterne/2026-09-12-netsec-rename-fritzbox.md`:
+  il canale tool esterno di rete cambia nome user-facing: slash trigger, id canale, titolo
+  finestra. Tutti i nomi Rust interni (crate `mcp-nmap`, `NmapToolClient`, ecc.) restano
+  invariati. Aggiornati `external_channel.rs`, `shell_slash.rs`, `core.rs`, `ws.rs`,
+  `external-channels.js`, `help/*.md` (3 lingue). Orchestrator 2.2.6 → 2.2.7, UI 2.3.3 → 2.3.4.
+  947 test passano.
+
+- **Tool fritzbox_status nel canale netsec (2026-09-12)** — Parte B del compito:
+  canale `/netsec` (ex `/nmap`) guadagna l'ottavo tool: `fritzbox_status`, che legge
+  lo stato del router FRITZ!Box domestico via `fritzconnection` (log eventi, IP pubblico,
+  dispositivi LAN). Nuovo modulo `crates/mcp-nmap/src/fritzbox.rs` (script Python one-shot,
+  stesso pattern di `network_info.rs`), `--config-dir` ora interpretato da `mcp-nmap::main()`.
+  Config: `fritzbox.example.json` committato, `fritzbox.json` in `.gitignore`.
+  System prompt aggiornato con la nota d'onestà sul limite del log eventi.
+  `mcp-nmap` 2.0.1 → 2.1.0, `orchestrator` 2.2.7 → 2.3.0.
 
 - **plugin-calc 2.3.2 — Fix: NOT e SHL/SHR riposizionati nella sezione programmatore
   (2026-09-10)** — segnalato da Maurizio dal vivo (screenshot): NOT stava isolato nella riga

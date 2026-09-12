@@ -84,7 +84,7 @@ pub async fn serve(
     shutdown: CancellationToken,
     // `RuntimeConfig` (2.0, Task 4, D6): risolto una volta in `main()`,
     // condiviso da ogni connessione per `resolve_channel_tools`
-    // (canali nmap/python) e per il test manuale "fonte dati mercato" — mai
+    // (canali netsec/python) e per il test manuale "fonte dati mercato" — mai
     // ri-derivato qui.
     rt: Arc<crate::runtime_config::RuntimeConfig>,
     registry: crate::connections::SharedRegistry,
@@ -817,7 +817,7 @@ async fn handle_connection(
 
     // Chiude il ToolClient di questa connessione (default no-op per
     // cursore/Telegram — mcp-server è un singleton gestito altrove, non
-    // per-connessione). Per un canale esterno come `/nmap`, questo uccide
+    // per-connessione). Per un canale esterno come `/netsec`, questo uccide
     // il processo sidecar (`mcp-nmap.exe`) se ancora vivo: senza questa
     // chiamata, chiudere la finestra dopo uno scan riuscito lasciava il
     // processo orfano per sempre, esattamente come un timeout non gestito
@@ -951,13 +951,13 @@ fn parse_hello(msg: &Message) -> Option<HelloInfo> {
 /// `PluginHost` (`set_server_tx`). `PluginHost` è un `Arc<Mutex<>>` unico per
 /// processo, condiviso da ogni connessione WS — solo il cursore principale
 /// (`channel: None`) deve poterlo reclamare. Una connessione di canale (es.
-/// `/nmap`, `channel: Some("nmap")`) non usa mai plugin (`ToolClient` isolato
+/// `/netsec`, `channel: Some("netsec")`) non usa mai plugin (`ToolClient` isolato
 /// per canale) e non deve rubare il sink alla finestra principale.
 ///
 /// Bug trovato dal vivo (2026-07-18): prima di questo controllo, QUALSIASI
 /// connessione — inclusa quella di un canale esterno — sovrascriveva
 /// incondizionatamente il sink condiviso. Un plugin attivato per la prima
-/// volta dopo l'apertura di `/nmap` catturava (nel proprio pump task) il
+/// volta dopo l'apertura di `/netsec` catturava (nel proprio pump task) il
 /// sink sbagliato: il suo `ShowWindow` finiva sulla connessione di canale,
 /// che non ha alcun case per quel messaggio (scartato silenziosamente) — da
 /// cui "exit 0, nessuna finestra" osservato in modo intermittente.
@@ -1025,7 +1025,7 @@ pub async fn test_market_data_source_now(rt: &crate::runtime_config::RuntimeConf
             // `shutdown()` esplicito, il processo Python spawnato da
             // `dispatch()`/`ensure_connected()` resta orfano indefinitamente
             // — vedi il doc-comment di `PythonMcpToolClient::close_connection`,
-            // stessa classe di bug già corretta una volta per nmap (fix
+            // stessa classe di bug già corretta una volta per netsec (fix
             // "orphan process" precedente in questo repo). Sicuro anche se
             // `dispatch` non si è mai davvero connesso (es. tool rifiutato
             // prima di `ensure_connected`): `close_connection_does_not_kill_

@@ -529,6 +529,11 @@ impl ToolClient for NmapToolClient {
                     "required": ["target"]
                 }),
             },
+            ToolDef {
+                name: "fritzbox_status".to_string(),
+                description: "Stato del router FRITZ!Box di casa: registro eventi, IP pubblico, dispositivi LAN.".to_string(),
+                input_schema: serde_json::json!({ "type": "object", "properties": {} }),
+            },
         ]
     }
 
@@ -542,6 +547,7 @@ impl ToolClient for NmapToolClient {
             "nmap_vuln_scan" => self.call_scan_tool("nmap_vuln_scan", target).await,
             "local_network_info" => self.call_info_tool("local_network_info", None).await,
             "traceroute" => self.call_info_tool("traceroute", Some(target)).await,
+            "fritzbox_status" => self.call_info_tool("fritzbox_status", None).await,
             other => DispatchOutcome { output: format!("tool sconosciuto sul canale nmap: {other}"), is_error: true, report: None, channel_summary: None },
         }
     }
@@ -651,7 +657,7 @@ mod tests {
     }
 
     #[test]
-    fn tool_defs_exposes_exactly_the_seven_nmap_channel_tools() {
+    fn tool_defs_exposes_exactly_the_eight_nmap_channel_tools() {
         let client = NmapToolClient {
             mcp_nmap_path: "unused".into(),
             config_dir: "unused".into(),
@@ -660,7 +666,7 @@ mod tests {
             killer: Arc::new(FakeProcessTreeKiller::default()),
         };
         let defs = client.tool_defs();
-        assert_eq!(defs.len(), 7, "atteso 7 tool (5 scan + 2 info), got {defs:?}");
+        assert_eq!(defs.len(), 8, "atteso 8 tool (5 scan + 3 info), got {defs:?}");
         assert!(defs.iter().any(|d| d.name == "nmap_quick_scan"));
         assert!(defs.iter().any(|d| d.name == "nmap_os_detect"));
         assert!(defs.iter().any(|d| d.name == "nmap_version_scan"));
@@ -668,6 +674,7 @@ mod tests {
         assert!(defs.iter().any(|d| d.name == "nmap_vuln_scan"));
         assert!(defs.iter().any(|d| d.name == "local_network_info"));
         assert!(defs.iter().any(|d| d.name == "traceroute"));
+        assert!(defs.iter().any(|d| d.name == "fritzbox_status"));
         assert!(!defs.iter().any(|d| d.name == "run_in_session"));
         assert!(!defs.iter().any(|d| d.name == "show_markdown"));
     }

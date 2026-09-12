@@ -25,7 +25,7 @@ L'esito di ogni comando slash compare in una finestra; nel terminale resta una r
 
 ## Strumenti esterni (finestra dedicata)
 - `/markets` — strumenti sui mercati finanziari (ricerca ticker, report azionario, elenco titoli, screener).
-- `/nmap` — strumenti di scansione di rete (quick scan, rilevamento OS/versioni, host discovery, ricerca vulnerabilità).
+- `/netsec` — strumenti di scansione di rete e diagnostica (stato router, quick scan, rilevamento OS/versioni, host discovery, ricerca vulnerabilità).
 - `/pyping` — canale di prova per l'infrastruttura dei tool Python (eco di un messaggio).
 
 ## Tutto il resto
