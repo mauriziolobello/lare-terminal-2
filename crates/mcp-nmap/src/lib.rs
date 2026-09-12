@@ -26,6 +26,7 @@
 //!    calls into the above (Task 5).
 
 pub mod elevate;
+pub mod fritzbox;
 pub mod markdown;
 pub mod network_info;
 pub mod report;

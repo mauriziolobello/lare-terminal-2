@@ -1,6 +1,6 @@
 [package]
 name = "mcp-nmap"
-version = "2.0.1"
+version = "2.1.0"
 edition = "2021"
 
 # The crate exposes:
@@ -33,6 +33,8 @@ tempfile = "3"
 # (Sì -> S) quando vengono letti byte non-UTF-8. Pura logica Rust, nessuna
 # chiamata unsafe, multipiattaforma.
 oem_cp = "2"
+
+startup-config = { path = "../startup-config" }
 
 rmcp = { version = "=1.7.0", features = ["server", "transport-io", "macros", "schemars"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "process"] }

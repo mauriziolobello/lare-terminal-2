@@ -29,6 +29,7 @@ Test Run/**/*.dll
 Test Run/shell/
 Test Run/Configuration/token
 Test Run/Configuration/llms.json
+Test Run/Configuration/fritzbox.json
 Test Run/Configuration/telegram-state.json
 Test Run/Configuration/memory-*.md
 Test Run/Configuration/notes.json

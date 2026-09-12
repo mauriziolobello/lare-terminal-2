@@ -9,13 +9,14 @@
 //! error. The orchestrator's `NmapToolClient` (companion integration plan)
 //! deserializes this JSON directly.
 
+use mcp_nmap::fritzbox;
 use mcp_nmap::network_info;
 use mcp_nmap::scan::{self, NmapProcess, ScanOutcome};
 use rmcp::{
     handler::server::wrapper::Parameters, schemars, tool, tool_router, transport::stdio, ServiceExt,
 };
 use serde::Deserialize;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
 use tracing_subscriber::{fmt, EnvFilter};
 
@@ -93,7 +94,14 @@ struct TracerouteParams {
 }
 
 #[derive(Clone)]
-struct NmapServer;
+struct NmapServer {
+    /// Cartella di configurazione (`--config-dir`), risolta in main() tramite startup-config.
+    config_dir: PathBuf,
+    /// Percorso dell'eseguibile Python nel venv di fritzbox.
+    python_path: PathBuf,
+    /// Percorso dello script fritzbox_status.py.
+    script_path: PathBuf,
+}
 
 #[tool_router(server_handler)]
 impl NmapServer {
@@ -186,6 +194,25 @@ impl NmapServer {
         let outcome = network_info::traceroute(&target);
         serde_json::to_string(&outcome).unwrap()
     }
+
+    /// Legge lo stato del router FRITZ!Box di casa: registro eventi recenti,
+    /// IP pubblico attuale, ed elenco dispositivi collegati alla rete locale.
+    /// Nessun parametro — richiede Configuration/fritzbox.json configurato.
+    #[tool(
+        description = "Legge lo stato del router FRITZ!Box di casa: registro eventi recenti \
+            (login falliti, tentativi VPN — NON traffico WAN bloccato dal firewall), IP pubblico attuale, \
+            ed elenco dei dispositivi collegati alla rete locale. Richiede che l'utente abbia configurato \
+            Configuration/fritzbox.json (vedi fritzbox.example.json). Nessun parametro."
+    )]
+    async fn fritzbox_status(&self) -> String {
+        let outcome = fritzbox::fritzbox_status(
+            &self.python_path,
+            &self.script_path,
+            &self.config_dir,
+        )
+        .await;
+        serde_json::to_string(&outcome).unwrap()
+    }
 }
 
 #[tokio::main]
@@ -197,9 +224,42 @@ async fn main() -> anyhow::Result<()> {
         .with_ansi(false)
         .init();
 
-    tracing::info!("Lare Terminal mcp-nmap v0.8.2 starting (transport: stdio)");
+    tracing::info!("Lare Terminal mcp-nmap v2.1.0 starting (transport: stdio)");
 
-    let service = NmapServer.serve(stdio()).await?;
+    // --config-dir (D6, Parte B): già ricevuto da NmapToolClient::resolve,
+    // ma main() non lo interpretava. Ora lo risolviamo con startup-config.
+    let args: Vec<String> = std::env::args().collect();
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(std::path::Path::to_path_buf))
+        .unwrap_or_else(|| PathBuf::from("."));
+    let config_dir = startup_config::resolve_config_dir(
+        startup_config::parse_config_dir(&args),
+        &exe_dir,
+    );
+    let (startup_cfg, _warning) = startup_config::StartupConfig::load(&config_dir);
+    let pytools_root = startup_config::StartupConfig::resolve_path(
+        &config_dir,
+        &startup_cfg.paths.pytools_dir,
+    );
+
+    let python_path = pytools_root
+        .join("fritzbox")
+        .join("venv")
+        .join(if cfg!(windows) {
+            "Scripts/python.exe"
+        } else {
+            "bin/python3"
+        });
+    let script_path = pytools_root.join("fritzbox").join("fritzbox_status.py");
+
+    let service = NmapServer {
+        config_dir,
+        python_path,
+        script_path,
+    }
+    .serve(stdio())
+    .await?;
     service.waiting().await?;
 
     Ok(())
