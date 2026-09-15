@@ -130,6 +130,7 @@
   "md_window.ai_empty": "risposta AI vuota — documento non modificato",
   "md_window.ai_failed": "richiesta AI fallita — documento non modificato ({detail})",
   "md_window.close_aria": "Chiudi finestra",
+  "md_window.close_confirm_message": "La ricerca non è ancora finita. Chiudere comunque?",
   "md_window.connection_lost": "connessione persa",
   "md_window.error_ipc": "[window] Errore: Tauri IPC non disponibile.",
   "md_window.error_retrieving": "[window] Errore durante il recupero del contenuto: {error}",

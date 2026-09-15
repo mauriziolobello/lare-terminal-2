@@ -392,11 +392,21 @@ async fn handle_connection(
             }
 
             ClientMsg::CancelCommand { id } => {
+                let cancelled_locally = if let Some(cmd_token) = commands.remove(&id) {
+                    cmd_token.cancel();
+                    true
+                } else {
+                    false
+                };
+                if !cancelled_locally {
+                    // Comando aperto su un'ALTRA connessione (es. turno shell,
+                    // cancellato dalla connessione ui — vedi Registry::register_command_token).
+                    if let Some(cmd_token) = registry.lock().await.take_command_token(&id) {
+                        cmd_token.cancel();
+                    }
+                }
                 // Annulla il comando AI/OS identificato da `id` (se ancora in corso).
                 // No-op se il comando è già terminato o l'id è sconosciuto.
-                if let Some(cmd_token) = commands.remove(&id) {
-                    cmd_token.cancel();
-                }
                 // Shell: Ctrl+C ha già fermato la pipeline lì (spec §4.4) —
                 // nessun ExecResult arriverà: sblocca il run_in_session pendente.
                 if let Some(s) = &shell {
@@ -648,6 +658,7 @@ async fn handle_connection(
                     // Crea il cancel token per questo comando e registralo.
                     let cancel = CancellationToken::new();
                     commands.insert(id.clone(), cancel.clone());
+                    registry.lock().await.register_command_token(&id, cancel.clone());
 
                     // Clona gli Arc necessari per il task spawnato.
                     let hist = Arc::clone(&history);
@@ -663,6 +674,7 @@ async fn handle_connection(
                     // ogni altro tool (run_in_session, open_target, ...) resta autonomo.
                     let pending_confirms_clone = pending_confirms.clone();
                     let config_dir = rt.config_dir.clone();
+                    let registry_clone = Arc::clone(&registry);
 
                     tokio::spawn(async move {
                         let local_confirmer = crate::local_confirm::LocalUiConfirmer::new(
@@ -701,6 +713,8 @@ async fn handle_connection(
                         )
                         .await;
                         drop(guard);
+
+                        let _ = registry_clone.lock().await.take_command_token(&id);
 
                         // ── Emit Cwd if changed (Task 3 / Step 5) ─────────────
                         let current_cwd = cwd_clone.lock().await.clone();

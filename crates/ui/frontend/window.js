@@ -43,6 +43,34 @@ async function invokeCmd(cmd, args) {
 // hanno un myOutputId non nullo.
 const myOutputId = outputWindowIdFromLabel(window.__TAURI__?.window?.getCurrentWindow?.()?.label);
 
+// ── Gate di chiusura per finestre show_markdown (update-in-place 2026-09-15) ──
+// Una finestra il cui myOutputId termina per "-md" è stata aperta da
+// show_markdown dentro un turno AI (contratto con ai_adapter.rs: window_id =
+// "{id}-md"). Il turno è attivo finché non arriva "markdown:turn-ended".
+// Se l'utente prova a chiudere mentre il turno è attivo, un modale chiede
+// conferma; "Sì" cancella il turno (CancelCommand) e chiude.
+const turnId = myOutputId?.endsWith("-md") ? myOutputId.slice(0, -3) : null;
+let turnActive = turnId !== null;
+const currentWindow = window.__TAURI__?.window?.getCurrentWindow?.();
+
+if (turnId && tauriEvent?.listen) {
+  tauriEvent.listen("markdown:turn-ended", (event) => {
+    if (event.payload?.window_id === myOutputId) {
+      turnActive = false;
+      if (turnBadgeEl) turnBadgeEl.textContent = "✓ completato";
+    }
+  });
+}
+
+if (turnId && currentWindow?.onCloseRequested) {
+  currentWindow.onCloseRequested(async (event) => {
+    if (turnActive) {
+      event.preventDefault();
+      showCloseConfirmModal();
+    }
+  });
+}
+
 let currentLanguage = "it";
 
 // ---------------------------------------------------------------------------
@@ -55,6 +83,23 @@ const contentEl       = document.getElementById("content");
 const expandInputEl  = document.getElementById("expand-input");
 const expandBtnEl    = document.getElementById("expand-btn");
 const expandStatusEl = document.getElementById("expand-status");
+const turnStatusEl      = document.getElementById("turn-status");
+const turnBadgeEl        = document.getElementById("turn-progress-badge");
+const turnUpdatedEl      = document.getElementById("turn-updated-time");
+
+// Mostra la barra di progresso SOLO per finestre show_markdown. Va DOPO le
+// dichiarazioni `const` sopra (non prima, come nella prima stesura di questo
+// blocco): un modulo ES applica la temporal dead zone a `let`/`const` — un
+// accesso a `turnStatusEl` prima della sua dichiarazione testuale, anche se
+// eseguito subito dopo nell'ordine del file, lancia `ReferenceError` e
+// interrompe l'esecuzione di TUTTO il resto del modulo (bootstrap mai
+// eseguito, bottone × mai agganciato, il gate di chiusura della Parte B
+// incluso) — bug trovato dal supervisore in fase di riverifica, mai
+// osservato dai 13 test JS del branch perché nessuno di essi carica
+// window.js con un vero DOM (jsdom/browser), solo i moduli .mjs puri.
+if (turnId && turnStatusEl) {
+  turnStatusEl.classList.add("visible");
+}
 
 // ---------------------------------------------------------------------------
 // Close helpers
@@ -76,15 +121,27 @@ async function closeWindow() {
   await invokeCmd("close_self").catch(() => {});
 }
 
+async function requestClose() {
+  if (turnId && turnActive) {
+    showCloseConfirmModal();
+    return;
+  }
+  await closeWindow();
+}
+
+function showCloseConfirmModal() {
+  document.getElementById("close-confirm-modal").hidden = false;
+}
+
 // × button — data-tauri-drag-region is on the parent #titlebar, NOT on this
 // button, so the click is never swallowed by the drag handler.
-closeBtnEl.addEventListener("click", closeWindow);
+closeBtnEl.addEventListener("click", requestClose);
 
 // Esc key anywhere in the window closes it.
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     e.preventDefault();
-    closeWindow();
+    requestClose();
   }
 });
 
@@ -288,6 +345,10 @@ async function bootstrap() {
       renderMarkdown(markdown || "");
       saveContent = markdown || "";
       currentContent = markdown || "";
+      // Aggiorna l'orario dell'ultimo contenuto (badge di progresso Parte C).
+      if (turnUpdatedEl) {
+        turnUpdatedEl.textContent = "aggiornato alle " + new Date().toLocaleTimeString();
+      }
     };
     try {
       await tauriEvent.listen("output:content", (ev) => {
@@ -443,6 +504,19 @@ async function bootstrap() {
     invokeCmd("resize_self", { width: currentWidth, height: clampedHeight }).catch(() => {});
   });
 }
+
+// ── Modale conferma chiusura (show_markdown update-in-place) ──────────────
+document.getElementById("close-confirm-yes").addEventListener("click", async () => {
+  document.getElementById("close-confirm-modal").hidden = true;
+  turnActive = false;
+  if (tauriEvent?.emit) {
+    try { await tauriEvent.emit("markdown:cancel-turn", { turn_id: turnId }); } catch (_) {}
+  }
+  await closeWindow();
+});
+document.getElementById("close-confirm-no").addEventListener("click", () => {
+  document.getElementById("close-confirm-modal").hidden = true;
+});
 
 bootstrap();
 

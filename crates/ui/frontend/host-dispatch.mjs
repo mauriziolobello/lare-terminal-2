@@ -58,6 +58,7 @@ const RELAY = new Set([
   "share_result",
   "share_content_request",
   "share_incoming_data",
+  "markdown_window_turn_ended",
 ]);
 
 export function classifyServerMsg(msg) {

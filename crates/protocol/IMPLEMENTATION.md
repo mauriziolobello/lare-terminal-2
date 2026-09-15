@@ -237,6 +237,7 @@ library — they never bypass the types.
 | `OpenUiLocal` | `name: String` | Chiede a `ui` di aprire (o portare in primo piano) una finestra locale (`"config"`, `"library"`, `"aichat"`, o l'id di un canale esterno) (v2.1.0) |
 | `UiPing` | `id: String` | Richiesta di vita a `ui.exe` (built-in `/ping`); risposta `UiPong` (v2.1.0) |
 | `ActivityIndicator` | `session_id: String`, `kind: String`, `on: bool` | Segnalino di stato per la finestra terminale della sessione; emesso da questa versione, consumato dal piano 3 (v2.1.0) |
+| `MarkdownWindowTurnEnded` | `window_id: String` | Segnala che il turno proprietario di una finestra `show_markdown` è concluso (successo/errore/cancellazione); la finestra lo usa per il gate di chiusura e il badge di stato (v2.2.0) |
 
 ### `Role` e `Surface` (2.1.0)
 

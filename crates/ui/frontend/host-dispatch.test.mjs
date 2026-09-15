@@ -8,7 +8,7 @@ test("messaggi che aprono finestre sono classificati window", () => {
   }
 });
 test("messaggi AI Chat / note / share sono relay", () => {
-  for (const type of ["ai_chat_message", "ai_chat_roster", "notes_snapshot", "note_upserted", "share_request", "share_result", "share_content_request", "share_incoming_data", "ai_chat_join_prompt"]) {
+  for (const type of ["ai_chat_message", "ai_chat_roster", "notes_snapshot", "note_upserted", "share_request", "share_result", "share_content_request", "share_incoming_data", "ai_chat_join_prompt", "markdown_window_turn_ended"]) {
     assert.equal(classifyServerMsg({ type }), "relay");
   }
 });

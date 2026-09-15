@@ -243,6 +243,11 @@ function handleServerMsg(msg) {
       if (client) client.sendUiPong(msg.id, uiVersion);
       break;
 
+    // ── show_markdown update-in-place (2026-09-15) — notifica fine turno ─────
+    case "markdown_window_turn_ended":
+      emitToPlugin("markdown:turn-ended", { window_id: msg.window_id });
+      break;
+
     // ── AI Chat (Slice 1a-ui-B / Task 9/10) ─────────────────────────────────
     case "ai_chat_message":
       // display_name/is_ai (Task 9): campi additivi arrivati dal wire (protocol
@@ -477,6 +482,10 @@ function setupSearchEvents() {
   tauriEvent.listen("search:resume", (e) => {
     const sid = e?.payload?.sid;
     if (sid && client) client.resumeSearch(sid);
+  });
+  tauriEvent.listen("markdown:cancel-turn", (event) => {
+    const turnId = event?.payload?.turn_id;
+    if (turnId && client) client.cancelCommand(turnId);
   });
 }
 

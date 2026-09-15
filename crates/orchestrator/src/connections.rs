@@ -21,6 +21,7 @@ use std::sync::Arc;
 use protocol::ServerMsg;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::{oneshot, Mutex};
+use tokio_util::sync::CancellationToken;
 
 /// Handle condiviso: `ws::serve` lo riceve da `main()` e lo clona per ogni
 /// connessione. `tokio::sync::Mutex` perché viene tenuto attraverso `await`
@@ -32,6 +33,12 @@ pub struct Registry {
     ui_sink: Option<UnboundedSender<ServerMsg>>,
     shells: HashMap<String, UnboundedSender<ServerMsg>>,
     ui_pings: HashMap<String, oneshot::Sender<String>>,
+    /// Token di cancellazione per comando, raggiungibili da QUALUNQUE
+    /// connessione (non solo quella che ha aperto il comando). Serve per
+    /// `show_markdown` update-in-place: la finestra Markdown vive su `ui.exe`
+    /// (connessione separata dalla shell), ma deve poter cancellare il turno
+    /// AI aperto dalla shell — vedi `ws.rs::CancelCommand`.
+    command_tokens: HashMap<String, CancellationToken>,
 }
 
 impl Registry {
@@ -110,6 +117,20 @@ impl Registry {
             None => false,
         }
     }
+
+    /// Registra il token di cancellazione del comando `id`, raggiungibile
+    /// da QUALUNQUE connessione (non solo quella che ha aperto il comando).
+    pub fn register_command_token(&mut self, id: &str, token: CancellationToken) {
+        self.command_tokens.insert(id.to_string(), token);
+    }
+
+    /// Rimuove e ritorna il token per `id`, se presente. Usato sia per
+    /// cancellare (poi `.cancel()` sul risultato) sia per la pulizia a fine
+    /// turno (risultato scartato) — un comando concluso non deve restare
+    /// nella mappa indefinitamente (leak).
+    pub fn take_command_token(&mut self, id: &str) -> Option<CancellationToken> {
+        self.command_tokens.remove(id)
+    }
 }
 
 #[cfg(test)]
@@ -187,5 +208,32 @@ mod tests {
         // Seconda risoluzione (o id ignoto): no-op, ritorna false.
         assert!(!r.resolve_ui_ping("p1", "x".into()));
         assert!(!r.resolve_ui_ping("ignoto", "x".into()));
+    }
+
+    // ── command_tokens (Parte B, show_markdown update-in-place) ────────────
+    // La proprietà di fondo che questi 2 test verificano, isolata dal resto
+    // del ciclo di vita WS (già coperto end-to-end da
+    // `ws_integration.rs::cancel_command_from_ui_connection_cancels_a_shell_
+    // originated_token`): il registro condiviso è un semplice
+    // register→take, simmetrico, senza leak.
+
+    #[test]
+    fn take_command_token_removes_and_returns_the_registered_token() {
+        let mut r = Registry::new();
+        let token = CancellationToken::new();
+        r.register_command_token("c1", token.clone());
+
+        let taken = r.take_command_token("c1").expect("il token appena registrato deve essere trovato");
+        taken.cancel();
+        assert!(token.is_cancelled(), "cancellare il token preso deve riflettersi sull'originale (stesso token, Clone economico)");
+
+        // Preso una volta: non più recuperabile (rimosso, niente doppia cancellazione).
+        assert!(r.take_command_token("c1").is_none());
+    }
+
+    #[test]
+    fn take_command_token_on_unknown_id_is_a_harmless_no_op() {
+        let mut r = Registry::new();
+        assert!(r.take_command_token("mai-registrato").is_none());
     }
 }

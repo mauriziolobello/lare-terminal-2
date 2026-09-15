@@ -1458,6 +1458,100 @@ async fn shell_cancel_command_during_pending_exec_unblocks_the_turn() {
     }
 }
 
+/// Adapter di test per il prossimo test: si blocca finché il `CancellationToken`
+/// non viene cancellato (`token.cancelled().await`, API standard di
+/// `tokio_util`), poi emette `Done{exit_code: Some(130)}` — stesso contratto
+/// di cancellazione di `LlmAdapter` (vedi `ai_adapter.rs`), ma senza dipendere
+/// da un vero backend HTTP: qui serve solo dimostrare che IL TOKEN arriva
+/// cancellato, non riprodurre l'intero loop AI (già ben coperto altrove).
+struct WaitForCancelAdapter;
+
+#[async_trait]
+impl AiAdapter for WaitForCancelAdapter {
+    async fn respond(
+        &self,
+        id: &str,
+        _input: &str,
+        _history: &mut ConversationHistory,
+        _tools: &dyn ToolClient,
+        _opts: TurnOptions,
+        _confirmer: Option<&dyn ToolConfirmer>,
+        cancel: Option<CancellationToken>,
+        tx: UnboundedSender<ServerMsg>,
+    ) {
+        if let Some(token) = cancel {
+            token.cancelled().await;
+        }
+        let _ = tx.send(ServerMsg::Done { id: id.to_string(), exit_code: Some(130) });
+    }
+
+    // Mai chiamato da questo test (nessuna stanza AI Chat coinvolta) — solo
+    // per soddisfare il trait, nessun default fornito per `chat_reply`.
+    async fn chat_reply(
+        &self,
+        _my_ai_label: &str,
+        _history: &[orchestrator::messages_client::Message],
+        request: &str,
+        _cancel: Option<CancellationToken>,
+    ) -> String {
+        format!("mai chiamato: {request}")
+    }
+}
+
+/// Riverifica del supervisore (Parte B, `Registry::command_tokens`): il
+/// compito chiedeva questo test esplicitamente, mancava nel report di
+/// DeepSeek. Il cuore del fix di Parte B — `CancelCommand` mandato dalla
+/// connessione `ui` deve raggiungere un token registrato dalla connessione
+/// `shell` (mappe `commands` separate per connessione, solo il `Registry`
+/// condiviso le collega). Un `WaitForCancelAdapter` bloccato in attesa del
+/// token dimostra ESATTAMENTE questo, senza dipendere da un exec/gate
+/// pendente (quel caso, `abort_turn`, è specifico della connessione shell e
+/// già coperto dal test sopra — un meccanismo diverso da questo fix).
+/// `tokio::time::timeout`: se il fix fosse assente/rotto, il turno resterebbe
+/// bloccato per sempre — meglio un fallimento esplicito che un test appeso.
+#[tokio::test]
+async fn cancel_command_from_ui_connection_cancels_a_shell_originated_token() {
+    let url = spawn_server_with("tok-cross-conn-cancel", Arc::new(WaitForCancelAdapter)).await;
+    let (ui_ws, _) = connect_async(&url).await.unwrap();
+    let (mut ui_sink, mut ui_source) = ui_ws.split();
+    send(&mut ui_sink, &ui_hello("tok-cross-conn-cancel")).await;
+    recv(&mut ui_source).await;
+    let (ws, _) = connect_async(&url).await.unwrap();
+    let (mut sink, mut source) = ws.split();
+    send(&mut sink, &shell_hello("tok-cross-conn-cancel")).await;
+    recv(&mut source).await;
+
+    // shell: apre il turno "c1" — WaitForCancelAdapter si blocca subito,
+    // in attesa del token.
+    send(&mut sink, &command("c1", "/ai \"qualcosa\"")).await;
+    // ui: la finestra di output si apre comunque (route_shell_turn manda
+    // OpenOutputWindow PRIMA di invocare l'adapter) — attenderla conferma che
+    // il turno è effettivamente partito prima di cancellarlo.
+    recv_until(&mut ui_source, |m| matches!(m, ServerMsg::OpenOutputWindow { .. })).await;
+
+    // ui (NON shell): CancelCommand per "c1" — deve trovare il token nel
+    // Registry condiviso (la mappa `commands` locale della connessione ui è
+    // vuota, il comando non è mai stato aperto lì).
+    send(&mut ui_sink, &ClientMsg::CancelCommand { id: "c1".to_string() }).await;
+
+    // shell: il turno deve terminare con Done{130} entro un timeout breve —
+    // se il fix cross-connection non funzionasse, questo recv_until non
+    // arriverebbe mai (l'adapter resterebbe bloccato su cancelled().await per
+    // sempre). Un Chunk di conferma ("finestra aperta") precede il Done —
+    // stesso contratto di `route_shell_turn` (surface.rs) verificato dal test
+    // di cancellazione sopra — quindi `recv_until` invece di un singolo `recv`.
+    let done = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        recv_until(&mut source, |m| matches!(m, ServerMsg::Done { .. })),
+    )
+    .await
+    .expect("timeout: CancelCommand dalla connessione ui non ha raggiunto il token del turno shell");
+    assert!(
+        matches!(&done, ServerMsg::Done { exit_code: Some(130), .. }),
+        "atteso Done{{exit_code:130}}, got {done:?}"
+    );
+}
+
 /// `/ping` dalla shell: sonda `ui.exe` via `UiPing`/`UiPong` e riporta anche
 /// il plugin `ping` mancante (nessun plugin registrato in `spawn_server`).
 #[tokio::test]

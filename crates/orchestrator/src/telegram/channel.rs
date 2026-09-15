@@ -143,7 +143,8 @@ pub fn format_response(msgs: &[ServerMsg]) -> String {
             }
             // ServerInfo, Pong e Cwd sono messaggi di infrastruttura WS:
             // non hanno contenuto visibile per l'utente Telegram.
-            ServerMsg::ServerInfo { .. } | ServerMsg::Pong { .. } | ServerMsg::Cwd { .. } => {}
+            ServerMsg::ServerInfo { .. } | ServerMsg::Pong { .. } | ServerMsg::Cwd { .. }
+            | ServerMsg::MarkdownWindowTurnEnded { .. } => {}
             // TODO(Task 11): handle Search messages (SearchOpen, SearchHit, SearchDone)
             ServerMsg::SearchOpen { .. } | ServerMsg::SearchHit { .. } | ServerMsg::SearchDone { .. } => {}
             // Plugin window messages are UI-only (Task 5/6): Telegram channel has no
