@@ -1362,6 +1362,83 @@ mod tests {
         );
     }
 
+    /// Verifica del `MarkdownWindowEndGuard` sul path di CANCELLAZIONE (non solo
+    /// completamento normale, già coperto sopra): `show_markdown` apre la
+    /// finestra in una iterazione, un secondo tool nello stesso batch cancella
+    /// il token (stesso schema deterministico di
+    /// `deferred_report_is_dropped_on_cancel_before_final_text` più sotto — la
+    /// cancellazione avviene DENTRO `dispatch()`, il controllo in testa alla
+    /// PROSSIMA iterazione la vede di sicuro, nessuna corsa fra task). Il
+    /// guard, essendo RAII, deve emettere `MarkdownWindowTurnEnded` anche su
+    /// questo `return` — non solo sul completamento a `done()`.
+    #[tokio::test]
+    async fn show_markdown_cancelled_turn_still_emits_turn_ended() {
+        struct CancelAfterFixtureToolClient(CancellationToken);
+
+        #[async_trait::async_trait]
+        impl ToolClient for CancelAfterFixtureToolClient {
+            async fn run_in_session(&self, _command: &str, _progress_tx: Option<tokio::sync::mpsc::UnboundedSender<String>>) -> crate::tool_client::CommandResult {
+                crate::tool_client::CommandResult { stdout: String::new(), stderr: "non disponibile".to_string(), exit_code: -1, cwd: String::new() }
+            }
+            async fn reset_session(&self) {}
+            async fn open_target(&self, _target: &str) -> crate::tool_client::OpenResult {
+                crate::tool_client::OpenResult { ok: false, message: "non disponibile".to_string() }
+            }
+            async fn search_routines(&self, _query: Option<&str>) -> crate::tool_client::SearchRoutinesResult {
+                crate::tool_client::SearchRoutinesResult { results: Vec::new(), error: Some("non disponibile".to_string()) }
+            }
+            async fn run_routine(&self, _name: &str, _args: Option<&str>) -> crate::tool_client::RunRoutineResult {
+                crate::tool_client::RunRoutineResult { ok: false, message: "non disponibile".to_string(), stdout: String::new(), stderr: String::new(), exit_code: -1, cwd: String::new() }
+            }
+            fn tool_defs(&self) -> Vec<crate::messages_client::ToolDef> {
+                vec![crate::messages_client::ToolDef { name: "cancel_now".to_string(), description: "d".to_string(), input_schema: serde_json::json!({}) }]
+            }
+            async fn dispatch(&self, _name: &str, _input: &serde_json::Value) -> crate::tool_client::DispatchOutcome {
+                self.0.cancel();
+                crate::tool_client::DispatchOutcome { output: "annullato".to_string(), is_error: false, report: None, channel_summary: None }
+            }
+        }
+
+        let fake = Arc::new(FakeChatBackend::sequence(vec![
+            Ok(BackendTurn {
+                blocks: vec![
+                    Block::ToolUse { id: "tu_md".to_string(), name: "show_markdown".to_string(), input: serde_json::json!({"content":"parziale"}) },
+                    Block::ToolUse { id: "tu_cancel".to_string(), name: "cancel_now".to_string(), input: serde_json::json!({}) },
+                ],
+                stop: TurnStop::Normal,
+            }),
+            Ok(text_turn("mai raggiunto")),
+        ]));
+        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string(), std::path::PathBuf::from("/test-config"));
+        let mut hist = ConversationHistory::new();
+        let token = CancellationToken::new();
+        let tools = CancelAfterFixtureToolClient(token.clone());
+
+        let msgs = collect(|tx| {
+            adapter.respond("c1", "test", &mut hist, &tools, TurnOptions::default(), None, Some(token), tx)
+        })
+        .await;
+
+        // La finestra è stata aperta (show_markdown processato PRIMA della cancellazione)...
+        assert!(
+            msgs.iter().any(|m| matches!(m, ServerMsg::OpenOutputWindow { window_id, .. } if window_id == "c1-md")),
+            "atteso OpenOutputWindow prima della cancellazione: {msgs:?}"
+        );
+        // ...il turno finisce cancellato (exit_code 130, stesso contratto del test esistente sotto)...
+        assert!(
+            msgs.iter().any(|m| matches!(m, ServerMsg::Done { exit_code: Some(130), .. })),
+            "atteso Done{{exit_code:130}}: {msgs:?}"
+        );
+        // ...e il guard RAII emette comunque il segnale di fine turno: il caso
+        // reale è esattamente questo (Parte B — l'utente conferma "sì, chiudi",
+        // il turno viene cancellato, la finestra deve saperlo per sapere che
+        // può chiudersi/aggiornare il badge, anche se il turno non è mai arrivato a `done()`).
+        assert!(
+            msgs.iter().any(|m| matches!(m, ServerMsg::MarkdownWindowTurnEnded { window_id } if window_id == "c1-md")),
+            "atteso MarkdownWindowTurnEnded anche su un turno cancellato: {msgs:?}"
+        );
+    }
+
     /// Igiene storia: il cap iterazioni scarta lo scambio runaway (truncate).
     #[tokio::test]
     async fn history_cleaned_after_cap() {

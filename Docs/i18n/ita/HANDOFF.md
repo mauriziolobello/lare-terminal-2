@@ -7,12 +7,13 @@
 
 (a fine piano 3 "finestra terminale" e i18n Parte 3 — lette da ogni `Cargo.toml`/`.csproj`)
 
-- protocol 2.1.1 (da v1 0.15.4; 2.1.1 — `ClientMsg::Command.lang` additivo con default vuoto per i18n Parte 3)
+- protocol 2.2.0 (da v1 0.15.4; 2.2.0 — `ServerMsg::MarkdownWindowTurnEnded` additivo per show_markdown update-in-place)
 - startup-config 2.0.4 (da v1 0.1.0; `spawn_detached` piano 3 Task 3; 2.0.4 — modulo `logging`
   condiviso + stdio chiuse + `child_stderr_log_sink`, fix finestre console spurie)
 - mcp-server 2.0.1 (da v1 0.7.1)
 - mcp-nmap 2.1.0 (da v1 0.8.2; 2.1.0 — tool fritzbox_status + --config-dir in main)
-- orchestrator 2.3.0 (da v1 0.41.21; 2.3.0 — tool fritzbox_status nel canale netsec)
+- orchestrator 2.4.0 (da v1 0.41.21; 2.4.0 — show_markdown aggiorna in-place invece di aprire una
+  finestra nuova ogni chiamata, Parte A del compito update-in-place)
 - plugin-protocol 2.0.0 (da v1 0.2.1)
 - plugin-ping 2.0.0 (da v1 0.1.0)
 - plugin-counter 2.0.0 (da v1 0.1.0)
@@ -27,6 +28,20 @@
   `--no-terminal` — non un crate Cargo: `shell/lare-shell/`, .NET/C#)
 
 ## FATTO
+
+- **`show_markdown` aggiorna in-place — Parte A (2026-09-15)** — compito
+  `Docs/i18n/ita/compiti-ai-esterne/2026-09-15-show-markdown-update-in-place.md` (Parte A, B e C
+  ancora da fare). Bug trovato l'8/9 (mitigato solo con un'istruzione nel prompt, commit
+  `6e0dc85`) e rivissuto dal vivo il 12/9: un turno `/ai` con ricerca web apriva la stessa
+  risposta in più finestre separate mentre il modello la raffinava. Ora `show_markdown` apre la
+  finestra una volta (`window_id = "{id}-md"`, stabile per il turno) e le chiamate successive
+  aggiornano quella stessa finestra (`OutputWindowContent`) invece di aprirne una nuova — nuovo
+  `ServerMsg::MarkdownWindowTurnEnded` (guard RAII, emesso a qualunque uscita del turno, incluso
+  cancellazione) segnala alla UI quando il turno è concluso, per la Parte B (gate di chiusura con
+  conferma) e C (badge di progresso). Prerequisito trovato in investigazione: il buffer
+  `output-buffer.mjs` lato frontend era scritto per un caso one-shot — reso persistente, altrimenti
+  il secondo aggiornamento si sarebbe perso in silenzio. protocol 2.1.1 → 2.2.0, orchestrator
+  2.3.0 → 2.4.0. 951 test (orchestrator), tutti verdi.
 
 - **Rinomina canale `/nmap` → `/netsec` (2026-09-12)** — compito
   `Docs/i18n/ita/compiti-ai-esterne/2026-09-12-netsec-rename-fritzbox.md`:

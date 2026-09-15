@@ -4,6 +4,22 @@ All notable changes to this crate are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 Versioning: `major.minor.update` (SemVer).
 
+## 2.2.0 — 2026-09-15 — `ServerMsg::MarkdownWindowTurnEnded` (show_markdown update-in-place)
+
+Compito: `Docs/i18n/ita/compiti-ai-esterne/2026-09-15-show-markdown-update-in-place.md` (Parte A).
+
+- **`ServerMsg::MarkdownWindowTurnEnded { window_id: String }`** (nuova variante, additiva):
+  segnala che il turno "proprietario" di una finestra `show_markdown` (`ai_adapter.rs`) è
+  concluso (successo, errore o cancellazione) — la finestra lo usa per sapere se può chiudersi
+  liberamente o deve ancora mostrare il gate di conferma/badge "ricerca in corso" (Parte B/C).
+  Superficie `Ui` (`ServerMsg::surface()`). Wire: `"markdown_window_turn_ended"`.
+- Ogni match esaustivo esistente su `ServerMsg` ha dovuto essere esteso — oltre a `surface()`,
+  anche `telegram/channel.rs::format_response` (orchestrator): ignorato come le altre varianti di
+  infrastruttura WS senza contenuto visibile per l'utente Telegram.
+
+Bump `2.1.1` → `2.2.0` (minor: variante additiva, nessuna rottura per client esistenti — un
+client vecchio che non la conosce la ignora, come ogni altra variante).
+
 ## 2.1.1 — 2026-09-09 — lang additivo su ClientMsg::Command (i18n Parte 3)
 
 Aggiunta additiva (Contratto A) per supportare la scelta della lingua di risposta

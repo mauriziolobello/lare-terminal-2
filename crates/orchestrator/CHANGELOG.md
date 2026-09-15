@@ -3,6 +3,44 @@
 All notable changes to this crate are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), versioning: [SemVer](https://semver.org/).
 
+## 2.4.0 — 2026-09-15 — `show_markdown` aggiorna in-place (Parte A)
+
+Compito: `Docs/i18n/ita/compiti-ai-esterne/2026-09-15-show-markdown-update-in-place.md` (Parte A).
+Bug trovato l'8/9 (mitigato solo con un'istruzione nel prompt del tool, commit `6e0dc85`) e
+rivissuto dal vivo il 12/9 da Maurizio: un turno `/ai` con ricerca web poteva aprire la stessa
+risposta (quasi identica) in più finestre separate mentre il modello continuava a raffinarla.
+
+- **`ai_adapter.rs`**: `show_markdown` ora apre la finestra UNA volta (`OpenOutputWindow` +
+  `OutputWindowContent`, `window_id = "{id}-md"`, stabile per l'intero turno) e le chiamate
+  successive nello stesso turno AGGIORNANO quella stessa finestra (solo `OutputWindowContent`)
+  invece di aprirne una nuova — sostituisce il precedente `ServerMsg::OpenWindow` (sempre una
+  finestra nuova). Gli altri produttori di `OpenWindow` in questo file (report differiti/immediati
+  di tool custom come `stock_report`) restano invariati: non hanno il bug, aprono sempre
+  esattamente una finestra a turno per costruzione.
+- **`MarkdownWindowEndGuard`** (RAII, nuovo): a QUALUNQUE uscita di `respond()` (completamento,
+  errore, cancellazione — ~7 punti di uscita), se una finestra `show_markdown` è stata aperta nel
+  turno, emette `ServerMsg::MarkdownWindowTurnEnded{window_id}` — una sola emissione garantita
+  senza dover duplicare la chiamata in ogni `return`. Verificato esplicitamente anche sul path di
+  cancellazione (non solo il completamento normale): il caso reale che conta di più (Parte B —
+  l'utente annulla, la finestra deve saperlo).
+- **`agent.rs`**: la description di `show_markdown` non dice più "chiamalo una sola volta" —
+  ora dice esplicitamente che chiamate multiple nello stesso turno sono benvenute e aggiornano la
+  finestra. Test corrispondente invertito.
+- **`crates/ui/frontend/output-buffer.mjs`** (prerequisito trovato in investigazione, non nel
+  compito originale ma necessario perché la feature funzioni oltre la prima chiamata): il buffer
+  era scritto per un caso "one-shot" (cancella l'entry alla prima consegna di contenuto) — un
+  secondo `OutputWindowContent` per lo stesso `window_id` si sarebbe bufferizzato silenziosamente
+  e non sarebbe MAI arrivato alla finestra (nessuno richiama `subscribe()` una seconda volta). Reso
+  persistente: la sottoscrizione resta valida finché la finestra non si chiude esplicitamente
+  (`close()`), non più consumata al primo utilizzo.
+- **`protocol`**: nuova variante `ServerMsg::MarkdownWindowTurnEnded{window_id}` (2.1.1 → 2.2.0,
+  vedi CHANGELOG di quel crate). Anche `telegram/channel.rs::format_response` (match esaustivo su
+  `ServerMsg`) ha dovuto essere esteso — ignora il nuovo messaggio come le altre varianti di
+  infrastruttura WS (`ServerInfo`/`Pong`/`Cwd`): nessun contenuto visibile per l'utente Telegram.
+
+951 test (orchestrator), tutti verdi. Bump orchestrator 2.3.0 → 2.4.0 (minor: comportamento nuovo
+osservabile, non solo un fix invisibile).
+
 ## 2.2.7 — 2026-09-12 — rinomina canale /nmap → /netsec
 
 - Rinomina user-facing del canale esterno: slash trigger `/nmap` → `/netsec`, id canale `"nmap"` → `"netsec"`, titolo finestra `"Lare — nmap"` → `"Lare — netsec"`. I nomi Rust interni (crate `mcp-nmap`, `NmapToolClient`, `format_nmap_invocation`, `NMAP_SYSTEM_PROMPT`, tool `nmap_*`) restano invariati. Solo ciò che utente/AI vedono.
