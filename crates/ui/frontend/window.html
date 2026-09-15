@@ -299,6 +299,43 @@
       font-size: 11px;
     }
     #content.error { color: rgba(255, 140, 120, 0.9); }
+
+    /* ── Modale conferma chiusura durante turno attivo ──────────────────────
+       show_markdown update-in-place (2026-09-15): overlay HTML in-finestra
+       (mai un dialog nativo del SO — coerente con lo stile chromeless). */
+    .modal-overlay {
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0, 0, 0, 0.55);
+      display: flex; align-items: center; justify-content: center;
+      z-index: 100;
+    }
+    .modal-overlay[hidden] { display: none; }
+    .modal-box {
+      background: rgba(25, 28, 42, 0.95);
+      border: 1px solid rgba(80, 160, 240, 0.45);
+      border-radius: 10px;
+      padding: 20px 28px;
+      max-width: 380px;
+      text-align: center;
+      color: var(--text);
+    }
+    .modal-box p {
+      margin-bottom: 16px;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+    .modal-box button {
+      margin: 0 6px;
+      padding: 6px 22px;
+      border: 1px solid rgba(80, 160, 240, 0.5);
+      border-radius: 6px;
+      background: rgba(30, 36, 52, 0.9);
+      color: #e8eefc;
+      cursor: pointer;
+      font: inherit;
+      font-size: 13px;
+    }
+    .modal-box button:hover { background: rgba(80, 160, 240, 0.2); }
   </style>
 </head>
 <body>
@@ -321,6 +358,15 @@
     <span id="expand-status"></span>
   </div>
   <div id="content" class="loading" data-i18n="md_window.loading">Caricamento…</div>
+
+  <!-- Modale conferma chiusura durante turno attivo (show_markdown update-in-place) -->
+  <div id="close-confirm-modal" class="modal-overlay" hidden>
+    <div class="modal-box">
+      <p data-i18n="closeConfirmMessage">La ricerca non è ancora finita. Chiudere comunque?</p>
+      <button id="close-confirm-yes">Sì</button>
+      <button id="close-confirm-no">No</button>
+    </div>
+  </div>
 
   <!--
     Tauri v2: withGlobalTauri = true in tauri.conf.json → window.__TAURI__ is available.

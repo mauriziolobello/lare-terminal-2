@@ -21,6 +21,7 @@ use std::sync::Arc;
 use protocol::ServerMsg;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::{oneshot, Mutex};
+use tokio_util::sync::CancellationToken;
 
 /// Handle condiviso: `ws::serve` lo riceve da `main()` e lo clona per ogni
 /// connessione. `tokio::sync::Mutex` perché viene tenuto attraverso `await`
@@ -32,6 +33,12 @@ pub struct Registry {
     ui_sink: Option<UnboundedSender<ServerMsg>>,
     shells: HashMap<String, UnboundedSender<ServerMsg>>,
     ui_pings: HashMap<String, oneshot::Sender<String>>,
+    /// Token di cancellazione per comando, raggiungibili da QUALUNQUE
+    /// connessione (non solo quella che ha aperto il comando). Serve per
+    /// `show_markdown` update-in-place: la finestra Markdown vive su `ui.exe`
+    /// (connessione separata dalla shell), ma deve poter cancellare il turno
+    /// AI aperto dalla shell — vedi `ws.rs::CancelCommand`.
+    command_tokens: HashMap<String, CancellationToken>,
 }
 
 impl Registry {
@@ -109,6 +116,20 @@ impl Registry {
             Some(tx) => tx.send(version).is_ok(),
             None => false,
         }
+    }
+
+    /// Registra il token di cancellazione del comando `id`, raggiungibile
+    /// da QUALUNQUE connessione (non solo quella che ha aperto il comando).
+    pub fn register_command_token(&mut self, id: &str, token: CancellationToken) {
+        self.command_tokens.insert(id.to_string(), token);
+    }
+
+    /// Rimuove e ritorna il token per `id`, se presente. Usato sia per
+    /// cancellare (poi `.cancel()` sul risultato) sia per la pulizia a fine
+    /// turno (risultato scartato) — un comando concluso non deve restare
+    /// nella mappa indefinitamente (leak).
+    pub fn take_command_token(&mut self, id: &str) -> Option<CancellationToken> {
+        self.command_tokens.remove(id)
     }
 }
 

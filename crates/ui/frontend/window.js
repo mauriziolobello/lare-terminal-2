@@ -43,6 +43,31 @@ async function invokeCmd(cmd, args) {
 // hanno un myOutputId non nullo.
 const myOutputId = outputWindowIdFromLabel(window.__TAURI__?.window?.getCurrentWindow?.()?.label);
 
+// ── Gate di chiusura per finestre show_markdown (update-in-place 2026-09-15) ──
+// Una finestra il cui myOutputId termina per "-md" è stata aperta da
+// show_markdown dentro un turno AI (contratto con ai_adapter.rs: window_id =
+// "{id}-md"). Il turno è attivo finché non arriva "markdown:turn-ended".
+// Se l'utente prova a chiudere mentre il turno è attivo, un modale chiede
+// conferma; "Sì" cancella il turno (CancelCommand) e chiude.
+const turnId = myOutputId?.endsWith("-md") ? myOutputId.slice(0, -3) : null;
+let turnActive = turnId !== null;
+const currentWindow = window.__TAURI__?.window?.getCurrentWindow?.();
+
+if (turnId && tauriEvent?.listen) {
+  tauriEvent.listen("markdown:turn-ended", (event) => {
+    if (event.payload?.window_id === myOutputId) turnActive = false;
+  });
+}
+
+if (turnId && currentWindow?.onCloseRequested) {
+  currentWindow.onCloseRequested(async (event) => {
+    if (turnActive) {
+      event.preventDefault();
+      showCloseConfirmModal();
+    }
+  });
+}
+
 let currentLanguage = "it";
 
 // ---------------------------------------------------------------------------
@@ -76,15 +101,27 @@ async function closeWindow() {
   await invokeCmd("close_self").catch(() => {});
 }
 
+async function requestClose() {
+  if (turnId && turnActive) {
+    showCloseConfirmModal();
+    return;
+  }
+  await closeWindow();
+}
+
+function showCloseConfirmModal() {
+  document.getElementById("close-confirm-modal").hidden = false;
+}
+
 // × button — data-tauri-drag-region is on the parent #titlebar, NOT on this
 // button, so the click is never swallowed by the drag handler.
-closeBtnEl.addEventListener("click", closeWindow);
+closeBtnEl.addEventListener("click", requestClose);
 
 // Esc key anywhere in the window closes it.
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") {
     e.preventDefault();
-    closeWindow();
+    requestClose();
   }
 });
 
@@ -443,6 +480,19 @@ async function bootstrap() {
     invokeCmd("resize_self", { width: currentWidth, height: clampedHeight }).catch(() => {});
   });
 }
+
+// ── Modale conferma chiusura (show_markdown update-in-place) ──────────────
+document.getElementById("close-confirm-yes").addEventListener("click", async () => {
+  document.getElementById("close-confirm-modal").hidden = true;
+  turnActive = false;
+  if (tauriEvent?.emit) {
+    try { await tauriEvent.emit("markdown:cancel-turn", { turn_id: turnId }); } catch (_) {}
+  }
+  await closeWindow();
+});
+document.getElementById("close-confirm-no").addEventListener("click", () => {
+  document.getElementById("close-confirm-modal").hidden = true;
+});
 
 bootstrap();
 
