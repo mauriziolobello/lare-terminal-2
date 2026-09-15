@@ -3,6 +3,41 @@
 All notable changes to this package follow [Keep a Changelog](https://keepachangelog.com/) format.
 Versioning: `major.minor.update`.
 
+## 2.3.6 — 2026-09-16 — badge di progresso show_markdown (Parte C) + fix critico Parte B/C
+
+Compito: `Docs/i18n/ita/compiti-ai-esterne/2026-09-15-show-markdown-update-in-place.md` (Parte C,
+ultima delle 3 — compito completo).
+
+- **`window.js`/`window.html`**: per le finestre `show_markdown` (`-md`), una barra di stato
+  mostra "🔍 ricerca in corso…" mentre il turno è attivo, "✓ completato" a `markdown:turn-ended`,
+  e l'orario dell'ultimo aggiornamento di contenuto ("aggiornato alle HH:MM:SS").
+
+**Bug critico trovato dal supervisore in fase di riverifica (non nel report del branch, non
+rilevato dai 13 test JS dichiarati verdi)**: il codice che mostra la barra
+(`turnStatusEl.classList.add("visible")`) veniva eseguito PRIMA della dichiarazione `const
+turnStatusEl = document.getElementById(...)` più sotto nello stesso file — in un modulo ES,
+`let`/`const` hanno una temporal dead zone: un accesso prima della dichiarazione testuale lancia
+`ReferenceError` e interrompe l'esecuzione di TUTTO il resto del modulo. Confermato empiricamente
+con un mock DOM minimale (RED sulla versione del branch: `ReferenceError: Cannot access
+'turnStatusEl' before initialization` — GREEN dopo il fix): OGNI finestra `show_markdown` avrebbe
+fallito il bootstrap non appena aperta — bottone × mai agganciato, contenuto mai mostrato, **il
+gate di chiusura della Parte B mai armato** (il suo codice sta più sotto nello stesso modulo,
+mai raggiunto). Fix: spostato il blocco che mostra la barra dopo le dichiarazioni `const` da cui
+dipende — nessun test JS esistente carica `window.js` con un vero DOM, quindi questa classe di
+bug non era (e non è tuttora) coperta da automazione; verificato manualmente con un harness
+Node ad-hoc (non incluso nel repo).
+
+- **Fix minore, trovato dallo stesso giro di verifica**: il test automatico "Parità chiavi i18n"
+  (`i18n-parity.test.mjs`) falliva — `md_window.close_confirm_message` (testo del modale di
+  conferma, Parte B) non era mai stato aggiunto ai 3 dizionari
+  (`Test Run/Configuration/i18n/{it,en,es}.json`), e usava una chiave flat
+  (`closeConfirmMessage`) fuori dalla convenzione namespace del progetto (`md_window.*`).
+  Rinominata e tradotta in tutte e 3 le lingue.
+
+257/260 test JS verdi (i 3 restanti — riferimenti a `/nmap` mai aggiornati a `/netsec` in
+`external-channels.test.mjs`/`ui-local.test.mjs` — sono PRE-ESISTENTI, confermati identici sul
+main prima di questo branch: non introdotti né toccati qui, segnalati in HANDOFF DA FARE).
+
 ## 2.3.5 — 2026-09-15 — gate di chiusura per finestre show_markdown (Parte B)
 
 Compito: `Docs/i18n/ita/compiti-ai-esterne/2026-09-15-show-markdown-update-in-place.md` (Parte B).

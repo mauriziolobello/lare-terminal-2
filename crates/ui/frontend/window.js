@@ -62,11 +62,6 @@ if (turnId && tauriEvent?.listen) {
   });
 }
 
-// Mostra la barra di progresso SOLO per finestre show_markdown.
-if (turnId && turnStatusEl) {
-  turnStatusEl.classList.add("visible");
-}
-
 if (turnId && currentWindow?.onCloseRequested) {
   currentWindow.onCloseRequested(async (event) => {
     if (turnActive) {
@@ -91,6 +86,20 @@ const expandStatusEl = document.getElementById("expand-status");
 const turnStatusEl      = document.getElementById("turn-status");
 const turnBadgeEl        = document.getElementById("turn-progress-badge");
 const turnUpdatedEl      = document.getElementById("turn-updated-time");
+
+// Mostra la barra di progresso SOLO per finestre show_markdown. Va DOPO le
+// dichiarazioni `const` sopra (non prima, come nella prima stesura di questo
+// blocco): un modulo ES applica la temporal dead zone a `let`/`const` — un
+// accesso a `turnStatusEl` prima della sua dichiarazione testuale, anche se
+// eseguito subito dopo nell'ordine del file, lancia `ReferenceError` e
+// interrompe l'esecuzione di TUTTO il resto del modulo (bootstrap mai
+// eseguito, bottone × mai agganciato, il gate di chiusura della Parte B
+// incluso) — bug trovato dal supervisore in fase di riverifica, mai
+// osservato dai 13 test JS del branch perché nessuno di essi carica
+// window.js con un vero DOM (jsdom/browser), solo i moduli .mjs puri.
+if (turnId && turnStatusEl) {
+  turnStatusEl.classList.add("visible");
+}
 
 // ---------------------------------------------------------------------------
 // Close helpers

@@ -23,16 +23,34 @@
   SHL/SHR riposizionati nel layout)
 - plugin-lc 2.0.0 (da v1 0.4.5)
 - plugin-crypto 2.0.0 (da v1 1.0.1)
-- ui 2.3.5 (da v1 0.47.1; 2.3.5 — gate di chiusura con conferma per finestre show_markdown durante
-  un turno attivo)
+- ui 2.3.6 (da v1 0.47.1; 2.3.6 — badge di progresso per finestre show_markdown + fix critico
+  temporal-dead-zone che disarmava il gate di chiusura della Parte B)
 - lare-shell 2.0.1 (piano 2b 2.0.0 → 2.0.1 nel piano 3, Task 3: `Launcher.EnsureUi()` passa
   `--no-terminal` — non un crate Cargo: `shell/lare-shell/`, .NET/C#)
 
 ## FATTO
 
+- **`show_markdown` update-in-place + gate di chiusura + badge di progresso — compito completo
+  (2026-09-15/16)** — compito
+  `Docs/i18n/ita/compiti-ai-esterne/2026-09-15-show-markdown-update-in-place.md` (Parte C, ultima
+  delle 3, chiude il compito). Badge "🔍 ricerca in corso…"/"✓ completato" + orario ultimo
+  aggiornamento nella finestra `show_markdown`. **Bug critico trovato dal supervisore, non nel
+  report del branch, non coperto dai 13 test JS dichiarati verdi**: il codice che mostra la barra
+  di stato leggeva una `const` PRIMA della sua dichiarazione testuale nello stesso modulo — in un
+  modulo ES questo è un `ReferenceError` (temporal dead zone), non un warning: interrompe
+  l'esecuzione di TUTTO il resto del file. Ogni finestra `show_markdown` (window_id che finisce
+  per `-md`, cioè ogni volta che l'AI mostra qualcosa in un turno `/ai`) avrebbe fallito il
+  bootstrap non appena aperta — bottone × mai agganciato, contenuto mai renderizzato, **il gate di
+  chiusura della Parte B (il comportamento principale richiesto da Maurizio) mai armato**, perché
+  il suo codice sta più sotto nello stesso file, mai raggiunto. Confermato empiricamente con un
+  harness Node ad-hoc (RED sulla versione del branch, GREEN dopo lo spostamento del blocco).
+  Trovato anche, dallo stesso giro di verifica: `md_window.close_confirm_message` (testo del
+  modale di conferma) non era mai stato aggiunto ai 3 dizionari i18n (test automatico "Parità
+  chiavi i18n" che falliva) — aggiunto in tutte e 3 le lingue. ui 2.3.5 → 2.3.6. 257/260 test JS
+  verdi (i 3 restanti sono pre-esistenti, vedi DA FARE).
+
 - **`show_markdown`: gate di chiusura con conferma — Parte B (2026-09-15)** — compito
-  `Docs/i18n/ita/compiti-ai-esterne/2026-09-15-show-markdown-update-in-place.md` (Parte B, C
-  ancora da fare). Se l'utente prova a chiudere una finestra `show_markdown` mentre il turno è
+  `Docs/i18n/ita/compiti-ai-esterne/2026-09-15-show-markdown-update-in-place.md`. Se l'utente prova a chiudere una finestra `show_markdown` mentre il turno è
   ancora attivo (bottone ×, Esc, o Alt+F4 — prima non intercettato affatto), un overlay in-finestra
   chiede conferma: "sì" annulla davvero il turno (`CancelCommand`) e non riapre più nulla; "no"
   lascia proseguire il turno, la finestra continua ad aggiornarsi. Bug trovato dal supervisore in
@@ -44,8 +62,7 @@
   2.3.5. 953 test (orchestrator) + 24 (ws_integration.rs), tutti verdi.
 
 - **`show_markdown` aggiorna in-place — Parte A (2026-09-15)** — compito
-  `Docs/i18n/ita/compiti-ai-esterne/2026-09-15-show-markdown-update-in-place.md` (Parte A, B e C
-  ancora da fare). Bug trovato l'8/9 (mitigato solo con un'istruzione nel prompt, commit
+  `Docs/i18n/ita/compiti-ai-esterne/2026-09-15-show-markdown-update-in-place.md`. Bug trovato l'8/9 (mitigato solo con un'istruzione nel prompt, commit
   `6e0dc85`) e rivissuto dal vivo il 12/9: un turno `/ai` con ricerca web apriva la stessa
   risposta in più finestre separate mentre il modello la raffinava. Ora `show_markdown` apre la
   finestra una volta (`window_id = "{id}-md"`, stabile per il turno) e le chiamate successive
@@ -463,6 +480,18 @@ turno `/ai` reale, chiusura finestra, autostart di `ui.exe` dall'orchestratore, 
   Versione `mcp-nmap` 2.0.0 → 2.0.1.
 
 ## DA FARE
+
+- **Bug preesistente (trovato 2026-09-16, non introdotto ora) — 3 test JS residui riferiti a
+  `/nmap` mai aggiornati dopo il rename in `/netsec` (2026-09-12).**
+  `crates/ui/frontend/external-channels.test.mjs` ("EXTERNAL_TOOL_CHANNELS has the nmap entry",
+  "findExternalChannelBySlash matches /nmap") e `ui-local.test.mjs` ("open_ui_local: un id di
+  canale esterno apre la sua finestra col titolo della tabella") asseriscono ancora il vecchio id
+  `"nmap"`/slash `/nmap` — falliscono da quando il rename è stato mergiato, mai notato perché
+  nessuno aveva più eseguito `node --test crates/ui/frontend/*.test.mjs` per intero da allora
+  (trovato durante la riverifica della Parte C del compito show_markdown update-in-place, girando
+  l'intera suite invece del solo file toccato). Fix meccanico, 1 file (`external-channels.test.mjs`)
+  + 1 riga (`ui-local.test.mjs`): sostituire `"nmap"`/`/nmap` con `"netsec"`/`/netsec` nelle
+  asserzioni — non richiede design, va delegato o fatto direttamente quando arriva il turno.
 
 - **Idea (Maurizio, 2026-09-12) — evoluzione del canale `/netsec` (ex `/nmap`) verso uno
   strumento di analisi/diagnostica di rete più ampio ("quasi pentesting").** Nata da: Maurizio ha

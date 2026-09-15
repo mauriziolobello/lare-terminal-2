@@ -130,6 +130,7 @@
   "md_window.ai_empty": "empty AI response — document not modified",
   "md_window.ai_failed": "AI request failed — document not modified ({detail})",
   "md_window.close_aria": "Close window",
+  "md_window.close_confirm_message": "The search isn't finished yet. Close anyway?",
   "md_window.connection_lost": "connection lost",
   "md_window.error_ipc": "[window] Error: Tauri IPC not available.",
   "md_window.error_retrieving": "[window] Error retrieving content: {error}",
