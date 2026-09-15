@@ -3,6 +3,20 @@
 All notable changes to this package follow [Keep a Changelog](https://keepachangelog.com/) format.
 Versioning: `major.minor.update`.
 
+## 2.3.5 — 2026-09-15 — gate di chiusura per finestre show_markdown (Parte B)
+
+Compito: `Docs/i18n/ita/compiti-ai-esterne/2026-09-15-show-markdown-update-in-place.md` (Parte B).
+
+- **`window.js`/`window.html`**: una finestra il cui `myOutputId` termina per `-md` (aperta da
+  `show_markdown` dentro un turno AI, Parte A) traccia se il turno "proprietario" è ancora
+  attivo. Se l'utente prova a chiuderla mentre lo è (bottone ×, Esc, o `onCloseRequested` nativo
+  — Alt+F4/chiusura da barra, prima non intercettata affatto), un overlay HTML in-finestra chiede
+  conferma: "Sì" annulla il turno (`CancelCommand`, poi chiude) e non si riapre più nessuna
+  finestra per quel turno; "No" lascia la finestra aperta, il turno prosegue.
+- **`host-dispatch.mjs`/`host.js`**: relay del nuovo `markdown_window_turn_ended` (Parte A) verso
+  un evento locale `markdown:turn-ended`; nuovo listener `markdown:cancel-turn` → traduce in
+  `ClientMsg::CancelCommand` sul WS (stesso pattern di `search:cancel` → `CancelSearch`).
+
 ## 2.3.4 — 2026-09-12 — rinomina canale /nmap → /netsec (frontend)
 
 - Aggiornato `external-channels.js`: id `"nmap"` → `"netsec"`, slashTrigger `/nmap` → `/netsec`, windowTitle `"Lare — nmap"` → `"Lare — netsec"`. Mirror del registro Rust `external_channel.rs`.

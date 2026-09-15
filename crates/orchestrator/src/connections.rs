@@ -209,4 +209,31 @@ mod tests {
         assert!(!r.resolve_ui_ping("p1", "x".into()));
         assert!(!r.resolve_ui_ping("ignoto", "x".into()));
     }
+
+    // ── command_tokens (Parte B, show_markdown update-in-place) ────────────
+    // La proprietà di fondo che questi 2 test verificano, isolata dal resto
+    // del ciclo di vita WS (già coperto end-to-end da
+    // `ws_integration.rs::cancel_command_from_ui_connection_cancels_a_shell_
+    // originated_token`): il registro condiviso è un semplice
+    // register→take, simmetrico, senza leak.
+
+    #[test]
+    fn take_command_token_removes_and_returns_the_registered_token() {
+        let mut r = Registry::new();
+        let token = CancellationToken::new();
+        r.register_command_token("c1", token.clone());
+
+        let taken = r.take_command_token("c1").expect("il token appena registrato deve essere trovato");
+        taken.cancel();
+        assert!(token.is_cancelled(), "cancellare il token preso deve riflettersi sull'originale (stesso token, Clone economico)");
+
+        // Preso una volta: non più recuperabile (rimosso, niente doppia cancellazione).
+        assert!(r.take_command_token("c1").is_none());
+    }
+
+    #[test]
+    fn take_command_token_on_unknown_id_is_a_harmless_no_op() {
+        let mut r = Registry::new();
+        assert!(r.take_command_token("mai-registrato").is_none());
+    }
 }

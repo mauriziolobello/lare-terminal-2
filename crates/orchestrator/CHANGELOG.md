@@ -3,6 +3,35 @@
 All notable changes to this crate are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), versioning: [SemVer](https://semver.org/).
 
+## 2.5.0 — 2026-09-15 — gate di chiusura + cancellazione cross-connection (Parte B)
+
+Compito: `Docs/i18n/ita/compiti-ai-esterne/2026-09-15-show-markdown-update-in-place.md` (Parte B).
+
+- **`connections.rs`**: `Registry` guadagna `command_tokens: HashMap<String, CancellationToken>`
+  — token di cancellazione raggiungibili da QUALUNQUE connessione, non solo quella che ha aperto
+  il comando. `register_command_token`/`take_command_token` (quest'ultimo rimuove sempre, sia per
+  cancellare sia per pulire a fine turno — niente leak).
+- **`ws.rs`**: `ClientMsg::CancelCommand{id}` prova prima la mappa `commands` LOCALE alla
+  connessione (comportamento invariato); se non trova nulla lì (comando aperto su un'ALTRA
+  connessione), fallback sul registro condiviso.
+- **Bug trovato dal supervisore in fase di riverifica, non nel report del branch**: il fix sopra,
+  applicato SOLO al ramo "comando normale" di `ws.rs` (OS/NL/slash senza `ShellSession`), non
+  copriva il ramo shell (`if let Some(shell) = &shell`, che delega a
+  `shell_turn::run_shell_command` — il path REALE di ogni `/ai "…"` dal terminale). Un test
+  end-to-end con connessioni shell+ui separate (`cancel_command_from_ui_connection_cancels_a_
+  shell_originated_token`, `ws_integration.rs`) andava in timeout: il `CancelCommand` mandato
+  dalla connessione `ui` non raggiungeva mai il token del turno shell. Fix: `shell_turn.rs::
+  run_ai_turn` registra/pulisce il token nel registro condiviso esso stesso, simmetricamente
+  prima/dopo la chiamata a `core::handle_command` — lo stesso schema di `ws.rs`, ma nel punto
+  giusto (l'unico ramo di `run_shell_command` che usa davvero il `cancel` token; gli altri —
+  `/ping`, `/reset`, `OpenUiLocal`, ecc. — non lo consumano, quindi non serve registrarlo lì).
+- 2 nuovi test unitari su `Registry::command_tokens` (`connections.rs`) + il test end-to-end
+  cross-connection sopra (`ws_integration.rs`) — quest'ultimo era esplicitamente richiesto dal
+  compito ma mancava nel report del branch.
+
+953 test (orchestrator, +2 rispetto alla 2.4.0) + 1 nuovo in `ws_integration.rs` (24 totali in
+quel file), tutti verdi. Bump orchestrator 2.4.0 → 2.5.0 (minor: nuovo meccanismo, non solo fix).
+
 ## 2.4.0 — 2026-09-15 — `show_markdown` aggiorna in-place (Parte A)
 
 Compito: `Docs/i18n/ita/compiti-ai-esterne/2026-09-15-show-markdown-update-in-place.md` (Parte A).

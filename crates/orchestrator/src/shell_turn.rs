@@ -218,6 +218,16 @@ async fn run_ai_turn(
     } else {
         crate::shell_slash::read_language(&deps.rt.config_dir)
     };
+    // Registra il token nel registro CONDIVISO fra connessioni (non solo la
+    // mappa locale di `ws.rs`, invisibile da un'altra connessione): un
+    // `CancelCommand{id}` mandato dalla connessione `ui` (es. il gate di
+    // chiusura di una finestra `show_markdown`, Parte B) deve poter
+    // raggiungere questo token, aperto dalla connessione shell. Simmetrico
+    // con la pulizia subito dopo l'`.await` sotto — stesso schema del ramo
+    // "comando normale" in `ws.rs`, qui applicato al ramo shell che ws.rs
+    // NON copriva (bug trovato dal supervisore: un test end-to-end con
+    // connessioni shell+ui separate andava in timeout senza questo fix).
+    deps.registry.lock().await.register_command_token(&id, cancel.clone());
     let mut guard = deps.history.lock().await;
     crate::core::handle_command(
         &id,
@@ -237,6 +247,8 @@ async fn run_ai_turn(
         turn_tx,
     )
     .await;
+    drop(guard);
+    let _ = deps.registry.lock().await.take_command_token(&id);
 }
 
 /// Built-in `/ping` (spec §3.1): sonde reali, poi `ping::run_ping` formatta.

@@ -1,6 +1,6 @@
 [package]
 name = "orchestrator"
-version = "2.4.0"
+version = "2.5.0"
 edition = "2021"
 
 # The orchestrator is the Lare Terminal daemon:

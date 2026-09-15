@@ -12,8 +12,8 @@
   condiviso + stdio chiuse + `child_stderr_log_sink`, fix finestre console spurie)
 - mcp-server 2.0.1 (da v1 0.7.1)
 - mcp-nmap 2.1.0 (da v1 0.8.2; 2.1.0 — tool fritzbox_status + --config-dir in main)
-- orchestrator 2.4.0 (da v1 0.41.21; 2.4.0 — show_markdown aggiorna in-place invece di aprire una
-  finestra nuova ogni chiamata, Parte A del compito update-in-place)
+- orchestrator 2.5.0 (da v1 0.41.21; 2.5.0 — gate di chiusura + cancellazione cross-connection per
+  le finestre show_markdown, Parte B del compito update-in-place)
 - plugin-protocol 2.0.0 (da v1 0.2.1)
 - plugin-ping 2.0.0 (da v1 0.1.0)
 - plugin-counter 2.0.0 (da v1 0.1.0)
@@ -23,11 +23,25 @@
   SHL/SHR riposizionati nel layout)
 - plugin-lc 2.0.0 (da v1 0.4.5)
 - plugin-crypto 2.0.0 (da v1 1.0.1)
-- ui 2.3.4 (da v1 0.47.1; 2.3.4 — rinomina canale /nmap → /netsec nel frontend)
+- ui 2.3.5 (da v1 0.47.1; 2.3.5 — gate di chiusura con conferma per finestre show_markdown durante
+  un turno attivo)
 - lare-shell 2.0.1 (piano 2b 2.0.0 → 2.0.1 nel piano 3, Task 3: `Launcher.EnsureUi()` passa
   `--no-terminal` — non un crate Cargo: `shell/lare-shell/`, .NET/C#)
 
 ## FATTO
+
+- **`show_markdown`: gate di chiusura con conferma — Parte B (2026-09-15)** — compito
+  `Docs/i18n/ita/compiti-ai-esterne/2026-09-15-show-markdown-update-in-place.md` (Parte B, C
+  ancora da fare). Se l'utente prova a chiudere una finestra `show_markdown` mentre il turno è
+  ancora attivo (bottone ×, Esc, o Alt+F4 — prima non intercettato affatto), un overlay in-finestra
+  chiede conferma: "sì" annulla davvero il turno (`CancelCommand`) e non riapre più nulla; "no"
+  lascia proseguire il turno, la finestra continua ad aggiornarsi. Bug trovato dal supervisore in
+  fase di riverifica (non nel report del branch): il fix per il `CancelCommand` cross-connection
+  (necessario perché la finestra vive su `ui.exe`, il turno sulla connessione shell) copriva solo
+  un ramo di `ws.rs` — il ramo REALE di ogni `/ai "…"` da terminale (`shell_turn.rs`) restava
+  scoperto; un test end-to-end con connessioni separate lo ha rivelato (andava in timeout),
+  corretto registrando/pulendo il token nel punto giusto. orchestrator 2.4.0 → 2.5.0, ui 2.3.4 →
+  2.3.5. 953 test (orchestrator) + 24 (ws_integration.rs), tutti verdi.
 
 - **`show_markdown` aggiorna in-place — Parte A (2026-09-15)** — compito
   `Docs/i18n/ita/compiti-ai-esterne/2026-09-15-show-markdown-update-in-place.md` (Parte A, B e C
