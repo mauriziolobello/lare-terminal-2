@@ -802,6 +802,15 @@ pub enum ServerMsg {
     /// Segnalino di stato per la finestra terminale della sessione
     /// (`kind`: `"ai_busy"`); consumato dal piano 3, già emesso qui.
     ActivityIndicator { session_id: String, kind: String, on: bool },
+
+    /// Segnala che il turno "proprietario" della finestra `window_id` (una
+    /// finestra `show_markdown`, vedi `ai_adapter.rs`) è concluso (successo,
+    /// errore o cancellazione) — la finestra lo usa per sapere se può chiudersi
+    /// liberamente o deve ancora mostrare il gate di conferma (Parte B) e il
+    /// badge "ricerca in corso" (Parte C). Mandato SOLO se quel turno ha
+    /// aperto una finestra `show_markdown` — un turno che non l'ha mai
+    /// chiamato non genera questo messaggio (nessuna finestra a cui riferirsi).
+    MarkdownWindowTurnEnded { window_id: String },
 }
 
 impl ServerMsg {
@@ -829,7 +838,7 @@ impl ServerMsg {
             | AiChatAdmissionRequest { .. } | AiChatPending { .. } | AiChatAdmitted { .. }
             | AiChatRejected { .. } | AiChatAdmissionResolved { .. }
             | OpenOutputWindow { .. } | OutputWindowContent { .. } | OpenUiLocal { .. }
-            | UiPing { .. } | ActivityIndicator { .. } => Surface::Ui,
+            | UiPing { .. } | ActivityIndicator { .. } | MarkdownWindowTurnEnded { .. } => Surface::Ui,
         }
     }
 }
@@ -2254,6 +2263,7 @@ mod tests {
             (ServerMsg::OpenUiLocal { name: "config".into() }, "open_ui_local"),
             (ServerMsg::UiPing { id: "p".into() }, "ui_ping"),
             (ServerMsg::ActivityIndicator { session_id: "s".into(), kind: "ai_busy".into(), on: true }, "activity_indicator"),
+            (ServerMsg::MarkdownWindowTurnEnded { window_id: "w".into() }, "markdown_window_turn_ended"),
         ];
         for (msg, wire) in cases {
             let json = serde_json::to_string(&msg).unwrap();
@@ -2298,6 +2308,7 @@ mod tests {
             ServerMsg::OpenUiLocal { name: "library".into() },
             ServerMsg::UiPing { id: id() },
             ServerMsg::ActivityIndicator { session_id: "s".into(), kind: "ai_busy".into(), on: false },
+            ServerMsg::MarkdownWindowTurnEnded { window_id: id() },
         ];
         for m in ui {
             assert_eq!(m.surface(), Surface::Ui, "{m:?}");

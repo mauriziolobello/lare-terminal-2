@@ -60,3 +60,12 @@ test("subscribe su un id ignoto marca subscribed e ritorna null", () => {
   // Da questo punto l'id è "subscribed": un content successivo va emesso subito.
   assert.deepEqual(b.content("ghost", "# live"), { emit: true });
 });
+
+test("content persiste dopo la sottoscrizione: più aggiornamenti, tutti emessi", () => {
+  const b = createOutputBuffers();
+  b.open("w1");
+  assert.strictEqual(b.subscribe("w1"), null); // niente ancora bufferizzato
+  assert.deepStrictEqual(b.content("w1", "primo"), { emit: true });
+  assert.deepStrictEqual(b.content("w1", "secondo"), { emit: true }); // PRIMA del fix A.1: { emit: false }
+  assert.deepStrictEqual(b.content("w1", "terzo"), { emit: true });
+});

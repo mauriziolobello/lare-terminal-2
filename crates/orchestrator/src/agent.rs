@@ -141,7 +141,7 @@ pub fn tool_defs() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "show_markdown".to_string(),
-            description: "Mostra contenuto Markdown ricco (spiegazioni lunghe, codice, tabelle) in una finestra dedicata. Usalo quando la risposta e' formattata o lunga invece di scriverla come testo semplice. IMPORTANTE: chiamalo una sola volta per turno, solo quando hai la risposta FINALE pronta (dopo aver eventualmente cercato/verificato tutto il necessario) — ogni chiamata apre una finestra nuova, quindi chiamarlo più volte come bozza intermedia mentre rifinisci la risposta apre più finestre ridondanti invece di una.".to_string(),
+            description: "Mostra contenuto Markdown ricco (spiegazioni lunghe, codice, tabelle) in una finestra dedicata. Usalo quando la risposta e' formattata o lunga invece di scriverla come testo semplice. Puoi chiamarlo più volte nello stesso turno via via che affini la risposta (es. dopo ricerche web successive): ogni chiamata AGGIORNA la stessa finestra con la versione più recente, non ne apre una seconda.".to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -584,15 +584,13 @@ mod tests {
         assert!(defs.iter().any(|d| d.name == "set_ai_display_name"));
     }
 
-    /// Regressione (trovata dal vivo, piano 3, 2026-09-08): un turno lungo con
-    /// ricerca web può portare il modello a richiamare `show_markdown` più
-    /// volte mentre affina la propria risposta — ogni chiamata apre una
-    /// finestra NUOVA (nessun aggiornamento in place, per design attuale),
-    /// quindi un solo turno può aprire N finestre quasi identiche. La
-    /// descrizione del tool deve dire esplicitamente al modello di chiamarlo
-    /// al più una volta per turno, solo con la risposta finale pronta.
+    /// Questa feature (Docs/i18n/ita/compiti-ai-esterne/2026-09-15-show-markdown-
+    /// update-in-place.md) è il fix vero della regressione trovata l'8/9: al
+    /// posto dell'istruzione "una sola volta" (mitigazione temporanea), la
+    /// descrizione ora istruisce il modello che chiamate multiple sono
+    /// benvenute e aggiornano la stessa finestra invece di aprirne di nuove.
     #[test]
-    fn show_markdown_description_instructs_at_most_once_per_turn() {
+    fn show_markdown_description_allows_multiple_calls_per_turn_to_update() {
         let defs = tool_defs();
         let show_markdown = defs
             .iter()
@@ -600,13 +598,20 @@ mod tests {
             .expect("show_markdown deve esistere fra i tool");
         let lower = show_markdown.description.to_lowercase();
         assert!(
-            lower.contains("una sola volta") || lower.contains("al massimo una volta") || lower.contains("una volta sola"),
-            "la descrizione di show_markdown deve dire di chiamarlo una sola volta per turno: {:?}",
+            !lower.contains("una sola volta")
+                && !lower.contains("al massimo una volta")
+                && !lower.contains("una volta sola"),
+            "la descrizione di show_markdown NON deve più dire 'una sola volta': {:?}",
             show_markdown.description
         );
         assert!(
-            lower.contains("finale"),
-            "la descrizione di show_markdown deve dire che è per la risposta FINALE, non una bozza intermedia: {:?}",
+            lower.contains("aggiorna"),
+            "la descrizione di show_markdown deve dire che aggiorna la stessa finestra: {:?}",
+            show_markdown.description
+        );
+        assert!(
+            lower.contains("più volte") || lower.contains("piu' volte"),
+            "la descrizione di show_markdown deve permettere chiamate multiple: {:?}",
             show_markdown.description
         );
     }

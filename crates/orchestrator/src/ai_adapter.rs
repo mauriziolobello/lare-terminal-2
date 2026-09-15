@@ -454,6 +454,22 @@ impl LlmAdapter {
     }
 }
 
+/// RAII: a qualunque uscita di `respond()`, se è stata aperta una finestra
+/// `show_markdown` in questo turno, notifica alla UI che il turno è concluso
+/// — una sola emissione garantita indipendentemente da QUALE dei ~7 punti di
+/// uscita di `respond()` sia stato preso, senza doverli duplicare a mano.
+struct MarkdownWindowEndGuard {
+    tx: UnboundedSender<ServerMsg>,
+    window_id: Option<String>,
+}
+impl Drop for MarkdownWindowEndGuard {
+    fn drop(&mut self) {
+        if let Some(window_id) = self.window_id.take() {
+            let _ = self.tx.send(ServerMsg::MarkdownWindowTurnEnded { window_id });
+        }
+    }
+}
+
 #[async_trait]
 impl AiAdapter for LlmAdapter {
     #[allow(clippy::too_many_arguments)]
@@ -590,6 +606,8 @@ impl AiAdapter for LlmAdapter {
                 }
             }
         };
+
+        let mut md_window_guard = MarkdownWindowEndGuard { tx: tx.clone(), window_id: None };
 
         for _ in 0..agent::MAX_ITERATIONS {
             // Controlla la cancellazione all'inizio di ogni iterazione: se il token
@@ -771,18 +789,30 @@ impl AiAdapter for LlmAdapter {
             let mut results: Vec<Block> = Vec::new();
             for (tool_id, name, input) in tool_uses {
                 if name == "show_markdown" {
-                    // Tool orchestrator-native: apre una finestra Markdown (ADR-013).
+                    // Tool orchestrator-native: apre/aggiorna una finestra Markdown
+                    // in-place (ADR-013 + fix 2026-09-15 update-in-place).
                     if opts.allow_windows {
                         let (title, content) = agent::markdown_window(&input);
-                        emit!(ServerMsg::OpenWindow {
-                            title: title.clone(),
-                            kind: WindowKind::Markdown,
-                            content,
-                        });
-                        emit!(chunk(format!("\u{1F4C4} finestra aperta: {title}")));
+                        // window_id stabile per l'intero turno: `{id}-md`. CONTRATTO
+                        // esplicito col frontend (window.js, Parte B): un window_id che
+                        // finisce per "-md" appartiene a un turno, il turno stesso è
+                        // tutto ciò che precede quel suffisso.
+                        let window_id = format!("{id}-md");
+                        if md_window_guard.window_id.is_none() {
+                            // Prima chiamata nel turno: apre la finestra.
+                            emit!(ServerMsg::OpenOutputWindow { window_id: window_id.clone(), title: title.clone() });
+                            emit!(ServerMsg::OutputWindowContent { window_id: window_id.clone(), markdown: content });
+                            emit!(chunk(format!("\u{1F4C4} finestra aperta: {title}")));
+                            md_window_guard.window_id = Some(window_id);
+                        } else {
+                            // Chiamata successiva nello STESSO turno: aggiorna la
+                            // finestra già aperta, non ne apre una nuova.
+                            emit!(ServerMsg::OutputWindowContent { window_id, markdown: content });
+                            emit!(chunk("\u{1F4C4} finestra aggiornata".to_string()));
+                        }
                         results.push(Block::ToolResult {
                             tool_use_id: tool_id,
-                            content: "Finestra Markdown aperta.".to_string(),
+                            content: "Finestra Markdown aggiornata.".to_string(),
                             is_error: false,
                         });
                     } else {
@@ -1218,7 +1248,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn loop_show_markdown_emits_open_window_and_acks() {
+    async fn loop_show_markdown_emits_open_output_window_not_open_window() {
         let fake = Arc::new(FakeChatBackend::sequence(vec![
             Ok(tool_use_turn(
                 "tu_md",
@@ -1234,17 +1264,21 @@ mod tests {
         let msgs =
             collect(|tx| adapter.respond("c1", "spiegami X", &mut hist, &tools, TurnOptions::default(), None, None, tx)).await;
 
-        // (a) un OpenWindow{Markdown} col titolo/contenuto attesi
-        let ow = msgs.iter().find_map(|m| match m {
-            ServerMsg::OpenWindow { title, kind, content } => {
-                Some((title.clone(), kind.clone(), content.clone()))
-            }
-            _ => None,
-        });
-        let (title, kind, content) = ow.expect("atteso un OpenWindow");
-        assert_eq!(kind, WindowKind::Markdown);
-        assert_eq!(title, "Spiegazione");
-        assert_eq!(content, "# Titolo\ncorpo");
+        // (a) OpenOutputWindow + OutputWindowContent per "c1-md", MAI OpenWindow
+        assert!(
+            msgs.iter().any(|m| matches!(m, ServerMsg::OpenOutputWindow { window_id, title, .. }
+                if window_id == "c1-md" && title == "Spiegazione")),
+            "atteso OpenOutputWindow: {msgs:?}"
+        );
+        assert!(
+            msgs.iter().any(|m| matches!(m, ServerMsg::OutputWindowContent { window_id, markdown, .. }
+                if window_id == "c1-md" && markdown == "# Titolo\ncorpo")),
+            "atteso OutputWindowContent: {msgs:?}"
+        );
+        assert!(
+            !msgs.iter().any(|m| matches!(m, ServerMsg::OpenWindow { .. })),
+            "NON deve esserci OpenWindow (sostituito da OpenOutputWindow): {msgs:?}"
+        );
 
         // (b) la seconda richiesta porta un tool_result (ack) con l'id giusto
         let second = fake.nth_request(1);
@@ -1255,6 +1289,77 @@ mod tests {
         // (c) Chunk di traccia
         assert!(msgs.iter().any(|m| matches!(m, ServerMsg::Chunk { content, .. }
             if content.contains("finestra aperta"))));
+    }
+
+    /// Due chiamate show_markdown nello stesso turno: un solo OpenOutputWindow, due OutputWindowContent.
+    #[tokio::test]
+    async fn show_markdown_second_call_same_turn_updates_not_reopens() {
+        let fake = Arc::new(FakeChatBackend::sequence(vec![
+            Ok(tool_use_turn("tu1", "show_markdown", serde_json::json!({"content":"bozza","title":"Titolo"}))),
+            Ok(tool_use_turn("tu2", "show_markdown", serde_json::json!({"content":"finale","title":"Titolo"}))),
+            Ok(text_turn("Ecco.")),
+        ]));
+        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string(), std::path::PathBuf::from("/test-config"));
+        let mut hist = ConversationHistory::new();
+        let tools = FakeToolClient::success("");
+
+        let msgs =
+            collect(|tx| adapter.respond("c1", "doppio md", &mut hist, &tools, TurnOptions::default(), None, None, tx)).await;
+
+        let open_count = msgs.iter().filter(|m| matches!(m, ServerMsg::OpenOutputWindow { .. })).count();
+        assert_eq!(open_count, 1, "atteso esattamente UN OpenOutputWindow, got {msgs:?}");
+
+        let content_count = msgs.iter().filter(|m| matches!(m, ServerMsg::OutputWindowContent { .. })).count();
+        assert_eq!(content_count, 2, "atteso DUE OutputWindowContent, got {msgs:?}");
+
+        // Verifica l'ordine: bozza prima, finale dopo.
+        let contents: Vec<_> = msgs.iter()
+            .filter_map(|m| match m {
+                ServerMsg::OutputWindowContent { markdown, .. } => Some(markdown.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(contents, vec!["bozza", "finale"]);
+    }
+
+    /// Dopo un turno con show_markdown, l'ultimo messaggio include MarkdownWindowTurnEnded.
+    #[tokio::test]
+    async fn show_markdown_turn_end_emits_markdown_window_turn_ended() {
+        let fake = Arc::new(FakeChatBackend::sequence(vec![
+            Ok(tool_use_turn("tu", "show_markdown", serde_json::json!({"content":"ok"}))),
+            Ok(text_turn("Fatto.")),
+        ]));
+        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string(), std::path::PathBuf::from("/test-config"));
+        let mut hist = ConversationHistory::new();
+        let tools = FakeToolClient::success("");
+
+        let msgs =
+            collect(|tx| adapter.respond("c1", "mostrami", &mut hist, &tools, TurnOptions::default(), None, None, tx)).await;
+
+        assert!(
+            msgs.iter().any(|m| matches!(m, ServerMsg::MarkdownWindowTurnEnded { window_id } if window_id == "c1-md")),
+            "atteso MarkdownWindowTurnEnded dopo un turno con show_markdown: {msgs:?}"
+        );
+    }
+
+    /// Turno senza show_markdown: nessun MarkdownWindowTurnEnded.
+    #[tokio::test]
+    async fn no_show_markdown_no_turn_ended_signal() {
+        let fake = Arc::new(FakeChatBackend::sequence(vec![
+            Ok(tool_use_turn("tu", "open_target", serde_json::json!({"target":"C:\\"}))),
+            Ok(text_turn("Aperto.")),
+        ]));
+        let adapter = LlmAdapter::new(fake.clone(), "claude-sonnet-4-6".to_string(), std::path::PathBuf::from("/test-config"));
+        let mut hist = ConversationHistory::new();
+        let tools = FakeToolClient::success("");
+
+        let msgs =
+            collect(|tx| adapter.respond("c1", "apri", &mut hist, &tools, TurnOptions::default(), None, None, tx)).await;
+
+        assert!(
+            !msgs.iter().any(|m| matches!(m, ServerMsg::MarkdownWindowTurnEnded { .. })),
+            "NON deve esserci MarkdownWindowTurnEnded senza show_markdown: {msgs:?}"
+        );
     }
 
     /// Igiene storia: il cap iterazioni scarta lo scambio runaway (truncate).
