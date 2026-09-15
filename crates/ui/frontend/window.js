@@ -55,8 +55,16 @@ const currentWindow = window.__TAURI__?.window?.getCurrentWindow?.();
 
 if (turnId && tauriEvent?.listen) {
   tauriEvent.listen("markdown:turn-ended", (event) => {
-    if (event.payload?.window_id === myOutputId) turnActive = false;
+    if (event.payload?.window_id === myOutputId) {
+      turnActive = false;
+      if (turnBadgeEl) turnBadgeEl.textContent = "✓ completato";
+    }
   });
+}
+
+// Mostra la barra di progresso SOLO per finestre show_markdown.
+if (turnId && turnStatusEl) {
+  turnStatusEl.classList.add("visible");
 }
 
 if (turnId && currentWindow?.onCloseRequested) {
@@ -80,6 +88,9 @@ const contentEl       = document.getElementById("content");
 const expandInputEl  = document.getElementById("expand-input");
 const expandBtnEl    = document.getElementById("expand-btn");
 const expandStatusEl = document.getElementById("expand-status");
+const turnStatusEl      = document.getElementById("turn-status");
+const turnBadgeEl        = document.getElementById("turn-progress-badge");
+const turnUpdatedEl      = document.getElementById("turn-updated-time");
 
 // ---------------------------------------------------------------------------
 // Close helpers
@@ -325,6 +336,10 @@ async function bootstrap() {
       renderMarkdown(markdown || "");
       saveContent = markdown || "";
       currentContent = markdown || "";
+      // Aggiorna l'orario dell'ultimo contenuto (badge di progresso Parte C).
+      if (turnUpdatedEl) {
+        turnUpdatedEl.textContent = "aggiornato alle " + new Date().toLocaleTimeString();
+      }
     };
     try {
       await tauriEvent.listen("output:content", (ev) => {

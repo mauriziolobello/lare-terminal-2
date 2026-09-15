@@ -336,6 +336,21 @@
       font-size: 13px;
     }
     .modal-box button:hover { background: rgba(80, 160, 240, 0.2); }
+
+    /* ── Badge di progresso show_markdown (Parte C, 2026-09-15) ───────────── */
+    #turn-status {
+      display: none;
+      flex-direction: row;
+      align-items: center;
+      justify-content: space-between;
+      padding: 3px 14px 3px 16px;
+      font-size: 11px;
+      color: var(--text-muted);
+      border-bottom: 1px solid rgba(80, 160, 240, 0.15);
+    }
+    #turn-status.visible { display: flex; }
+    #turn-progress-badge { color: rgba(240, 180, 80, 0.85); }
+    #turn-updated-time { font-variant-numeric: tabular-nums; }
   </style>
 </head>
 <body>
@@ -351,6 +366,10 @@
       <button id="save-btn" data-i18n-title="md_window.save_title" data-i18n-aria-label="md_window.save_aria" title="Salva nell'archivio" aria-label="Salva finestra nell'archivio">&#x1F4BE;</button>
       <button id="close-btn" data-i18n-title="common.close" data-i18n-aria-label="md_window.close_aria" title="Chiudi" aria-label="Chiudi finestra">&#x00D7;</button>
     </span>
+  </div>
+  <div id="turn-status">
+    <span id="turn-progress-badge">🔍 ricerca in corso…</span>
+    <span id="turn-updated-time"></span>
   </div>
   <div id="expand-bar">
     <input id="expand-input" type="text" data-i18n-placeholder="md_window.expand_placeholder" placeholder="Cosa vuoi aggiungere o approfondire?" />
