@@ -62,11 +62,28 @@ if (turnId && tauriEvent?.listen) {
   });
 }
 
+// Bug trovato dal vivo (2026-09-16, Maurizio, con DevTools): `onCloseRequested`
+// del SDK Tauri, quando la callback NON chiama `event.preventDefault()`,
+// tenta DA SOLO `this.destroy()` come azione di default — e quel comando
+// richiede il permesso `core:window:allow-destroy`, mai concesso a questa
+// finestra (`markdown-window.json`: solo `core:default` +
+// `allow-start-dragging`). Risultato: `Uncaught (in promise) window.destroy
+// not allowed`, la finestra non si chiude MAI quando il turno è concluso
+// (`turnActive === false`) — funzionava "a volte" solo per timing: `listen()`
+// è asincrono, un click abbastanza rapido dopo l'apertura batteva la
+// registrazione del listener stesso. Fix: prevenire SEMPRE la chiusura di
+// default e decidere noi cosa fare — mai lasciare che Tauri tenti `destroy()`
+// da solo. Questo evita anche un secondo problema, più silenzioso: chiudere
+// via `destroy()` automatico salterebbe `closeWindow()` (che emette
+// `output:closed` per liberare il buffer di `host.js`, vedi sopra) — con
+// questo fix, ANCHE una chiusura via Alt+F4 pulisce il buffer correttamente.
 if (turnId && currentWindow?.onCloseRequested) {
   currentWindow.onCloseRequested(async (event) => {
+    event.preventDefault();
     if (turnActive) {
-      event.preventDefault();
       showCloseConfirmModal();
+    } else {
+      await closeWindow();
     }
   });
 }

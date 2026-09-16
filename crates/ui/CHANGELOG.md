@@ -3,6 +3,31 @@
 All notable changes to this package follow [Keep a Changelog](https://keepachangelog.com/) format.
 Versioning: `major.minor.update`.
 
+## 2.3.7 — 2026-09-16 — fix: onCloseRequested impediva la chiusura a turno concluso
+
+Bug trovato dal vivo da Maurizio (con DevTools aperto — errore in console: `Uncaught (in promise)
+window.destroy not allowed. Permissions associated with this command: core:window:allow-destroy`).
+
+Il listener `onCloseRequested` aggiunto in Parte B (per intercettare Alt+F4) intercetta OGNI
+richiesta di chiusura, non solo quella nativa — incluso il bottone × custom, che passa comunque
+per lo stesso ciclo evento Tauri. Quando il turno non era più attivo, il codice non chiamava
+`event.preventDefault()`: il SDK Tauri, senza prevenzione esplicita, tenta DA SOLO
+`this.destroy()` come azione di default — comando che richiede `core:window:allow-destroy`, mai
+concesso alla finestra (`markdown-window.json`: solo `core:default` + `allow-start-dragging`).
+La finestra funzionava "a volte" solo per timing: `listen()` è asincrono, un click abbastanza
+rapido dopo l'apertura batteva la registrazione del listener stesso — spiegava perché sembrava
+funzionare "senza salvare prima" (più veloce) e fallire "dopo aver salvato" (più tempo passato,
+listener sicuramente armato).
+
+Fix: prevenire SEMPRE la chiusura di default in `onCloseRequested`, decidere esplicitamente noi
+cosa fare (mostra il modale se il turno è attivo, altrimenti chiama `closeWindow()` — mai lasciare
+che Tauri tenti `destroy()` da solo). Effetto collaterale positivo: prima di questo fix, anche una
+chiusura via Alt+F4 a turno concluso avrebbe saltato `closeWindow()` (che emette `output:closed`
+per liberare il buffer di `host.js`) — ora lo fa sempre, qualunque sia il percorso di chiusura.
+
+260/260 test JS verdi (nessun test automatico copre `onCloseRequested` stesso — richiede un vero
+runtime Tauri, non riproducibile con un mock DOM in Node; verificato dal vivo da Maurizio).
+
 ## 2.3.6 — 2026-09-16 — badge di progresso show_markdown (Parte C) + fix critico Parte B/C
 
 Compito: `Docs/i18n/ita/compiti-ai-esterne/2026-09-15-show-markdown-update-in-place.md` (Parte C,
