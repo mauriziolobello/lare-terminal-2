@@ -529,6 +529,16 @@ turno `/ai` reale, chiusura finestra, autostart di `ui.exe` dall'orchestratore, 
 
 ## DA FARE
 
+- **Debito: `window.js` ha zero copertura test a livello DOM** — nel ciclo
+  show_markdown update-in-place (2026-09-15/16) ha mostrato 3 bug distinti non intercettati dai
+  test JS dichiarati "verdi" (temporal dead zone su `turnStatusEl`, permesso `destroy` mancante,
+  poi il loop di `onCloseRequested`): nessuno dei `.test.mjs` della suite carica `window.js` con
+  un vero DOM, solo moduli `.mjs` puri. Il supervisore ha usato due volte in questa sessione un
+  harness Node ad-hoc (mock di `document`/`window.__TAURI__`, import reale del modulo) per
+  ottenere RED/GREEN genuini — pattern funzionante ma mai promosso a file committato: vive solo
+  nello scratchpad di sessione, un lettore futuro non può ri-eseguirlo. Andrebbe formalizzato
+  come `window.test.mjs` (o simile) nella suite vera.
+
 - **Idea (Maurizio, 2026-09-12) — evoluzione del canale `/netsec` (ex `/nmap`) verso uno
   strumento di analisi/diagnostica di rete più ampio ("quasi pentesting").** Nata da: Maurizio ha
   chiesto a `/nmap` di verificare tentativi di accesso dall'esterno sulla propria rete
