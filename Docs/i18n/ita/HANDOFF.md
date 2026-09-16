@@ -30,6 +30,15 @@
 
 ## FATTO
 
+- **Fix: 3 test JS residui riferiti a `/nmap` mai aggiornati dopo il rename in `/netsec`
+  (2026-09-16)** — bug preesistente dal 2026-09-12 (rename mergiato senza mai rieseguire
+  l'intera suite `node --test crates/ui/frontend/*.test.mjs`), trovato durante la riverifica
+  della Parte C del compito show_markdown update-in-place. `external-channels.test.mjs`
+  ("EXTERNAL_TOOL_CHANNELS has the nmap entry" → "...netsec entry",
+  "findExternalChannelBySlash matches /nmap" → "...matches /netsec") e `ui-local.test.mjs`
+  (`resolveUiLocal("nmap", ...)` → `resolveUiLocal("netsec", ...)`) asserivano ancora il vecchio
+  id/slash. Fix meccanico, sostituite le stringhe nelle asserzioni. 260/260 test JS verdi.
+
 - **`show_markdown` update-in-place + gate di chiusura + badge di progresso — compito completo
   (2026-09-15/16)** — compito
   `Docs/i18n/ita/compiti-ai-esterne/2026-09-15-show-markdown-update-in-place.md` (Parte C, ultima
@@ -480,18 +489,6 @@ turno `/ai` reale, chiusura finestra, autostart di `ui.exe` dall'orchestratore, 
   Versione `mcp-nmap` 2.0.0 → 2.0.1.
 
 ## DA FARE
-
-- **Bug preesistente (trovato 2026-09-16, non introdotto ora) — 3 test JS residui riferiti a
-  `/nmap` mai aggiornati dopo il rename in `/netsec` (2026-09-12).**
-  `crates/ui/frontend/external-channels.test.mjs` ("EXTERNAL_TOOL_CHANNELS has the nmap entry",
-  "findExternalChannelBySlash matches /nmap") e `ui-local.test.mjs` ("open_ui_local: un id di
-  canale esterno apre la sua finestra col titolo della tabella") asseriscono ancora il vecchio id
-  `"nmap"`/slash `/nmap` — falliscono da quando il rename è stato mergiato, mai notato perché
-  nessuno aveva più eseguito `node --test crates/ui/frontend/*.test.mjs` per intero da allora
-  (trovato durante la riverifica della Parte C del compito show_markdown update-in-place, girando
-  l'intera suite invece del solo file toccato). Fix meccanico, 1 file (`external-channels.test.mjs`)
-  + 1 riga (`ui-local.test.mjs`): sostituire `"nmap"`/`/nmap` con `"netsec"`/`/netsec` nelle
-  asserzioni — non richiede design, va delegato o fatto direttamente quando arriva il turno.
 
 - **Idea (Maurizio, 2026-09-12) — evoluzione del canale `/netsec` (ex `/nmap`) verso uno
   strumento di analisi/diagnostica di rete più ampio ("quasi pentesting").** Nata da: Maurizio ha

@@ -10,9 +10,9 @@ test("open_ui_local: i tre singleton locali mappano sui comandi Tauri esistenti"
 });
 
 test("open_ui_local: un id di canale esterno apre la sua finestra col titolo della tabella", () => {
-  assert.deepEqual(resolveUiLocal("nmap", EXTERNAL_TOOL_CHANNELS), {
+  assert.deepEqual(resolveUiLocal("netsec", EXTERNAL_TOOL_CHANNELS), {
     cmd: "open_external_channel_window",
-    args: { channelId: "nmap", windowTitle: "Lare — nmap" },
+    args: { channelId: "netsec", windowTitle: "Lare — netsec" },
   });
   assert.deepEqual(resolveUiLocal("financial-markets", EXTERNAL_TOOL_CHANNELS).args.channelId, "financial-markets");
 });

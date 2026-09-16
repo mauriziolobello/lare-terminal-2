@@ -15,22 +15,25 @@ test("returns null when no channel claims the input", () => {
 
 // Le 3 verifiche sul registro DI PRODUZIONE sostituiscono il vecchio test
 // "production registry is empty (no real channel yet)": da Task 5 il registro
-// non è più vuoto (primo canale reale, nmap), quindi quell'asserzione è
+// non è più vuoto (primo canale reale, nmap/netsec), quindi quell'asserzione è
 // diventata falsa per costruzione — questi 3 test ne sono la copertura
 // aggiornata, non un'aggiunta indipendente.
 // Rinominato da "has exactly the nmap entry": da Task 3 (python-ping) il registro
 // non ha più esattamente una voce — stesso principio già applicato lato Rust per
-// production_registry_starts_with_nmap_channel (verifica solo l'indice 0, non la
-// lunghezza esatta a lungo termine).
-test("EXTERNAL_TOOL_CHANNELS has the nmap entry", () => {
+// production_registry_starts_with_netsec_channel (verifica solo l'indice 0, non la
+// lunghezza esatta a lungo termine). id/slashTrigger aggiornati "nmap" → "netsec"
+// col rename del canale (2026-09-12, compito netsec-rename-fritzbox.md) — questi
+// 2 test erano rimasti scoperti dal rename (nessuno aveva rieseguito l'intera
+// suite JS da allora), trovato e corretto il 2026-09-16.
+test("EXTERNAL_TOOL_CHANNELS has the netsec entry", () => {
   assert.equal(EXTERNAL_TOOL_CHANNELS.length, 3);
-  assert.equal(EXTERNAL_TOOL_CHANNELS[0].id, "nmap");
-  assert.equal(EXTERNAL_TOOL_CHANNELS[0].slashTrigger, "/nmap");
+  assert.equal(EXTERNAL_TOOL_CHANNELS[0].id, "netsec");
+  assert.equal(EXTERNAL_TOOL_CHANNELS[0].slashTrigger, "/netsec");
 });
 
-test("findExternalChannelBySlash matches /nmap", () => {
-  const found = findExternalChannelBySlash("/nmap", EXTERNAL_TOOL_CHANNELS);
-  assert.equal(found?.id, "nmap");
+test("findExternalChannelBySlash matches /netsec", () => {
+  const found = findExternalChannelBySlash("/netsec", EXTERNAL_TOOL_CHANNELS);
+  assert.equal(found?.id, "netsec");
 });
 
 test("EXTERNAL_TOOL_CHANNELS has the python-ping entry", () => {
