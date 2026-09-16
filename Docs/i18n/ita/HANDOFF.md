@@ -12,8 +12,8 @@
   condiviso + stdio chiuse + `child_stderr_log_sink`, fix finestre console spurie)
 - mcp-server 2.0.1 (da v1 0.7.1)
 - mcp-nmap 2.1.0 (da v1 0.8.2; 2.1.0 — tool fritzbox_status + --config-dir in main)
-- orchestrator 2.5.1 (da v1 0.41.21; 2.5.1 — show_markdown vieta dati non verificati nelle bozze
-  intermedie)
+- orchestrator 2.5.2 (da v1 0.41.21; 2.5.1 — show_markdown vieta dati non verificati nelle bozze
+  intermedie; 2.5.2 — show_markdown rimuove i marcatori di citazione grezzi `<cite>`/`(cite>`)
 - plugin-protocol 2.0.0 (da v1 0.2.1)
 - plugin-ping 2.0.0 (da v1 0.1.0)
 - plugin-counter 2.0.0 (da v1 0.1.0)
@@ -49,6 +49,18 @@
   ad-hoc che simula il rimbalzo Rust→JS: RED sul branch 2.3.7 (loop, 11 chiamate a `close_self`),
   GREEN dopo (1 chiamata, gate della Parte B a turno attivo intatto). **Non ancora confermato dal
   vivo** — nessun rebuild/test pratico di 2.3.8 al momento di questa nota.
+
+- **`show_markdown`: rimuove i marcatori di citazione grezzi `<cite>`/`(cite>` (2026-09-16,
+  orchestrator 2.5.2)** — segnalato dal vivo da Maurizio: testo tipo `(cite index="1-1">Tello EDU
+  è un dron...` visibile grezzo nei documenti con ricerca web. Confermato leggendo i .md reali in
+  Library: nessun campo "citations" strutturato gestito (solo `delta.get("text")` nel parsing
+  SSE) — il marcatore è testo letterale del modello, con due varianti di apertura osservate
+  (`<cite ...>` e `(cite ...>`, quest'ultima con parentesi al posto di `<`). Fix: due regex
+  indipendenti in `agent::markdown_window` rimuovono apertura e chiusura separatamente (`regex`,
+  già dipendenza), applicate al content COMPLETO del tool_use (mai a delta streaming) prima di
+  derivare il titolo. Seconda linea di difesa nella description del tool: chiede link Markdown
+  normali invece di marcatori XML. TDD: 5 nuovi test, 959/959 verdi. **Non ancora confermato dal
+  vivo** — nessun rebuild/test pratico al momento di questa nota.
 
 - **`show_markdown`: vieta dati non verificati nelle bozze intermedie (2026-09-16)** —
   osservato dal vivo da Maurizio: dopo l'update-in-place (2.4.0), il modello ha mostrato più

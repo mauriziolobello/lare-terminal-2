@@ -3,6 +3,35 @@
 All notable changes to this crate are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), versioning: [SemVer](https://semver.org/).
 
+## 2.5.2 — 2026-09-16 — show_markdown: rimuove i marcatori di citazione grezzi `<cite>`/`(cite>`
+
+Segnalato dal vivo da Maurizio: nei documenti generati con ricerca web, il testo mostrava
+marcatori di citazione non renderizzati, leggibili come testo grezzo (es. `DJI/Ryze Tello EDU
+(cite index="1-1">Tello EDU è un dron...`). Investigazione: `messages_client.rs` non gestisce/
+estrae alcun campo "citations" strutturato (i `text_delta` catturano solo `delta.get("text")`) —
+il marcatore è generato letteralmente dal modello nel proprio output testuale, non un artefatto
+del nostro parsing. Confermato leggendo i file `.md` REALI salvati in Library: il modello usa
+DUE varianti di apertura per lo stesso marcatore — `<cite index="...">` (tag XML corretto) e
+`(cite index="...">` (parentesi tonda al posto di `<`) — sempre chiuse con `</cite>`.
+
+Fix a due livelli:
+- **Codice** (`agent::markdown_window`): due regex indipendenti (`regex`, già dipendenza)
+  rimuovono apertura e chiusura del marcatore separatamente, mantenendo il testo racchiuso —
+  sopravvive anche a un tag di apertura mai chiuso (output troncato a metà). Applicato al
+  contenuto COMPLETO passato a `show_markdown` (sicuro: arriva come JSON tool_use già completo,
+  non a delta come i `Chunk` di testo in streaming — un fix per-delta rischierebbe di spezzare un
+  tag a metà). Pulizia avviene PRIMA di derivare il titolo dalla prima riga, per non lasciare un
+  marcatore anche lì.
+- **Prompt** (description del tool): una clausola in più chiede di citare le fonti come normali
+  link Markdown (`[nome](url)`), mai con marcatori XML tipo `<cite>` — seconda linea di difesa,
+  per ridurre quanto arriva da ripulire in primo luogo.
+
+TDD: RED confermato (4 nuovi test in `agent.rs` — apertura `<cite>`, apertura `(cite>`, marcatori
+multipli con indici composti `"9-7,9-8"`, titolo derivato dalla prima riga ripulito) prima
+dell'implementazione, poi GREEN. Un quinto test verifica che la description menzioni
+esplicitamente "cite" e l'alternativa (link Markdown). 959/959 test `-p orchestrator` verdi
+(953 pre-esistenti + 1 di 2.5.1 + 5 nuovi di questo fix), clippy pulito.
+
 ## 2.5.1 — 2026-09-16 — show_markdown: vieta dati non verificati nelle bozze intermedie
 
 Regressione osservata dal vivo da Maurizio: con l'update-in-place (2.4.0), il modello ha mostrato

@@ -6,6 +6,8 @@
 
 use crate::messages_client::{ServerTool, ToolDef, ToolSpec};
 use crate::tool_client::ToolClient;
+use regex::Regex;
+use std::sync::LazyLock;
 
 /// Round-trip massimi del loop (safety rail col no-gate).
 pub const MAX_ITERATIONS: usize = 8;
@@ -141,7 +143,7 @@ pub fn tool_defs() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "show_markdown".to_string(),
-            description: "Mostra contenuto Markdown ricco (spiegazioni lunghe, codice, tabelle) in una finestra dedicata. Usalo quando la risposta e' formattata o lunga invece di scriverla come testo semplice. Puoi chiamarlo più volte nello stesso turno via via che affini la risposta (es. dopo ricerche web successive): ogni chiamata AGGIORNA la stessa finestra con la versione più recente, non ne apre una seconda. IMPORTANTE: ogni chiamata, anche una bozza intermedia, deve contenere SOLO dati che hai realmente cercato e verificato (es. con web_search) — mai segnaposto, esempi inventati o cifre non confermate presentate come se fossero reali. Se non hai ancora fatto la ricerca, fallo PRIMA di chiamare questo tool.".to_string(),
+            description: "Mostra contenuto Markdown ricco (spiegazioni lunghe, codice, tabelle) in una finestra dedicata. Usalo quando la risposta e' formattata o lunga invece di scriverla come testo semplice. Puoi chiamarlo più volte nello stesso turno via via che affini la risposta (es. dopo ricerche web successive): ogni chiamata AGGIORNA la stessa finestra con la versione più recente, non ne apre una seconda. IMPORTANTE: ogni chiamata, anche una bozza intermedia, deve contenere SOLO dati che hai realmente cercato e verificato (es. con web_search) — mai segnaposto, esempi inventati o cifre non confermate presentate come se fossero reali. Se non hai ancora fatto la ricerca, fallo PRIMA di chiamare questo tool. Cita le fonti come normali link Markdown (es. [nome sito](url)) — mai marcatori tipo <cite index=\"...\">...</cite>: non vengono renderizzati e restano visibili come testo grezzo illeggibile.".to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -246,15 +248,42 @@ fn ceil_boundary(s: &str, mut idx: usize) -> usize {
     idx
 }
 
+/// Regex per il marcatore di APERTURA di una citazione grezza lasciata dal
+/// modello nel testo (mai gestita/estratta come campo strutturato — vedi
+/// `messages_client.rs`, `text_delta` cattura solo `delta.get("text")`, nessun
+/// campo "citations"). Osservate dal vivo DUE varianti nello stesso corpus di
+/// documenti .md salvati in Library (2026-09-16): `<cite index="...">` (tag
+/// XML corretto) e `(cite index="...">` (parentesi tonda al posto di `<` —
+/// imprecisione del modello nel riprodurre il marcatore) — sempre chiuse con
+/// `</cite>`, mai con `)cite>`. `[^>]*` consuma qualunque attributo/indice
+/// (anche liste come `index="9-7,9-8"`) fino al `>` di chiusura del tag.
+static CITE_OPEN: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"[<(]cite\b[^>]*>"#).expect("regex CITE_OPEN valida"));
+static CITE_CLOSE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"</cite>"#).expect("regex CITE_CLOSE valida"));
+
+/// Rimuove i marcatori di citazione grezzi, mantenendo il testo racchiuso.
+/// Due strip INDIPENDENTI (non un'unica regex accoppiata apertura..chiusura):
+/// un tag di apertura mai chiuso (es. output troncato a metà) non deve far
+/// sparire tutto il testo successivo — pulisce solo il marcatore che c'è
+/// davvero, lasciando intatto il resto.
+fn strip_cite_markers(text: &str) -> String {
+    let without_open = CITE_OPEN.replace_all(text, "");
+    CITE_CLOSE.replace_all(&without_open, "").into_owned()
+}
+
 /// Deriva `(titolo, contenuto)` per una finestra Markdown da un `tool_use`
 /// `show_markdown`. Titolo: `input.title` (≤60 char) → prima riga non vuota di
-/// `content` (≤60, char-safe) → fallback `"Lare — Output"`.
+/// `content` (≤60, char-safe) → fallback `"Lare — Output"`. Il contenuto è
+/// ripulito dai marcatori di citazione grezzi PRIMA di derivare il titolo:
+/// un marcatore a inizio testo, altrimenti, finirebbe dentro il titolo stesso.
 pub fn markdown_window(input: &serde_json::Value) -> (String, String) {
     let content = input
         .get("content")
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
+    let content = strip_cite_markers(&content);
     let title = input
         .get("title")
         .and_then(|v| v.as_str())
@@ -643,6 +672,30 @@ mod tests {
         );
     }
 
+    // Seconda linea di difesa (2026-09-16) contro i marcatori `<cite ...>`/
+    // `(cite ...>` grezzi lasciati dal modello nel testo (fix a livello di
+    // codice: strip_cite_markers, sopra) — anche il prompt lo scoraggia, per
+    // ridurre quanto arriva da ripulire in primo luogo.
+    #[test]
+    fn show_markdown_description_discourages_raw_cite_markers() {
+        let defs = tool_defs();
+        let show_markdown = defs
+            .iter()
+            .find(|d| d.name == "show_markdown")
+            .expect("show_markdown deve esistere fra i tool");
+        let lower = show_markdown.description.to_lowercase();
+        assert!(
+            lower.contains("cite"),
+            "la descrizione deve menzionare esplicitamente i marcatori 'cite' da evitare: {:?}",
+            show_markdown.description
+        );
+        assert!(
+            lower.contains("link") || lower.contains("fonti") || lower.contains("markdown normal"),
+            "la descrizione deve indicare l'alternativa (link Markdown normali): {:?}",
+            show_markdown.description
+        );
+    }
+
     #[test]
     fn tools_for_no_windows_excludes_show_markdown() {
         let t = tools_for(
@@ -810,6 +863,50 @@ mod tests {
         let (title, _) =
             markdown_window(&serde_json::json!({"content": format!("# {long}"), "title": long}));
         assert!(title.chars().count() <= 60);
+    }
+
+    // ── Pulizia marcatori di citazione grezzi (2026-09-16) ───────────────────
+    // Segnalato dal vivo da Maurizio: nei documenti generati con ricerca web il
+    // modello a volte lascia nel testo marcatori di citazione non renderizzati,
+    // es. "DJI/Ryze Tello EDU (cite index="1-1">Tello EDU è un drone...</cite>".
+    // Confermato leggendo i file .md REALI salvati in Library (non un'ipotesi):
+    // il modello usa DUE varianti di apertura per lo stesso marcatore — a volte
+    // `<cite index="...">` (tag XML corretto), a volte `(cite index="...">`
+    // (parentesi tonda al posto di `<`, probabile imprecisione del modello nel
+    // riprodurre il marcatore) — sempre chiuso con `</cite>` in entrambi i casi.
+    #[test]
+    fn markdown_window_strips_angle_bracket_cite_markers() {
+        let (_, content) = markdown_window(&serde_json::json!({
+            "content": "Peso: <cite index=\"0-5\">80 grammi</cite> circa."
+        }));
+        assert_eq!(content, "Peso: 80 grammi circa.");
+    }
+
+    #[test]
+    fn markdown_window_strips_paren_cite_markers() {
+        let (_, content) = markdown_window(&serde_json::json!({
+            "content": "Peso: (cite index=\"0-5\">80 grammi</cite> circa."
+        }));
+        assert_eq!(content, "Peso: 80 grammi circa.");
+    }
+
+    #[test]
+    fn markdown_window_strips_multiple_cite_markers_with_multi_index() {
+        let (_, content) = markdown_window(&serde_json::json!({
+            "content": "(cite index=\"9-7,9-8\">40 quesiti</cite>, costo (cite index=\"9-11\">31 euro</cite>."
+        }));
+        assert_eq!(content, "40 quesiti, costo 31 euro.");
+    }
+
+    #[test]
+    fn markdown_window_title_derived_from_first_line_is_also_cleaned() {
+        // Se non c'è un title esplicito, il titolo è derivato dalla prima riga
+        // del content: la pulizia deve avvenire PRIMA di quella derivazione,
+        // altrimenti un marcatore ad inizio riga finirebbe nel titolo stesso.
+        let (title, _) = markdown_window(&serde_json::json!({
+            "content": "(cite index=\"0-0\">Droni sotto 250g</cite>\nresto"
+        }));
+        assert_eq!(title, "Droni sotto 250g");
     }
 
     #[test]
