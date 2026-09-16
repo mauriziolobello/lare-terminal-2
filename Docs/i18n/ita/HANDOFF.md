@@ -12,8 +12,8 @@
   condiviso + stdio chiuse + `child_stderr_log_sink`, fix finestre console spurie)
 - mcp-server 2.0.1 (da v1 0.7.1)
 - mcp-nmap 2.1.0 (da v1 0.8.2; 2.1.0 — tool fritzbox_status + --config-dir in main)
-- orchestrator 2.5.0 (da v1 0.41.21; 2.5.0 — gate di chiusura + cancellazione cross-connection per
-  le finestre show_markdown, Parte B del compito update-in-place)
+- orchestrator 2.5.1 (da v1 0.41.21; 2.5.1 — show_markdown vieta dati non verificati nelle bozze
+  intermedie)
 - plugin-protocol 2.0.0 (da v1 0.2.1)
 - plugin-ping 2.0.0 (da v1 0.1.0)
 - plugin-counter 2.0.0 (da v1 0.1.0)
@@ -29,6 +29,13 @@
   `--no-terminal` — non un crate Cargo: `shell/lare-shell/`, .NET/C#)
 
 ## FATTO
+
+- **`show_markdown`: vieta dati non verificati nelle bozze intermedie (2026-09-16)** —
+  osservato dal vivo da Maurizio: dopo l'update-in-place (2.4.0), il modello ha mostrato più
+  bozze con dati INVENTATI (tabella di droni scritta prima di usare `web_search`, corretta 4
+  volte con scuse "non ho ancora cercato davvero"). La description del tool ora vieta
+  esplicitamente dati non verificati/segnaposto in QUALUNQUE chiamata, bozza inclusa. orchestrator
+  2.5.0 → 2.5.1. 954 test, tutti verdi.
 
 - **Fix: 3 test JS residui riferiti a `/nmap` mai aggiornati dopo il rename in `/netsec`
   (2026-09-16)** — bug preesistente dal 2026-09-12 (rename mergiato senza mai rieseguire

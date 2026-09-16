@@ -3,6 +3,20 @@
 All notable changes to this crate are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), versioning: [SemVer](https://semver.org/).
 
+## 2.5.1 — 2026-09-16 — show_markdown: vieta dati non verificati nelle bozze intermedie
+
+Regressione osservata dal vivo da Maurizio: con l'update-in-place (2.4.0), il modello ha mostrato
+più bozze intermedie con dati INVENTATI (tabella di droni scritta prima di usare `web_search`,
+poi corretta 4 volte con "mi scuso, non ho ancora cercato davvero"). La libertà di chiamare
+`show_markdown` più volte non doveva tradursi in libertà di mostrare contenuto non verificato
+come se fosse definitivo — la description ora lo vieta esplicitamente ("ogni chiamata, anche una
+bozza intermedia, deve contenere SOLO dati che hai realmente cercato e verificato... mai
+segnaposto, esempi inventati o cifre non confermate").
+
+Nuovo test `show_markdown_description_forbids_unverified_placeholder_data` (`agent.rs`). 954
+test, tutti verdi. Bump orchestrator 2.5.0 → 2.5.1 (patch: solo testo del prompt, nessun
+cambiamento di comportamento strutturale).
+
 ## 2.5.0 — 2026-09-15 — gate di chiusura + cancellazione cross-connection (Parte B)
 
 Compito: `Docs/i18n/ita/compiti-ai-esterne/2026-09-15-show-markdown-update-in-place.md` (Parte B).

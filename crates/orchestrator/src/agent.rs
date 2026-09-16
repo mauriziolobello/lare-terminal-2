@@ -141,7 +141,7 @@ pub fn tool_defs() -> Vec<ToolDef> {
         },
         ToolDef {
             name: "show_markdown".to_string(),
-            description: "Mostra contenuto Markdown ricco (spiegazioni lunghe, codice, tabelle) in una finestra dedicata. Usalo quando la risposta e' formattata o lunga invece di scriverla come testo semplice. Puoi chiamarlo più volte nello stesso turno via via che affini la risposta (es. dopo ricerche web successive): ogni chiamata AGGIORNA la stessa finestra con la versione più recente, non ne apre una seconda.".to_string(),
+            description: "Mostra contenuto Markdown ricco (spiegazioni lunghe, codice, tabelle) in una finestra dedicata. Usalo quando la risposta e' formattata o lunga invece di scriverla come testo semplice. Puoi chiamarlo più volte nello stesso turno via via che affini la risposta (es. dopo ricerche web successive): ogni chiamata AGGIORNA la stessa finestra con la versione più recente, non ne apre una seconda. IMPORTANTE: ogni chiamata, anche una bozza intermedia, deve contenere SOLO dati che hai realmente cercato e verificato (es. con web_search) — mai segnaposto, esempi inventati o cifre non confermate presentate come se fossero reali. Se non hai ancora fatto la ricerca, fallo PRIMA di chiamare questo tool.".to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -612,6 +612,33 @@ mod tests {
         assert!(
             lower.contains("più volte") || lower.contains("piu' volte"),
             "la descrizione di show_markdown deve permettere chiamate multiple: {:?}",
+            show_markdown.description
+        );
+    }
+
+    /// Regressione osservata dal vivo (2026-09-16, Maurizio): con l'update-in-place,
+    /// il modello ha mostrato più bozze intermedie con dati INVENTATI ("ho generato
+    /// quella tabella senza prima eseguire una ricerca web reale"), scusandosi e
+    /// ricominciando 4 volte prima di usare davvero `web_search`. La libertà di
+    /// chiamare `show_markdown` più volte non deve tradursi in libertà di mostrare
+    /// contenuto non verificato come se fosse definitivo — la description deve
+    /// dirlo esplicitamente, non lasciarlo implicito.
+    #[test]
+    fn show_markdown_description_forbids_unverified_placeholder_data() {
+        let defs = tool_defs();
+        let show_markdown = defs
+            .iter()
+            .find(|d| d.name == "show_markdown")
+            .expect("show_markdown deve esistere fra i tool");
+        let lower = show_markdown.description.to_lowercase();
+        assert!(
+            lower.contains("verificat"), // "verificati"/"verificata"/"verificato"
+            "la descrizione deve richiedere dati verificati (cercati davvero): {:?}",
+            show_markdown.description
+        );
+        assert!(
+            lower.contains("mai") && (lower.contains("invent") || lower.contains("segnapost")),
+            "la descrizione deve vietare esplicitamente dati inventati/segnaposto: {:?}",
             show_markdown.description
         );
     }
