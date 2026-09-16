@@ -27,8 +27,9 @@
   show_markdown a turno concluso, permesso Tauri mancante; 2.3.8 — 2.3.7 richiudeva il ciclo
   chiamando closeWindow() da dentro onCloseRequested, causando un loop infinito — corretto
   lasciando che il default di Tauri (destroy(), ora permesso) chiuda la finestra)
-- lare-shell 2.0.1 (piano 2b 2.0.0 → 2.0.1 nel piano 3, Task 3: `Launcher.EnsureUi()` passa
-  `--no-terminal` — non un crate Cargo: `shell/lare-shell/`, .NET/C#)
+- lare-shell 2.0.2 (piano 2b 2.0.0 → 2.0.1 nel piano 3, Task 3: `Launcher.EnsureUi()` passa
+  `--no-terminal`; 2.0.2 — `HostInfo.Version` letta dall'assembly invece di hardcoded — non un
+  crate Cargo: `shell/lare-shell/`, .NET/C#)
 
 ## FATTO
 
@@ -47,8 +48,8 @@
   turno concluso pulisce il buffer e lascia che il default di Tauri (`destroy()`, ora permesso)
   chiuda la finestra in un solo passaggio, senza reinnescare l'evento. Verificato con harness Node
   ad-hoc che simula il rimbalzo Rust→JS: RED sul branch 2.3.7 (loop, 11 chiamate a `close_self`),
-  GREEN dopo (1 chiamata, gate della Parte B a turno attivo intatto). **Non ancora confermato dal
-  vivo** — nessun rebuild/test pratico di 2.3.8 al momento di questa nota.
+  GREEN dopo (1 chiamata, gate della Parte B a turno attivo intatto). **Confermato dal vivo da
+  Maurizio (2026-09-17)**: le finestre si chiudono correttamente col bottone ×.
 
 - **`show_markdown`: rimuove i marcatori di citazione grezzi `<cite>`/`(cite>` (2026-09-16,
   orchestrator 2.5.2)** — segnalato dal vivo da Maurizio: testo tipo `(cite index="1-1">Tello EDU
@@ -59,8 +60,18 @@
   indipendenti in `agent::markdown_window` rimuovono apertura e chiusura separatamente (`regex`,
   già dipendenza), applicate al content COMPLETO del tool_use (mai a delta streaming) prima di
   derivare il titolo. Seconda linea di difesa nella description del tool: chiede link Markdown
-  normali invece di marcatori XML. TDD: 5 nuovi test, 959/959 verdi. **Non ancora confermato dal
-  vivo** — nessun rebuild/test pratico al momento di questa nota.
+  normali invece di marcatori XML. TDD: 5 nuovi test, 959/959 verdi. **Confermato dal vivo da
+  Maurizio (2026-09-17)**: nei documenti nuovi vede link ma non più marcatori di citazione grezzi.
+
+- **Fix: `HostInfo.Version` hardcoded, disallineata dal `.csproj` (2026-09-17, lare-shell 2.0.1 →
+  2.0.2)** — segnalato da Maurizio: il banner del REPL mostrava "Lare Terminal 2.0.0" nonostante
+  il progetto fosse già a 2.0.1. `HostInfo.Version` era una `const string` scritta a mano, un
+  secondo posto (oltre a `<Version>` nel `.csproj`) mai più risincronizzato dal bump iniziale. Ora
+  letta a runtime da `Assembly.GetName().Version` — non `AssemblyInformationalVersionAttribute`
+  (prima scelta, scartata: in un repo git include un suffisso `+<commit-sha>` che
+  `System.Version` non parsa, RED con `FormatException` prima di correggere l'approccio). Test
+  aggiornato per confrontare con `HostInfo.Version` invece di un secondo numero letterale
+  hardcoded. 118/118 test xUnit verdi.
 
 - **`show_markdown`: vieta dati non verificati nelle bozze intermedie (2026-09-16)** —
   osservato dal vivo da Maurizio: dopo l'update-in-place (2.4.0), il modello ha mostrato più

@@ -81,8 +81,9 @@ internal static class Wire
     // Tipi anonimi con i nomi snake_case scritti a mano: il JSON che ne esce è esattamente
     // quello che serde si aspetta; non serve una naming policy né classi dedicate.
 
-    /// <summary><c>version</c> è la SOLA versione ("2.0.0", HostInfo.Version): la riga di /ping la
-    /// stampa come <c>| lare-shell | 2.0.0 | …</c> (orchestrator/ping.rs), il nome lo mette lui.</summary>
+    /// <summary><c>version</c> è la SOLA versione ("2.0.1", HostInfo.Version — letta
+    /// dall'assembly, non più hardcoded): la riga di /ping la stampa come
+    /// <c>| lare-shell | 2.0.1 | …</c> (orchestrator/ping.rs), il nome lo mette lui.</summary>
     public static string Hello(string token, string sessionId, string cwd, string version) =>
         JsonSerializer.Serialize(new { type = "hello", token, role = "shell", session_id = sessionId, cwd, version });
 

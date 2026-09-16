@@ -5,6 +5,29 @@ Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), versioning: [S
 
 ---
 
+## [2.0.2] — 2026-09-17
+
+Segnalato da Maurizio: il banner del REPL ("Lare Terminal 2.0.0 — sessione ...") mostrava ancora
+"2.0.0" nonostante il progetto fosse già a 2.0.1 da tempo (bump `--no-terminal`, piano 3 Task 3).
+
+### Fixed
+
+- `HostInfo.Version` era una `const string` hardcoded a "2.0.0", scritta a mano e mai più
+  aggiornata insieme al `.csproj` — un secondo posto, oltre a `<Version>` in `LareShell.csproj`,
+  da tenere sincronizzato manualmente. Ora è letta a runtime da `Assembly.GetName().Version`
+  (generato da MSBuild direttamente dal `<Version>` del `.csproj`), eliminando la duplicazione:
+  un solo posto vero, il `.csproj`, esattamente come il commento della classe già dichiarava
+  d'intenzione. Usata `AssemblyName.Version` (non `AssemblyInformationalVersionAttribute`, la
+  prima scelta tentata): quest'ultima, in un repo git, include automaticamente un suffisso
+  `+<commit-sha>` che `System.Version` (usato da `LareHost.Version` per `PSHost.Version`) non sa
+  parsare — confermato da un test RED che ha sollevato `FormatException` prima di correggere
+  l'approccio.
+- Test aggiornato (`LareHostTests.Identita_della_host`): confrontava `host.Version` con un secondo
+  numero letterale hardcoded (`new Version(2, 0, 0)`), che avrebbe riprodotto lo stesso bug alla
+  prossima release — ora confronta con `HostInfo.Version` stesso.
+
+118/118 test xUnit verdi.
+
 ## [2.0.1] — 2026-09-07
 
 Fix wave della revisione finale del piano 2b, più il fix `--no-terminal` del piano 3 Task 3 (quest'

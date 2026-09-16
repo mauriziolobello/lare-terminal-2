@@ -104,8 +104,11 @@ ConPTY) è piano 3.
 
 ### Radice (`src/LareShell/`) — composizione ed entry point
 
-- **`HostInfo`** — `Name`/`Version` (`"2.0.0"`) in un solo posto: li usano `PSHost`, `Hello.version`
-  (mostrato da `/ping`), il nome del profilo `LareShell_profile.ps1`, il banner del REPL.
+- **`HostInfo`** — `Name`/`Version` in un solo posto: li usano `PSHost`, `Hello.version` (mostrato
+  da `/ping`), il nome del profilo `LareShell_profile.ps1`, il banner del REPL. `Version` (2.0.2)
+  è letta a runtime da `Assembly.GetName().Version` (generato da MSBuild dal `<Version>` del
+  `.csproj`) — prima era una `const string` hardcoded, disallineata dal `.csproj` dal bump 2.0.1
+  in poi finché nessuno l'ha notata (fix 2026-09-17).
 - **`SlashLine`** — riconoscimento puro di una riga `/…` (prima cosa non-spazio è `/`) e
   normalizzazione (`Trim`); il resto del routing (`/ai` con virgolette, slash noto/ignoto) lo fa
   l'orchestratore, non la host.

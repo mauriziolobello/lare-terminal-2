@@ -50,7 +50,10 @@ public class LareHostTests
     {
         var host = new LareHost(new FakeConsoleModes());
         Assert.Equal("LareShell", host.Name);
-        Assert.Equal(new Version(2, 0, 0), host.Version);
+        // Confronto con la fonte di verità (HostInfo.Version, letta dall'assembly), non con un
+        // numero letterale: un secondo hardcode qui riprodurrebbe esattamente il bug appena
+        // corretto (2026-09-17) — la costante disallineata dal .csproj che nessuno aggiornava più.
+        Assert.Equal(new Version(HostInfo.Version), host.Version);
         Assert.Same(host.UI, host.HostUI);
     }
 
