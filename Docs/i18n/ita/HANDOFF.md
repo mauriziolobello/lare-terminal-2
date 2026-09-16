@@ -23,20 +23,32 @@
   SHL/SHR riposizionati nel layout)
 - plugin-lc 2.0.0 (da v1 0.4.5)
 - plugin-crypto 2.0.0 (da v1 1.0.1)
-- ui 2.3.7 (da v1 0.47.1; 2.3.7 — fix: onCloseRequested impediva la chiusura della finestra
-  show_markdown a turno concluso, permesso Tauri mancante)
+- ui 2.3.8 (da v1 0.47.1; 2.3.7 — fix: onCloseRequested impediva la chiusura della finestra
+  show_markdown a turno concluso, permesso Tauri mancante; 2.3.8 — 2.3.7 richiudeva il ciclo
+  chiamando closeWindow() da dentro onCloseRequested, causando un loop infinito — corretto
+  lasciando che il default di Tauri (destroy(), ora permesso) chiuda la finestra)
 - lare-shell 2.0.1 (piano 2b 2.0.0 → 2.0.1 nel piano 3, Task 3: `Launcher.EnsureUi()` passa
   `--no-terminal` — non un crate Cargo: `shell/lare-shell/`, .NET/C#)
 
 ## FATTO
 
-- **Fix: chiusura finestra show_markdown bloccata a turno concluso (2026-09-16)** — trovato
-  dal vivo da Maurizio con DevTools: `Uncaught (in promise) window.destroy not allowed`.
-  `onCloseRequested` (Parte B, intercetta Alt+F4) intercettava OGNI chiusura, incluso il bottone
-  ×; senza `preventDefault()` esplicito il SDK Tauri tentava da solo `destroy()`, comando senza
-  permesso concesso alla finestra. Funzionava "a volte" solo per timing (click rapido batteva la
-  registrazione asincrona del listener). Fix: prevenire sempre, gestire la chiusura noi stessi.
-  ui 2.3.6 → 2.3.7.
+- **Fix: chiusura finestra show_markdown bloccata a turno concluso (2026-09-16, ui 2.3.6 → 2.3.7
+  → 2.3.8)** — trovato dal vivo da Maurizio con DevTools: `Uncaught (in promise) window.destroy
+  not allowed`. `onCloseRequested` (Parte B, intercetta Alt+F4) intercettava OGNI chiusura,
+  incluso il bottone ×; senza `preventDefault()` esplicito il SDK Tauri tentava da solo
+  `destroy()`, comando senza permesso concesso alla finestra. Funzionava "a volte" solo per
+  timing (click rapido batteva la registrazione asincrona del listener). Primo fix (2.3.7):
+  prevenire sempre, richiamare `closeWindow()` noi stessi — **sbagliato**, trovato dal supervisore
+  in riverifica (consulto `advisor` + harness Node ad-hoc) PRIMA del test dal vivo successivo:
+  `closeWindow()` invoca `close_self` → `webview.close()` → ri-scatena lo stesso evento
+  `onCloseRequested` → loop infinito, mai osservato da Maurizio perché scoperto prima del suo
+  rebuild successivo. Fix corretto (2.3.8): `core:window:allow-destroy` aggiunto a
+  `markdown-window.json`, `onCloseRequested` previene SOLO a turno attivo (mostra il modale) — a
+  turno concluso pulisce il buffer e lascia che il default di Tauri (`destroy()`, ora permesso)
+  chiuda la finestra in un solo passaggio, senza reinnescare l'evento. Verificato con harness Node
+  ad-hoc che simula il rimbalzo Rust→JS: RED sul branch 2.3.7 (loop, 11 chiamate a `close_self`),
+  GREEN dopo (1 chiamata, gate della Parte B a turno attivo intatto). **Non ancora confermato dal
+  vivo** — nessun rebuild/test pratico di 2.3.8 al momento di questa nota.
 
 - **`show_markdown`: vieta dati non verificati nelle bozze intermedie (2026-09-16)** —
   osservato dal vivo da Maurizio: dopo l'update-in-place (2.4.0), il modello ha mostrato più

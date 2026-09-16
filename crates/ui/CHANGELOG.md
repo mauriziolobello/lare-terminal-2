@@ -3,6 +3,41 @@
 All notable changes to this package follow [Keep a Changelog](https://keepachangelog.com/) format.
 Versioning: `major.minor.update`.
 
+## 2.3.8 — 2026-09-16 — fix: 2.3.7 introduceva un loop infinito in onCloseRequested
+
+Bug trovato dal supervisore in fase di riverifica del fix 2.3.7, PRIMA che Maurizio lo testasse dal
+vivo (consulto `advisor` subito dopo il commit `b139bb1`, poi confermato con un harness Node
+ad-hoc che simula il rimbalzo Rust→JS di `WebviewWindow::close()`).
+
+Il fix 2.3.7 preveniva SEMPRE la chiusura di default e, a turno concluso, richiamava
+`closeWindow()` per chiudere "noi stessi". Ma `closeWindow()` invoca il comando Rust `close_self`
+→ `webview.close()` → questo RI-SCATENA l'evento `onCloseRequested` lato JS (un listener è
+registrato su queste finestre) → che richiamava di nuovo `closeWindow()` → e così via: un ciclo
+che non termina mai. La finestra sarebbe rimasta bloccata esattamente come nel bug originale (il
+bottone × non avrebbe chiuso nulla), solo con uno spam di IPC invece di un errore silenzioso in
+console — non ancora osservato dal vivo perché scoperto prima del rebuild successivo di Maurizio.
+
+Root cause del loop: non esiste modo di "chiudere la finestra noi stessi" da dentro
+`onCloseRequested` senza ripassare da quello stesso evento — l'unica via d'uscita è lasciare che
+il SDK Tauri proceda con la sua azione di default (`destroy()`).
+
+Fix corretto: `core:window:allow-destroy` aggiunto a `markdown-window.json` (il comando `destroy`
+ora è permesso). `onCloseRequested` prevede la chiusura SOLO se il turno è ancora attivo (mostra
+il modale, come da Parte B) — se il turno è concluso, pulisce il buffer (`output:closed`) e NON
+chiama `preventDefault()`: il default fa il resto in un solo passaggio, senza reinnescare
+l'evento.
+
+Verificato con un harness Node ad-hoc (`document`/`window.__TAURI__` mockati, `close_self`
+mockato per ri-scatenare l'evento come farebbe Tauri davvero, guardia anti-loop a 10 iterazioni):
+RED sul branch 2.3.7 (loop rilevato, 11 chiamate a `close_self`), GREEN dopo il fix (1 sola
+chiamata, nessun `preventDefault` a turno concluso; verificato anche che il gate della Parte B a
+turno attivo resti intatto — `preventDefault` chiamato, nessuna chiusura). 260/260 test JS
+automatici invariati (nessuno di essi copre `onCloseRequested`, come già in 2.3.7).
+
+**Non ancora confermato dal vivo da Maurizio** — il fix 2.3.7 non era ancora stato ribuildato/
+testato quando questo bug è stato trovato, quindi questo fix lo sostituisce prima di qualunque
+verifica pratica del precedente.
+
 ## 2.3.7 — 2026-09-16 — fix: onCloseRequested impediva la chiusura a turno concluso
 
 Bug trovato dal vivo da Maurizio (con DevTools aperto — errore in console: `Uncaught (in promise)

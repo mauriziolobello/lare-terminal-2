@@ -71,20 +71,36 @@ if (turnId && tauriEvent?.listen) {
 // not allowed`, la finestra non si chiude MAI quando il turno è concluso
 // (`turnActive === false`) — funzionava "a volte" solo per timing: `listen()`
 // è asincrono, un click abbastanza rapido dopo l'apertura batteva la
-// registrazione del listener stesso. Fix: prevenire SEMPRE la chiusura di
-// default e decidere noi cosa fare — mai lasciare che Tauri tenti `destroy()`
-// da solo. Questo evita anche un secondo problema, più silenzioso: chiudere
-// via `destroy()` automatico salterebbe `closeWindow()` (che emette
-// `output:closed` per liberare il buffer di `host.js`, vedi sopra) — con
-// questo fix, ANCHE una chiusura via Alt+F4 pulisce il buffer correttamente.
+// registrazione del listener stesso.
+//
+// Primo fix tentato (`b139bb1`) — SBAGLIATO, riportava un loop infinito:
+// prevenire SEMPRE la chiusura e richiamare `closeWindow()` noi stessi nel
+// ramo "turno concluso". Ma `closeWindow()` invoca `close_self` (Rust) →
+// `webview.close()` → questo RI-SCATENA `onCloseRequested` lato JS (un
+// listener e' registrato) → che richiamava di nuovo `closeWindow()` →
+// ciclo che non termina mai (confermato con un harness Node ad-hoc che
+// simula il rimbalzo Rust→JS: 10+ giri prima che la guardia anti-loop del
+// test intervenisse). Root cause del loop: NON esiste modo di "chiudere
+// noi stessi" senza ripassare da questo stesso evento — l'unica via
+// d'uscita e' lasciare che il SDK proceda con la sua azione di default.
+//
+// Fix corretto: preveniamo SOLO se dobbiamo davvero intercettare (turno
+// attivo → mostra il modale, la chiusura NON deve procedere). Se il turno
+// è concluso, puliamo il buffer (`output:closed`) e poi NON chiamiamo
+// `preventDefault()`: lasciamo che il SDK esegua `destroy()` da solo — ora
+// permesso da `core:window:allow-destroy` in `markdown-window.json`. Questo
+// copre anche Alt+F4 (arriva come lo stesso evento) senza alcun secondo giro.
 if (turnId && currentWindow?.onCloseRequested) {
   currentWindow.onCloseRequested(async (event) => {
-    event.preventDefault();
     if (turnActive) {
+      event.preventDefault();
       showCloseConfirmModal();
-    } else {
-      await closeWindow();
+      return;
     }
+    if (myOutputId && tauriEvent?.emit) {
+      try { await tauriEvent.emit("output:closed", { window_id: myOutputId }); } catch (_) {}
+    }
+    // NESSUN preventDefault qui: il default (destroy) chiude la finestra.
   });
 }
 
