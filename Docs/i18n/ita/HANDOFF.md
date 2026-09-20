@@ -23,18 +23,27 @@
   SHL/SHR riposizionati nel layout)
 - plugin-lc 2.0.0 (da v1 0.4.5)
 - plugin-crypto 2.0.0 (da v1 1.0.1)
-- ui 2.4.0 (da v1 0.47.1; 2.3.7 — fix: onCloseRequested impediva la chiusura della finestra
+- ui 2.4.1 (da v1 0.47.1; 2.3.7 — fix: onCloseRequested impediva la chiusura della finestra
   show_markdown a turno concluso, permesso Tauri mancante; 2.3.8 — 2.3.7 richiudeva il ciclo
   chiamando closeWindow() da dentro onCloseRequested, causando un loop infinito — corretto
   lasciando che il default di Tauri (destroy(), ora permesso) chiuda la finestra; 2.3.9 — bottone
   "Salva" della finestra Markdown resta sempre attivo e risalva sempre lo stesso file invece di
   disabilitarsi/duplicare; 2.4.0 — bottoni "Copia come testo"/"Copia come markdown" nella stessa
-  finestra, vedi FATTO)
+  finestra; 2.4.1 — tauri.conf.json non dichiara più "version" hardcoded, ora deriva da
+  Cargo.toml, vedi FATTO)
 - lare-shell 2.0.2 (piano 2b 2.0.0 → 2.0.1 nel piano 3, Task 3: `Launcher.EnsureUi()` passa
   `--no-terminal`; 2.0.2 — `HostInfo.Version` letta dall'assembly invece di hardcoded — non un
   crate Cargo: `shell/lare-shell/`, .NET/C#)
 
 ## FATTO
+
+- **Fix: `tauri.conf.json` disallineato da `Cargo.toml` (2026-09-20, ui 2.4.1)** — segnalato da
+  Maurizio dopo il report della 2.4.0: `tauri.conf.json` dichiarava `"version": "2.2.1"`, ferma da
+  tempo, mentre `Cargo.toml` (fonte di verità, già letta a runtime via `env!("CARGO_PKG_VERSION")`
+  in `main.rs`) era a `2.4.0` — stessa famiglia di bug del fix `c946caa` (`HostInfo.Version`
+  hardcoded lato lare-shell). Fix: campo `"version"` rimosso da `tauri.conf.json` invece di
+  riscritto — per lo schema Tauri v2 è opzionale e, se assente, deriva da `Cargo.toml` del crate
+  compilato (verificato: build verde senza il campo). Elimina la classe di bug, non solo l'istanza.
 
 - **Fix: bottone "Salva" della finestra Markdown non risalvava lo stesso file (2026-09-20, ui
   2.3.9)** — vissuto dal vivo da Maurizio: `/ai` apre una finestra `show_markdown` che continua ad

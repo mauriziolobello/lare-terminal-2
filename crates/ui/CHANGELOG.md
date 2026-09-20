@@ -3,6 +3,21 @@
 All notable changes to this package follow [Keep a Changelog](https://keepachangelog.com/) format.
 Versioning: `major.minor.update`.
 
+## 2.4.1 — 2026-09-20 — fix: versione disallineata fra tauri.conf.json e Cargo.toml
+
+Segnalato da Maurizio dopo il report della 2.4.0 ("Allinea le versioni... tra tauri.conf.json e
+Cargo.toml"): `tauri.conf.json` dichiarava `"version": "2.2.1"`, ferma da tempo, mentre
+`Cargo.toml` (fonte di verità per questo crate, `env!("CARGO_PKG_VERSION")` già letta a runtime in
+`main.rs:422`/`1701`) era già a `2.4.0` — stessa famiglia di bug del fix `c946caa`
+(`HostInfo.Version` hardcoded, disallineata dal `.csproj`, lato lare-shell).
+
+Fix: rimosso il campo `"version"` da `tauri.conf.json` invece di riscriverlo a mano. Per lo schema
+Tauri v2 (`https://schema.tauri.app/config/2`) quel campo è opzionale e, se assente, il valore
+usato è quello di `Cargo.toml` del crate compilato — verificato empiricamente: `cargo build -p ui`
+resta verde senza il campo, nessun errore di schema. Elimina la classe di bug (non solo l'istanza
+corrente): non c'è più un secondo posto dove la versione può disallinearsi, stessa lezione del fix
+`c946caa` (leggere da un'unica fonte invece di duplicare).
+
 ## 2.4.0 — 2026-09-20 — feat: bottoni "Copia come testo" / "Copia come markdown" nella finestra Markdown
 
 Parte B dello stesso compito della voce 2.3.9. Due nuovi bottoni nella titlebar della finestra

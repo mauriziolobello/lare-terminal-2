@@ -3291,6 +3291,19 @@ su `body.help`/`body.archived`, righe 241-242).
 **Non verificato dal vivo**: la scrittura reale negli appunti richiede un click nella webview
 desktop — non automatizzabile in sessione di sviluppo senza interazione diretta.
 
+### `tauri.conf.json` non dichiara più `"version"` (v2.4.1)
+
+Era `"2.2.1"`, ferma da tempo mentre `Cargo.toml` (fonte di verità, `env!("CARGO_PKG_VERSION")`
+già letta a runtime in `main.rs:422`/`1701`) era già avanti — stessa famiglia di bug del fix
+`c946caa` (`HostInfo.Version` hardcoded lato lare-shell, disallineata dal `.csproj`). Segnalato da
+Maurizio dopo il report della 2.4.0.
+
+Fix: campo rimosso, non riscritto. Per lo schema Tauri v2 (`https://schema.tauri.app/config/2`)
+`"version"` è opzionale — se assente, Tauri usa la versione di `Cargo.toml` del crate compilato.
+Verificato empiricamente (`cargo build -p ui` verde senza il campo). Elimina la classe di bug: non
+c'è più un secondo posto dove far disallineare la versione, non serve ricordarsi di sincronizzarla
+ad ogni bump futuro.
+
 ### Delete button in archive list (two-step confirm — v0.11.0)
 
 `library.js` adds a 🗑 button to each row via `wireDeleteButton(deleteBtn, row, file)`:
