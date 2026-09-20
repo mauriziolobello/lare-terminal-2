@@ -3,6 +3,34 @@
 All notable changes to this package follow [Keep a Changelog](https://keepachangelog.com/) format.
 Versioning: `major.minor.update`.
 
+## 2.4.0 — 2026-09-20 — feat: bottoni "Copia come testo" / "Copia come markdown" nella finestra Markdown
+
+Parte B dello stesso compito della voce 2.3.9. Due nuovi bottoni nella titlebar della finestra
+Markdown, accanto a "Salva" (`#copy-text-btn`, `#copy-markdown-btn`,
+`crates/ui/frontend/window.html`), visibili su OGNI finestra Markdown (non solo `output-*`).
+
+- **Copia come testo**: copia `contentEl.innerText` (il markdown renderizzato, letto al momento
+  del click — rispetta a-capo/tabelle, a differenza di `textContent` che li concatenerebbe).
+- **Copia come markdown**: copia `currentContent`, la stessa fonte di verità già usata dal
+  bottone "Salva" (2.3.9) — il markdown sorgente attuale, aggiornato al momento del click.
+- Entrambi via `navigator.clipboard.writeText` (API browser, non IPC Tauri — nessuna capability
+  aggiuntiva in `capabilities/markdown-window.json`, coerente con "Global-shortcut e clipboard
+  NON inclusi" già dichiarato in ogni file di capability del progetto). Guard esplicita se
+  `navigator.clipboard.writeText` non è disponibile (mai usata prima in questo repository).
+  Feedback transitorio "✓"/"✗" che si autoripristina dopo 1.2s — non uno stato stabile.
+- TDD sul lato i18n: markup con `data-i18n-title`/`data-i18n-aria-label` aggiunto per primo →
+  `i18n-parity.test.mjs` fallisce (RED: 4 chiavi usate ma non definite) → 4 chiavi aggiunte a
+  `it`/`en`/`es` → GREEN. Nessuna nuova chiave per il feedback transitorio (simboli hardcoded
+  "✓"/"✗", stesso pattern già usato da "Salva" — evita chiavi i18n orfane).
+- `#copy-text-btn`/`#copy-markdown-btn` aggiunti al selettore CSS `-webkit-app-region: no-drag`
+  insieme a `#save-btn`/`#close-btn` — senza questo, il click sarebbe stato interpretato come
+  trascinamento della finestra (titlebar draggabile).
+
+263/263 test JS automatici verdi. **Non verificato dal vivo**: la copia reale negli appunti
+richiede un click reale nella webview desktop, non automatizzabile da questo ambiente — resta da
+confermare da Maurizio, in particolare che `navigator.clipboard.writeText` funzioni davvero nel
+webview WebView2 di questo progetto (mai testato prima).
+
 ## 2.3.9 — 2026-09-20 — fix: bottone "Salva" nella finestra Markdown non risalvava lo stesso file
 
 Bug vissuto dal vivo da Maurizio: una richiesta `/ai` apre una finestra `show_markdown` che

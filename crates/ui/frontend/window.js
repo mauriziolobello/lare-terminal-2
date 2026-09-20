@@ -113,6 +113,8 @@ let currentLanguage = "it";
 const titlebarLabelEl = document.getElementById("titlebar-label");
 const closeBtnEl      = document.getElementById("close-btn");
 const saveBtnEl       = document.getElementById("save-btn");
+const copyTextBtnEl     = document.getElementById("copy-text-btn");
+const copyMarkdownBtnEl = document.getElementById("copy-markdown-btn");
 const contentEl       = document.getElementById("content");
 const expandInputEl  = document.getElementById("expand-input");
 const expandBtnEl    = document.getElementById("expand-btn");
@@ -377,6 +379,71 @@ async function bootstrap() {
       // Ri-abilitato SEMPRE, successo o errore — mai lasciato disabilitato
       // dopo che la risposta IPC è arrivata.
       saveBtnEl.disabled = false;
+    }
+  });
+
+  // ── Copia come testo / Copia come markdown ────────────────────────────────
+  // A differenza di "Salva", copiare non scrive su disco: nessuna guardia
+  // anti-corsa necessaria oltre a evitare due click sovrapposti sullo STESSO
+  // bottone (per non accavallare due flash "✓"/"✗"). Feedback puramente
+  // transitorio (si autoripristina) — qui non c'è il problema di "Salva" (uno
+  // stato stabile che inganna sul completamento), quindi lampeggiare va bene
+  // senza remore.
+  //
+  // `navigator.clipboard.writeText` è un'API del browser (webview), non un
+  // comando IPC Tauri — nessuna capability aggiuntiva serve in
+  // capabilities/markdown-window.json. Non è mai stata usata prima in questo
+  // progetto: il controllo esplicito sotto (invece di lasciare che
+  // `.writeText` non esistente lanci un TypeError generico) rende leggibile
+  // nella console il motivo esatto se il webview la negasse.
+  function flashCopyFeedback(btnEl, symbol) {
+    const original = btnEl.textContent;
+    btnEl.textContent = symbol;
+    setTimeout(() => {
+      btnEl.textContent = original;
+    }, 1200);
+  }
+
+  async function copyToClipboard(text) {
+    if (!navigator.clipboard?.writeText) {
+      throw new Error("navigator.clipboard.writeText non disponibile in questo webview");
+    }
+    await navigator.clipboard.writeText(text);
+  }
+
+  copyTextBtnEl.addEventListener("click", async () => {
+    if (copyTextBtnEl.disabled) return;
+    copyTextBtnEl.disabled = true;
+    try {
+      // `innerText`, non `textContent`: rispetta il layout a blocchi (righe
+      // vuote tra paragrafi/voci di lista, celle di tabella separate da
+      // tab) — `textContent` concatenerebbe tutto senza questi a-capo,
+      // illeggibile per una tabella o un elenco. Letto al momento del click,
+      // non catturato una volta sola all'apertura: deve riflettere il
+      // contenuto ATTUALE (stesso principio di `currentContent` per Salva).
+      await copyToClipboard(contentEl.innerText);
+      flashCopyFeedback(copyTextBtnEl, "✓");
+    } catch (e) {
+      console.error("[window] copia come testo fallita:", e);
+      flashCopyFeedback(copyTextBtnEl, "✗");
+    } finally {
+      copyTextBtnEl.disabled = false;
+    }
+  });
+
+  copyMarkdownBtnEl.addEventListener("click", async () => {
+    if (copyMarkdownBtnEl.disabled) return;
+    copyMarkdownBtnEl.disabled = true;
+    try {
+      // Stessa fonte di verità del bottone Salva (vedi sopra): il markdown
+      // sorgente attuale, non l'HTML renderizzato.
+      await copyToClipboard(currentContent);
+      flashCopyFeedback(copyMarkdownBtnEl, "✓");
+    } catch (e) {
+      console.error("[window] copia come markdown fallita:", e);
+      flashCopyFeedback(copyMarkdownBtnEl, "✗");
+    } finally {
+      copyMarkdownBtnEl.disabled = false;
     }
   });
 

@@ -3258,6 +3258,39 @@ più riallineabile al testo finale dall'interfaccia — vedi CHANGELOG 2.3.9 e
 - Riaprire la stessa finestra in futuro era una nuova sessione → il bottone tornava abilitato.
   **Non più rilevante**: in v2.3.9 il bottone non si disabilita mai in modo stabile.
 
+### Copia come testo / Copia come markdown (v2.4.0)
+
+`#copy-text-btn`/`#copy-markdown-btn` in `window.html`, tra `#save-btn` e `#close-btn` — visibili
+su OGNI finestra Markdown (non gated da `data.kind`, a differenza di `#save-btn` che è nascosto
+su `body.help`/`body.archived`, righe 241-242).
+
+- `#copy-text-btn`: `navigator.clipboard.writeText(contentEl.innerText)` al momento del click.
+  `innerText`, non `textContent` — rispetta il layout a blocchi (a-capo tra paragrafi/voci di
+  lista, celle di tabella separate da tab).
+- `#copy-markdown-btn`: `navigator.clipboard.writeText(currentContent)` — stessa variabile usata
+  da "Salva" (sezione precedente), il markdown sorgente attuale.
+- `copyToClipboard(text)` (helper condiviso): lancia esplicitamente se
+  `navigator.clipboard?.writeText` non esiste, invece di lasciare che la chiamata fallisca con un
+  `TypeError` generico — unico diagnostico disponibile se il webview negasse l'API (mai usata
+  prima in questo repository).
+- Nessuna nuova capability Tauri: `navigator.clipboard` è un'API del webview, non un comando IPC
+  (ogni file in `capabilities/` dichiara già esplicitamente "clipboard NON inclusi" — riferito al
+  plugin Tauri clipboard-manager, non a questa API browser).
+- Feedback: `flashCopyFeedback(btnEl, symbol)` — sostituisce il testo del bottone con "✓"/"✗" per
+  1.2s poi lo ripristina (stesso pattern del flash d'errore di "Salva", ma qui usato anche per il
+  successo: a differenza di "Salva", copiare non ha un problema di "stato stabile ingannevole" da
+  evitare).
+- CSS: aggiunti al selettore condiviso `-webkit-app-region: no-drag` insieme a
+  `#save-btn`/`#close-btn` — un bottone titlebar senza questa regola erediterebbe il
+  comportamento draggabile del contenitore e il click trascinerebbe la finestra invece di
+  attivare il bottone.
+- i18n: `md_window.copy_text_title`/`copy_text_aria`/`copy_markdown_title`/`copy_markdown_aria`
+  (title/aria-label dei due bottoni). Nessuna chiave per il feedback transitorio (simboli
+  hardcoded, stesso pattern di "Salva").
+
+**Non verificato dal vivo**: la scrittura reale negli appunti richiede un click nella webview
+desktop — non automatizzabile in sessione di sviluppo senza interazione diretta.
+
 ### Delete button in archive list (two-step confirm — v0.11.0)
 
 `library.js` adds a 🗑 button to each row via `wireDeleteButton(deleteBtn, row, file)`:

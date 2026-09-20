@@ -23,12 +23,13 @@
   SHL/SHR riposizionati nel layout)
 - plugin-lc 2.0.0 (da v1 0.4.5)
 - plugin-crypto 2.0.0 (da v1 1.0.1)
-- ui 2.3.9 (da v1 0.47.1; 2.3.7 — fix: onCloseRequested impediva la chiusura della finestra
+- ui 2.4.0 (da v1 0.47.1; 2.3.7 — fix: onCloseRequested impediva la chiusura della finestra
   show_markdown a turno concluso, permesso Tauri mancante; 2.3.8 — 2.3.7 richiudeva il ciclo
   chiamando closeWindow() da dentro onCloseRequested, causando un loop infinito — corretto
   lasciando che il default di Tauri (destroy(), ora permesso) chiuda la finestra; 2.3.9 — bottone
   "Salva" della finestra Markdown resta sempre attivo e risalva sempre lo stesso file invece di
-  disabilitarsi/duplicare, vedi FATTO)
+  disabilitarsi/duplicare; 2.4.0 — bottoni "Copia come testo"/"Copia come markdown" nella stessa
+  finestra, vedi FATTO)
 - lare-shell 2.0.2 (piano 2b 2.0.0 → 2.0.1 nel piano 3, Task 3: `Launcher.EnsureUi()` passa
   `--no-terminal`; 2.0.2 — `HostInfo.Version` letta dall'assembly invece di hardcoded — non un
   crate Cargo: `shell/lare-shell/`, .NET/C#)
@@ -50,9 +51,20 @@
   `saveContent`, `currentContent` è ora l'unica fonte di verità. Chiave i18n `common.saved`
   rimossa (orfana, segnalata dal test di parità). 263/263 test JS verdi. **Non ancora confermato
   dal vivo da Maurizio** (richiede un turno `/ai` reale + interazione con la finestra desktop —
-  vedi `Docs/i18n/ita/compiti-ai-esterne/2026-09-20-salva-copia-markdown-window.md`). I due bottoni
-  "Copia come testo"/"Copia come markdown" dello stesso compito non sono ancora implementati (Parte
-  B, prossimo commit).
+  vedi `Docs/i18n/ita/compiti-ai-esterne/2026-09-20-salva-copia-markdown-window.md`).
+
+- **Feature: bottoni "Copia come testo"/"Copia come markdown" nella finestra Markdown
+  (2026-09-20, ui 2.4.0)** — Parte B dello stesso compito. Due nuovi bottoni in titlebar accanto a
+  "Salva", visibili su ogni finestra Markdown. "Copia come testo" copia `contentEl.innerText`
+  (rispetta a-capo/tabelle); "Copia come markdown" copia `currentContent` (stessa fonte di verità
+  di "Salva"). Via `navigator.clipboard.writeText` (API browser, nessuna capability Tauri
+  aggiuntiva) — mai usata prima in questo repository. Aggiunti al selettore CSS `no-drag`
+  (altrimenti il click sarebbe stato interpretato come trascinamento della titlebar). TDD lato
+  i18n: markup aggiunto per primo, `i18n-parity.test.mjs` in RED (4 chiavi mancanti), poi GREEN
+  dopo averle aggiunte a `it`/`en`/`es`. 263/263 test JS verdi. **Non verificato dal vivo**: la
+  scrittura reale negli appunti (in particolare che `navigator.clipboard.writeText` funzioni nel
+  webview WebView2 di questo progetto) richiede un click reale nella finestra desktop, non
+  automatizzabile da questo ambiente — resta da confermare da Maurizio.
 
 - **Fix: chiusura finestra show_markdown bloccata a turno concluso (2026-09-16, ui 2.3.6 → 2.3.7
   → 2.3.8)** — trovato dal vivo da Maurizio con DevTools: `Uncaught (in promise) window.destroy

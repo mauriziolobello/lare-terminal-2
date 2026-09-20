@@ -73,7 +73,7 @@
     }
 
     /* ── Titlebar buttons — must NOT carry data-tauri-drag-region ──────────── */
-    #close-btn, #save-btn {
+    #close-btn, #save-btn, #copy-text-btn, #copy-markdown-btn {
       background: transparent;
       border: none;
       color: rgba(130, 190, 255, 0.5);
@@ -89,6 +89,9 @@
     }
     #save-btn:hover {
       color: rgba(130, 220, 130, 0.9);
+    }
+    #copy-text-btn:hover, #copy-markdown-btn:hover {
+      color: rgba(130, 190, 255, 0.9);
     }
 
     /* ── Scrollable content area ───────────────────────────────────────── */
@@ -364,6 +367,8 @@
     <span id="titlebar-label" data-i18n="md_window.titlebar">Lare — Output</span>
     <span>
       <button id="save-btn" data-i18n-title="md_window.save_title" data-i18n-aria-label="md_window.save_aria" title="Salva nell'archivio" aria-label="Salva finestra nell'archivio">&#x1F4BE;</button>
+      <button id="copy-text-btn" data-i18n-title="md_window.copy_text_title" data-i18n-aria-label="md_window.copy_text_aria" title="Copia come testo" aria-label="Copia il contenuto della finestra come testo semplice">T</button>
+      <button id="copy-markdown-btn" data-i18n-title="md_window.copy_markdown_title" data-i18n-aria-label="md_window.copy_markdown_aria" title="Copia come markdown" aria-label="Copia il contenuto della finestra come markdown">M</button>
       <button id="close-btn" data-i18n-title="common.close" data-i18n-aria-label="md_window.close_aria" title="Chiudi" aria-label="Chiudi finestra">&#x00D7;</button>
     </span>
   </div>
