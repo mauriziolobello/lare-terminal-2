@@ -344,6 +344,24 @@ async function bootstrap() {
   // creare un nuovo file duplicato, comportamento invariato.
   let savedFile = null;
 
+  // Feedback puramente TRANSITORIO condiviso da "Salva" e dai due bottoni
+  // Copia: sostituisce il testo del bottone con un simbolo per un attimo, poi
+  // lo ripristina da solo. Non è uno stato stabile — la differenza cruciale
+  // col vecchio "✓ Salvato" (che restava per tutta la sessione della finestra
+  // ed è proprio ciò che ha ingannato l'utente, vedi commento sul guard più
+  // sotto): qui il bottone torna SEMPRE al suo testo originale da solo, non
+  // c'è modo di scambiarlo per "lavoro concluso, non serve più guardare".
+  // Richiesta esplicita di Maurizio (2026-09-20): senza NESSUN segnale di
+  // click, "non si capisce" che il bottone ha fatto qualcosa — questo lo dà,
+  // senza reintrodurre l'inganno originale.
+  function flashButtonFeedback(btnEl, symbol) {
+    const original = btnEl.textContent;
+    btnEl.textContent = symbol;
+    setTimeout(() => {
+      btnEl.textContent = original;
+    }, 1200);
+  }
+
   saveBtnEl.addEventListener("click", async () => {
     // Guard SOLO contro la singola chiamata IPC in corso (due `archive_save`/
     // `archive_update` sovrapposti scriverebbero lo stesso file in corse
@@ -366,15 +384,12 @@ async function bootstrap() {
         // uno, il filename resta quello già memorizzato.
         savedFile = result;
       }
+      // Conferma transitoria di successo — SOLO un lampeggio, mai uno stato
+      // stabile (vedi commento su flashButtonFeedback sopra).
+      flashButtonFeedback(saveBtnEl, "✓");
     } catch (e) {
       console.error(`[archive] ${cmd} failed:`, e);
-      // Transient error indicator, poi torna a "Salva" (mai un "Salvato"
-      // stabile — vedi commento sopra il guard).
-      const originalText = saveBtnEl.textContent;
-      saveBtnEl.textContent = "✗";
-      setTimeout(() => {
-        saveBtnEl.textContent = originalText;
-      }, 1500);
+      flashButtonFeedback(saveBtnEl, "✗");
     } finally {
       // Ri-abilitato SEMPRE, successo o errore — mai lasciato disabilitato
       // dopo che la risposta IPC è arrivata.
@@ -385,10 +400,8 @@ async function bootstrap() {
   // ── Copia come testo / Copia come markdown ────────────────────────────────
   // A differenza di "Salva", copiare non scrive su disco: nessuna guardia
   // anti-corsa necessaria oltre a evitare due click sovrapposti sullo STESSO
-  // bottone (per non accavallare due flash "✓"/"✗"). Feedback puramente
-  // transitorio (si autoripristina) — qui non c'è il problema di "Salva" (uno
-  // stato stabile che inganna sul completamento), quindi lampeggiare va bene
-  // senza remore.
+  // bottone (per non accavallare due flash "✓"/"✗"). Stesso `flashButtonFeedback`
+  // di "Salva" (sopra) per il feedback transitorio.
   //
   // `navigator.clipboard.writeText` è un'API del browser (webview), non un
   // comando IPC Tauri — nessuna capability aggiuntiva serve in
@@ -396,14 +409,6 @@ async function bootstrap() {
   // progetto: il controllo esplicito sotto (invece di lasciare che
   // `.writeText` non esistente lanci un TypeError generico) rende leggibile
   // nella console il motivo esatto se il webview la negasse.
-  function flashCopyFeedback(btnEl, symbol) {
-    const original = btnEl.textContent;
-    btnEl.textContent = symbol;
-    setTimeout(() => {
-      btnEl.textContent = original;
-    }, 1200);
-  }
-
   async function copyToClipboard(text) {
     if (!navigator.clipboard?.writeText) {
       throw new Error("navigator.clipboard.writeText non disponibile in questo webview");
@@ -422,10 +427,10 @@ async function bootstrap() {
       // non catturato una volta sola all'apertura: deve riflettere il
       // contenuto ATTUALE (stesso principio di `currentContent` per Salva).
       await copyToClipboard(contentEl.innerText);
-      flashCopyFeedback(copyTextBtnEl, "✓");
+      flashButtonFeedback(copyTextBtnEl, "✓");
     } catch (e) {
       console.error("[window] copia come testo fallita:", e);
-      flashCopyFeedback(copyTextBtnEl, "✗");
+      flashButtonFeedback(copyTextBtnEl, "✗");
     } finally {
       copyTextBtnEl.disabled = false;
     }
@@ -438,10 +443,10 @@ async function bootstrap() {
       // Stessa fonte di verità del bottone Salva (vedi sopra): il markdown
       // sorgente attuale, non l'HTML renderizzato.
       await copyToClipboard(currentContent);
-      flashCopyFeedback(copyMarkdownBtnEl, "✓");
+      flashButtonFeedback(copyMarkdownBtnEl, "✓");
     } catch (e) {
       console.error("[window] copia come markdown fallita:", e);
-      flashCopyFeedback(copyMarkdownBtnEl, "✗");
+      flashButtonFeedback(copyMarkdownBtnEl, "✗");
     } finally {
       copyMarkdownBtnEl.disabled = false;
     }

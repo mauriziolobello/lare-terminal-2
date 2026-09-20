@@ -3,6 +3,23 @@
 All notable changes to this package follow [Keep a Changelog](https://keepachangelog.com/) format.
 Versioning: `major.minor.update`.
 
+## 2.4.2 — 2026-09-20 — fix: "Salva" non dava più nessun segnale visivo al click
+
+Riscontro di Maurizio dopo aver testato la 2.3.9/2.4.0/2.4.1 dal vivo: giusto togliere lo stato
+stabile "✓ Salvato" (era l'inganno originale), ma senza NESSUN segnale il bottone sembra non fare
+nulla — "non si capisce" che il click è stato registrato.
+
+Fix: estratto `flashButtonFeedback(btnEl, symbol)` (era `flashCopyFeedback`, già usato dai due
+bottoni Copia introdotti in 2.4.0 — rinominato e condiviso, non duplicato) e usato anche dal
+click handler di "Salva": lampeggio "✓" su successo, "✗" su errore, 1.2s, poi il bottone torna da
+solo al testo originale ("Salva"). Nessuno stato stabile — la differenza cruciale col design
+v0.11.0: qui non c'è modo di scambiare il lampeggio per "lavoro concluso, non serve più
+guardare", proprio perché sparisce da solo indipendentemente da cosa succede dopo nella finestra.
+
+Nessun nuovo test: stesso limite già documentato per il resto di `window.js` (feedback DOM-only,
+nessuna copertura jsdom in questa suite). 263/263 test JS preesistenti invariati, `cargo build -p
+ui`/`cargo clippy -p ui --all-targets` puliti.
+
 ## 2.4.1 — 2026-09-20 — fix: versione disallineata fra tauri.conf.json e Cargo.toml
 
 Segnalato da Maurizio dopo il report della 2.4.0 ("Allinea le versioni... tra tauri.conf.json e

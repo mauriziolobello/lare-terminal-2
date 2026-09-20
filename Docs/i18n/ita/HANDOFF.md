@@ -23,19 +23,28 @@
   SHL/SHR riposizionati nel layout)
 - plugin-lc 2.0.0 (da v1 0.4.5)
 - plugin-crypto 2.0.0 (da v1 1.0.1)
-- ui 2.4.1 (da v1 0.47.1; 2.3.7 — fix: onCloseRequested impediva la chiusura della finestra
+- ui 2.4.2 (da v1 0.47.1; 2.3.7 — fix: onCloseRequested impediva la chiusura della finestra
   show_markdown a turno concluso, permesso Tauri mancante; 2.3.8 — 2.3.7 richiudeva il ciclo
   chiamando closeWindow() da dentro onCloseRequested, causando un loop infinito — corretto
   lasciando che il default di Tauri (destroy(), ora permesso) chiuda la finestra; 2.3.9 — bottone
   "Salva" della finestra Markdown resta sempre attivo e risalva sempre lo stesso file invece di
   disabilitarsi/duplicare; 2.4.0 — bottoni "Copia come testo"/"Copia come markdown" nella stessa
   finestra; 2.4.1 — tauri.conf.json non dichiara più "version" hardcoded, ora deriva da
-  Cargo.toml, vedi FATTO)
+  Cargo.toml; 2.4.2 — "Salva" lampeggia "✓"/"✗" al click (feedback transitorio, non uno stato
+  stabile), vedi FATTO)
 - lare-shell 2.0.2 (piano 2b 2.0.0 → 2.0.1 nel piano 3, Task 3: `Launcher.EnsureUi()` passa
   `--no-terminal`; 2.0.2 — `HostInfo.Version` letta dall'assembly invece di hardcoded — non un
   crate Cargo: `shell/lare-shell/`, .NET/C#)
 
 ## FATTO
+
+- **Fix: "Salva" non dava nessun segnale visivo al click (2026-09-20, ui 2.4.2)** — riscontro di
+  Maurizio dopo aver testato dal vivo 2.3.9/2.4.0/2.4.1: giusto togliere lo stato stabile
+  "✓ Salvato" (era l'inganno originale), ma senza nessun segnale "non si capisce" che il click ha
+  fatto qualcosa. Fix: lampeggio "✓"/"✗" per 1.2s poi torna da solo a "Salva" — via
+  `flashButtonFeedback`, la stessa funzione (rinominata da `flashCopyFeedback`) già usata dai
+  bottoni Copia (2.4.0), condivisa non duplicata. Nessuno stato stabile: sparisce da solo
+  indipendentemente da cosa succede dopo nella finestra, non reintroduce l'inganno originale.
 
 - **Fix: `tauri.conf.json` disallineato da `Cargo.toml` (2026-09-20, ui 2.4.1)** — segnalato da
   Maurizio dopo il report della 2.4.0: `tauri.conf.json` dichiarava `"version": "2.2.1"`, ferma da

@@ -3243,8 +3243,14 @@ più riallineabile al testo finale dall'interfaccia — vedi CHANGELOG 2.3.9 e
 - Guard: disabilita il bottone SOLO per la durata della singola chiamata IPC in corso (evita due
   save/update sovrapposti), **ri-abilitato sempre** in un blocco `finally`, successo o errore.
 - Il testo resta SEMPRE "Salva" — mai rinominato in "Salvato" (era lo stato stabile ingannevole
-  del design v0.11.0). Su errore: flash "✗" per 1.5s poi torna al testo originale (invariato).
+  del design v0.11.0).
 - Chiave i18n `common.saved` rimossa (era usata solo qui, ora orfana).
+- **v2.4.2**: aggiunto un lampeggio "✓"/"✗" (1.2s, poi torna da solo a "Salva") su
+  successo/errore — su riscontro di Maurizio dopo il test dal vivo: nessun segnale al click "non
+  si capisce" che ha fatto qualcosa. Via `flashButtonFeedback(btnEl, symbol)`, la STESSA funzione
+  (rinominata da `flashCopyFeedback`) già usata dai bottoni Copia sotto — non uno stato stabile,
+  sparisce da solo indipendentemente da cosa succede dopo nella finestra: non reintroduce
+  l'inganno del design v0.11.0.
 
 #### Design originale (v0.11.0, sostituito da quanto sopra)
 
@@ -3276,10 +3282,9 @@ su `body.help`/`body.archived`, righe 241-242).
 - Nessuna nuova capability Tauri: `navigator.clipboard` è un'API del webview, non un comando IPC
   (ogni file in `capabilities/` dichiara già esplicitamente "clipboard NON inclusi" — riferito al
   plugin Tauri clipboard-manager, non a questa API browser).
-- Feedback: `flashCopyFeedback(btnEl, symbol)` — sostituisce il testo del bottone con "✓"/"✗" per
-  1.2s poi lo ripristina (stesso pattern del flash d'errore di "Salva", ma qui usato anche per il
-  successo: a differenza di "Salva", copiare non ha un problema di "stato stabile ingannevole" da
-  evitare).
+- Feedback: `flashButtonFeedback(btnEl, symbol)` — sostituisce il testo del bottone con "✓"/"✗"
+  per 1.2s poi lo ripristina. In v2.4.2 questa stessa funzione (rinominata da `flashCopyFeedback`)
+  è stata estesa anche a "Salva" (sezione precedente) — condivisa, non duplicata.
 - CSS: aggiunti al selettore condiviso `-webkit-app-region: no-drag` insieme a
   `#save-btn`/`#close-btn` — un bottone titlebar senza questa regola erediterebbe il
   comportamento draggabile del contenitore e il click trascinerebbe la finestra invece di
