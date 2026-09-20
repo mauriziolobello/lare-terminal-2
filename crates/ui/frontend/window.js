@@ -23,6 +23,7 @@ import { buildExpandPrompt, isConnectionFailureStatus, isEmptyExpandResult, isAi
 import { sortedOrder } from "./table-sort.mjs";
 import { outputWindowIdFromLabel } from "./ui-local.mjs";
 import { fetchI18n, applyI18n, t } from "./i18n.mjs";
+import { planSave } from "./save-state.mjs";
 
 // ---------------------------------------------------------------------------
 // Tauri IPC reference
@@ -313,39 +314,69 @@ async function bootstrap() {
   }
 
   // Wire the save button now that data is available.
-  // The closure captures `data.title` and `data.content` (the original Markdown,
-  // NOT the rendered HTML — we archive the source, not the sanitized output).
-  // We keep a reference to the original text rather than reading innerHTML to
-  // ensure we save what was received, not what DOMPurify may have stripped.
-  const saveTitle   = data.title || t("common.untitled");
-  // `let`, non `const`: per una finestra di output del canale shell (2.0),
-  // il contenuto arriva DOPO l'apertura via evento `output:content` — il
-  // salvataggio in Library deve archiviare quel contenuto aggiornato, non
-  // il segnaposto "_in corso…_" con cui la finestra si apre (vedi sotto).
-  let saveContent = data.content || "";
+  // The closure captures `data.title` (il contenuto lo legge da `currentContent`,
+  // dichiarata subito sotto — NON la rendered HTML: archiviamo la sorgente,
+  // non l'output sanificato).
+  const saveTitle = data.title || t("common.untitled");
+  // `let`, non `const`: per una finestra di output del canale shell (2.0) il
+  // contenuto arriva DOPO l'apertura via evento `output:content` (vedi
+  // `applyOutputContent` più sotto); per una finestra archiviata su cui viene
+  // usato "Espandi" (vedi sezione sotto) cambia di nuovo dopo un'espansione.
+  // Un'unica variabile, aggiornata da ENTRAMBI i punti — prima di questo fix
+  // esisteva anche `saveContent`, una seconda variabile quasi identica ma
+  // aggiornata SOLO da `applyOutputContent`: per una finestra archiviata ed
+  // espansa restava ferma al contenuto pre-espansione, un bug silenzioso
+  // (Salva avrebbe salvato testo vecchio). Rimossa: `currentContent` è ora
+  // l'unica fonte di verità per "cosa c'è davvero in finestra adesso".
+  let currentContent = data.content || "";
+
+  // Filename restituito dal primo `archive_save` di questa finestra, o `null`
+  // se non si è ancora salvato — vedi `save-state.mjs::planSave`. Finché resta
+  // `null`, ogni click crea un nuovo documento in Library; una volta
+  // valorizzato, ogni click successivo sovrascrive LO STESSO documento
+  // (`archive_update`) invece di duplicarlo. Parte da `null` anche per una
+  // finestra aperta dalla Library (`data.kind === "archived"`, che ha già un
+  // `data.source_file` su disco): quel campo è la sorgente usata dal flusso
+  // "Espandi" per il SUO overwrite, un meccanismo indipendente da "Salva" —
+  // non li unifichiamo qui, "Salva" su una finestra archiviata continua a
+  // creare un nuovo file duplicato, comportamento invariato.
+  let savedFile = null;
 
   saveBtnEl.addEventListener("click", async () => {
-    // Guard: disable immediately to prevent duplicate saves from rapid clicks
-    // or clicks that arrive while archive_save is in flight.
-    // This is idempotent for the session: once saved, the button stays disabled.
+    // Guard SOLO contro la singola chiamata IPC in corso (due `archive_save`/
+    // `archive_update` sovrapposti scriverebbero lo stesso file in corse
+    // diverse) — non uno stato stabile: il bottone torna sempre cliccabile e
+    // sempre etichettato "Salva" non appena la risposta arriva, successo o
+    // errore che sia. Prima di questo fix il bottone restava disabilitato e
+    // diventava "✓ Salvato" per il resto della sessione della finestra — è
+    // proprio quello che ha ingannato l'utente facendogli credere il lavoro
+    // concluso mentre la finestra continuava ad aggiornarsi sotto (vedi
+    // Docs/i18n/ita/compiti-ai-esterne/2026-09-20-salva-copia-markdown-window.md).
     if (saveBtnEl.disabled) return;
     saveBtnEl.disabled = true;
 
+    const { cmd, args } = planSave(savedFile, saveTitle, currentContent);
     try {
-      await invokeCmd("archive_save", { title: saveTitle, content: saveContent });
-      // Success: stable "saved" state — button stays disabled, text updated.
-      // The user cannot click again until the window is reopened (new session).
-      saveBtnEl.textContent = t("common.saved");
+      const result = await invokeCmd(cmd, args);
+      if (cmd === "archive_save") {
+        // Solo il PRIMO salvataggio restituisce un filename nuovo da
+        // ricordare — `archive_update` (Result<(), String>) non ne ritorna
+        // uno, il filename resta quello già memorizzato.
+        savedFile = result;
+      }
     } catch (e) {
-      // Failure: re-enable the button so the user can retry.
-      console.error("[archive] archive_save failed:", e);
-      saveBtnEl.disabled = false;
-      // Transient error indicator, then restore original label.
+      console.error(`[archive] ${cmd} failed:`, e);
+      // Transient error indicator, poi torna a "Salva" (mai un "Salvato"
+      // stabile — vedi commento sopra il guard).
       const originalText = saveBtnEl.textContent;
       saveBtnEl.textContent = "✗";
       setTimeout(() => {
         saveBtnEl.textContent = originalText;
       }, 1500);
+    } finally {
+      // Ri-abilitato SEMPRE, successo o errore — mai lasciato disabilitato
+      // dopo che la risposta IPC è arrivata.
+      saveBtnEl.disabled = false;
     }
   });
 
@@ -354,7 +385,6 @@ async function bootstrap() {
   // manda UN comando, riceve lo streaming, chiude — nessuna history che
   // persiste tra un click e l'altro (ogni volta si rimanda l'intero documento
   // aggiornato, riusare una connessione accumulerebbe versioni vecchie).
-  let currentContent = data.content || "";
   const sourceFile = data.source_file || "";
   const docTitle = data.title || t("common.untitled");
 
@@ -376,7 +406,6 @@ async function bootstrap() {
   if (myOutputId && tauriEvent?.listen) {
     const applyOutputContent = (markdown) => {
       renderMarkdown(markdown || "");
-      saveContent = markdown || "";
       currentContent = markdown || "";
       // Aggiorna l'orario dell'ultimo contenuto (badge di progresso Parte C).
       if (turnUpdatedEl) {

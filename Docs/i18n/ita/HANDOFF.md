@@ -23,15 +23,36 @@
   SHL/SHR riposizionati nel layout)
 - plugin-lc 2.0.0 (da v1 0.4.5)
 - plugin-crypto 2.0.0 (da v1 1.0.1)
-- ui 2.3.8 (da v1 0.47.1; 2.3.7 — fix: onCloseRequested impediva la chiusura della finestra
+- ui 2.3.9 (da v1 0.47.1; 2.3.7 — fix: onCloseRequested impediva la chiusura della finestra
   show_markdown a turno concluso, permesso Tauri mancante; 2.3.8 — 2.3.7 richiudeva il ciclo
   chiamando closeWindow() da dentro onCloseRequested, causando un loop infinito — corretto
-  lasciando che il default di Tauri (destroy(), ora permesso) chiuda la finestra)
+  lasciando che il default di Tauri (destroy(), ora permesso) chiuda la finestra; 2.3.9 — bottone
+  "Salva" della finestra Markdown resta sempre attivo e risalva sempre lo stesso file invece di
+  disabilitarsi/duplicare, vedi FATTO)
 - lare-shell 2.0.2 (piano 2b 2.0.0 → 2.0.1 nel piano 3, Task 3: `Launcher.EnsureUi()` passa
   `--no-terminal`; 2.0.2 — `HostInfo.Version` letta dall'assembly invece di hardcoded — non un
   crate Cargo: `shell/lare-shell/`, .NET/C#)
 
 ## FATTO
+
+- **Fix: bottone "Salva" della finestra Markdown non risalvava lo stesso file (2026-09-20, ui
+  2.3.9)** — vissuto dal vivo da Maurizio: `/ai` apre una finestra `show_markdown` che continua ad
+  aggiornarsi; Salva premuto a metà ricerca archivia un testo parziale, il bottone si disabilita e
+  diventa "✓ Salvato" (design v0.11.0, per contenuto statico) facendo credere il lavoro concluso —
+  nessun modo, dall'interfaccia, di riallineare il file salvato al testo finale. Fix: il bottone
+  resta sempre "Salva"/sempre cliccabile; il primo click chiama `archive_save` (invariato) e
+  memorizza il filename, i click successivi chiamano `archive_update` (comando già esistente, già
+  usato da "Espandi") sullo stesso filename — sovrascrive invece di duplicare. Decisione estratta
+  in un modulo puro nuovo (`save-state.mjs::planSave`), 3 test `node --test`. Trovata e corretta in
+  corso d'opera una seconda causa dello stesso tipo di bug: `window.js` teneva due variabili
+  quasi-gemelle per il contenuto attuale (`saveContent`/`currentContent`) che divergevano
+  silenziosamente per una finestra archiviata su cui era stato usato "Espandi" — rimossa
+  `saveContent`, `currentContent` è ora l'unica fonte di verità. Chiave i18n `common.saved`
+  rimossa (orfana, segnalata dal test di parità). 263/263 test JS verdi. **Non ancora confermato
+  dal vivo da Maurizio** (richiede un turno `/ai` reale + interazione con la finestra desktop —
+  vedi `Docs/i18n/ita/compiti-ai-esterne/2026-09-20-salva-copia-markdown-window.md`). I due bottoni
+  "Copia come testo"/"Copia come markdown" dello stesso compito non sono ancora implementati (Parte
+  B, prossimo commit).
 
 - **Fix: chiusura finestra show_markdown bloccata a turno concluso (2026-09-16, ui 2.3.6 → 2.3.7
   → 2.3.8)** — trovato dal vivo da Maurizio con DevTools: `Uncaught (in promise) window.destroy

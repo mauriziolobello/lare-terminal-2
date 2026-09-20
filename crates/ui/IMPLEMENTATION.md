@@ -3219,9 +3219,35 @@ All user-controlled text (title, date) is set via `textContent` only.
 `data-file` is stored in `element.dataset` (a safe attribute; the value goes to
 `archive_open`, which validates it against path traversal in Rust before any FS access).
 
-### Save button in Markdown windows (idempotent — v0.11.0)
+### Save button in Markdown windows — sempre attivo, stesso file (v2.3.9)
+
+Riscritto in v2.3.9: il design "una tantum" originale (v0.11.0, sotto) presumeva un contenuto
+statico che non cambia più dopo l'apertura — sbagliato per una finestra `show_markdown`/canale di
+output, che continua a ricevere `output:content` dopo che l'utente l'ha già salvata una volta (bug
+vissuto dal vivo da Maurizio: Salva premuto a metà ricerca ha archiviato un testo parziale, mai
+più riallineabile al testo finale dall'interfaccia — vedi CHANGELOG 2.3.9 e
+`Docs/i18n/ita/compiti-ai-esterne/2026-09-20-salva-copia-markdown-window.md`).
 
 `window.js` wires the `#save-btn` inside `bootstrap()` after `data` is loaded:
+- Captures `data.title`; il contenuto è letto da `currentContent` (aggiornata sia dagli
+  aggiornamenti di turno sia dal completamento di "Espandi" — unica fonte di verità, vedi sotto).
+- Tiene `savedFile` (filename restituito dal primo `archive_save` di questa finestra, `null` finché
+  non si è ancora salvato — anche per una finestra archiviata: `data.source_file` NON viene
+  riusato come filename iniziale, è la sorgente del flusso "Espandi", indipendente).
+- Ogni click delega a `save-state.mjs::planSave(savedFile, title, content)` (modulo puro, testato
+  con `node --test`, nessuna dipendenza da DOM/Tauri) per decidere quale comando IPC chiamare:
+  - `savedFile === null` → `archive_save` (comportamento invariato); il filename restituito viene
+    memorizzato in `savedFile`.
+  - `savedFile` valorizzato → `archive_update` (comando già esistente, già usato da "Espandi",
+    vedi sezione successiva) sullo stesso filename — sovrascrive invece di duplicare.
+- Guard: disabilita il bottone SOLO per la durata della singola chiamata IPC in corso (evita due
+  save/update sovrapposti), **ri-abilitato sempre** in un blocco `finally`, successo o errore.
+- Il testo resta SEMPRE "Salva" — mai rinominato in "Salvato" (era lo stato stabile ingannevole
+  del design v0.11.0). Su errore: flash "✗" per 1.5s poi torna al testo originale (invariato).
+- Chiave i18n `common.saved` rimossa (era usata solo qui, ora orfana).
+
+#### Design originale (v0.11.0, sostituito da quanto sopra)
+
 - Captures `data.title` and `data.content` (the original Markdown, not the rendered HTML).
 - On click:
   1. If `saveBtnEl.disabled` is already true → returns immediately (guard against in-flight race).
@@ -3229,7 +3255,8 @@ All user-controlled text (title, date) is set via `textContent` only.
   3. On **success**: button stays disabled, text changes to "✓ Salvato" (stable for the session).
   4. On **error**: re-enables the button; shows "✗" for 1.5 s, then restores original label.
 - This prevents duplicate archive files from rapid clicks or clicks overlapping with a slow save.
-- Riaprire la stessa finestra in futuro è una nuova sessione → il bottone torna abilitato.
+- Riaprire la stessa finestra in futuro era una nuova sessione → il bottone tornava abilitato.
+  **Non più rilevante**: in v2.3.9 il bottone non si disabilita mai in modo stabile.
 
 ### Delete button in archive list (two-step confirm — v0.11.0)
 

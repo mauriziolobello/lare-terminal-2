@@ -3,6 +3,41 @@
 All notable changes to this package follow [Keep a Changelog](https://keepachangelog.com/) format.
 Versioning: `major.minor.update`.
 
+## 2.3.9 — 2026-09-20 — fix: bottone "Salva" nella finestra Markdown non risalvava lo stesso file
+
+Bug vissuto dal vivo da Maurizio: una richiesta `/ai` apre una finestra `show_markdown` che
+continua ad aggiornarsi mentre la ricerca dell'AI procede in background. Premendo "Salva" prima
+che la ricerca finisse, il testo parziale finiva in Library — il bottone si disabilitava e
+diventava "✓ Salvato" (comportamento v0.11.0, pensato per contenuto statico che non cambia più
+dopo l'apertura), facendo credere il lavoro concluso mentre la finestra continuava ad aggiornarsi
+sotto. Nessun modo, dall'interfaccia, di riallineare il file salvato al testo definitivo senza
+rifare tutto a mano.
+
+Fix (`crates/ui/frontend/window.js`, `save-state.mjs` nuovo): il bottone resta sempre "Salva",
+sempre cliccabile, in ogni stato del turno. Il primo click chiama `archive_save` (invariato) e
+memorizza il filename restituito; ogni click successivo chiama `archive_update` (comando Tauri
+già esistente e già testato, finora usato solo dalla feature "Espandi") sullo stesso filename,
+sovrascrivendo il documento invece di duplicarlo. La decisione "quale comando chiamare" è
+estratta in un modulo puro (`save-state.mjs::planSave`), testato con `node --test` (3 test:
+primo salvataggio, salvataggio successivo, filename azzerato).
+
+Trovata e corretta in corso d'opera una seconda causa dello stesso tipo di bug: `window.js`
+teneva due variabili quasi-gemelle per "il contenuto attuale della finestra" (`saveContent`,
+aggiornata solo dagli aggiornamenti di turno; `currentContent`, aggiornata anche dal
+completamento di "Espandi"). Per una finestra archiviata su cui l'utente avesse usato "Espandi",
+`saveContent` restava ferma al contenuto pre-espansione — usarla per "Salva" avrebbe salvato
+testo vecchio. Rimossa: `currentContent` è ora l'unica fonte di verità, per "Salva" e (Parte B,
+prossima voce) per "Copia come markdown".
+
+Rimossa anche la chiave i18n `common.saved` (era usata SOLO da questo bottone, ora orfana — il
+test di parità `i18n-parity.test.mjs` l'ha segnalata) dai tre dizionari (`it`/`en`/`es`).
+
+263/263 test JS automatici verdi (260 preesistenti + 3 nuovi di `save-state.test.mjs`).
+Riproduzione dal vivo del bug originale: vedi
+`Docs/i18n/ita/compiti-ai-esterne/2026-09-20-salva-copia-markdown-window.md` per i passi — non
+ancora eseguita da un turno `/ai` reale in questa sessione (richiede un turno AI configurato e
+interazione diretta con la finestra desktop, non automatizzabile da qui — vedi HANDOFF.md).
+
 ## 2.3.8 — 2026-09-16 — fix: 2.3.7 introduceva un loop infinito in onCloseRequested
 
 Bug trovato dal supervisore in fase di riverifica del fix 2.3.7, PRIMA che Maurizio lo testasse dal
