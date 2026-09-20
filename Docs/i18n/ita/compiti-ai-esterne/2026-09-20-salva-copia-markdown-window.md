@@ -324,11 +324,19 @@ righe — guarda `md_window.save_aria`/`save_title` in `en.json`/`es.json` come 
 "md_window.copy_text_aria": "Copia il contenuto della finestra come testo semplice"
 "md_window.copy_markdown_title": "Copia come markdown"
 "md_window.copy_markdown_aria": "Copia il contenuto della finestra come markdown"
-"md_window.copy_failed": "copia fallita: {error}"
 ```
 
-Valuta tu se serve anche una chiave per il feedback transitorio di successo (es. una nuova
-`common.copied` "✓ Copiato") — dettaglio reversibile, documenta la scelta nel report.
+> **Nota aggiunta dopo l'esecuzione (2.4.0, vedi HANDOFF.md)**: `md_window.copy_failed` e
+> `common.copied`, indicate sopra/sotto come possibili, NON sono state aggiunte nell'implementazione
+> di riferimento — il feedback transitorio usa simboli hardcoded ("✓"/"✗", stesso pattern già usato
+> da "Salva"), non stringhe tradotte. Aggiungerle senza usarle davvero con `t()`/`data-i18n-*` fa
+> fallire `i18n-parity.test.mjs` (chiave orfana — è successo per davvero con `common.saved` nella
+> Parte A, vedi CHANGELOG 2.3.9). Se decidi comunque di tradurre il feedback, aggiungi la chiave E
+> il suo uso nello stesso passo, mai una senza l'altro.
+
+Valuta tu se serve comunque una chiave per il feedback transitorio di successo — dettaglio
+reversibile, documenta la scelta nel report (l'implementazione di riferimento sopra ha scelto di
+non introdurne, vedi nota).
 
 ### B.3 — Verifica
 
