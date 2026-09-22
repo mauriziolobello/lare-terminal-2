@@ -221,6 +221,6 @@ esistente):
 - [`00-apertura.md`](./00-apertura.md) — cos'è Lare Terminal e perché esiste.
 - [`01-architettura.md`](./01-architettura.md) — i tre strati e la regola di configurazione che
   vale anche qui.
-- [`02-stato-e-implementazione.md`](./02-stato-e-implementazione.md) — quadro complessivo di cosa
+- [`03-stato-e-implementazione.md`](./03-stato-e-implementazione.md) — quadro complessivo di cosa
   è implementato oggi, pytools incluso.
-- [`05-canali.md`](./05-canali.md) — i canali che usano questi tool (`/netsec`, `/markets`).
+- [`06-canali.md`](./06-canali.md) — i canali che usano questi tool (`/netsec`, `/markets`).

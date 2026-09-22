@@ -3,16 +3,16 @@
 #
 # Fino al 2026-09-22 controllava Docs/i18n/ita/HANDOFF.md — quel file è stato
 # spostato fuori da git (Docs/i18n/ita/Claude-Maurizio/, gitignored, log di
-# sessione non destinato al repo pubblico). 02-stato-e-implementazione.md ne
+# sessione non destinato al repo pubblico). 03-stato-e-implementazione.md ne
 # eredita il ruolo di "stato corrente del sistema" per il pubblico.
 msg_file="$1"
 subject="$(head -n1 "$msg_file" 2>/dev/null)"
 case "$subject" in
   release:*)
-    if git diff --cached --name-only | grep -qx "Docs/i18n/ita/02-stato-e-implementazione.md"; then
+    if git diff --cached --name-only | grep -qx "Docs/i18n/ita/03-stato-e-implementazione.md"; then
       exit 0
     fi
-    echo "[hook] Commit di release senza aggiornare Docs/i18n/ita/02-stato-e-implementazione.md." >&2
+    echo "[hook] Commit di release senza aggiornare Docs/i18n/ita/03-stato-e-implementazione.md." >&2
     echo "[hook] Aggiornalo (versioni correnti + stato) e mettilo in stage," >&2
     echo "[hook] oppure usa un prefisso non-release (feat/fix/docs/chore)." >&2
     exit 1

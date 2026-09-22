@@ -4,7 +4,7 @@ Questo documento spiega il sistema di plugin di Lare Terminal: cos'è, come un p
 il programma, e come si scrive un plugin nuovo. Per una descrizione del progetto nel suo
 complesso vedi [`00-apertura.md`](./00-apertura.md); per il quadro d'insieme dell'architettura,
 [`01-architettura.md`](./01-architettura.md); per cosa esiste oggi, plugin per plugin,
-[`02-stato-e-implementazione.md`](./02-stato-e-implementazione.md).
+[`03-stato-e-implementazione.md`](./03-stato-e-implementazione.md).
 
 ## Cos'è un plugin
 
@@ -374,7 +374,7 @@ Onestà tecnica, per non promettere più di quanto il codice faccia oggi:
 
 ## Per approfondire
 
-- [`02-stato-e-implementazione.md`](./02-stato-e-implementazione.md) — cosa di questo sistema è
+- [`03-stato-e-implementazione.md`](./03-stato-e-implementazione.md) — cosa di questo sistema è
   oggi realmente in uso, insieme al resto del programma.
 - `crates/plugin-protocol/IMPLEMENTATION.md` e i file `IMPLEMENTATION.md` di ciascun
   `crates/plugin-<id>/` — il dettaglio tecnico corrente, aggiornato a ogni cambiamento del

@@ -67,7 +67,7 @@ questo fix (`ui.exe` non ha più stdout/stderr visibile in NESSUNA build — `wi
 
 ## Parte 5 — Canale shell col client di sviluppo
 
-Verifica il canale shell del piano 2a (`Docs/i18n/ita/06-decisions.md` ADR-018) senza `lare-shell`
+Verifica il canale shell del piano 2a (`Docs/i18n/ita/02-decisions.md` ADR-018) senza `lare-shell`
 (host C#, piano 2b): `scripts/dev/shell-client.mjs` imita la host — vedi `BUILD.md` §"Strumento di
 sviluppo: parlare il canale shell senza una console vera" per l'uso e il gotcha Git Bash/MSYS
 (lancia da **PowerShell**). Prerequisiti:

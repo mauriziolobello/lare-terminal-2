@@ -72,7 +72,7 @@ Host C#: i `.csproj` dichiarano `<RuntimeIdentifier>win-x64</RuntimeIdentifier>`
   complessa".
 - **Per ogni crate/progetto**: `CHANGELOG.md` (semver, da `2.0.0`) + `IMPLEMENTATION.md`,
   aggiornati nello stesso commit del codice.
-- **`Docs/i18n/ita/02-stato-e-implementazione.md`** aggiornato nello stesso commit di ogni release
+- **`Docs/i18n/ita/03-stato-e-implementazione.md`** aggiornato nello stesso commit di ogni release
   (hook `commit-msg` in `.githooks/`, attivalo una volta per clone: `git config core.hooksPath .githooks`).
 - **Commit** con trailer `Co-Authored-By` + `Claude-Session`.
 - **Workflow**: il codice lo costruiscono subagenti su modelli meno costosi (Sonnet; Haiku per il
@@ -80,7 +80,7 @@ Host C#: i `.csproj` dichiarano `<RuntimeIdentifier>win-x64</RuntimeIdentifier>`
   comandi, fa l'e2e dal vivo, decide le architetture. Mai `AskUserQuestion` con l'utente.
 - **Documentazione pubblica**: sotto `Docs/i18n/<lingua>/` (italiano di riferimento) — i documenti
   numerati `NN-argomento.md` più `BUILD.md`/`DEPLOY.md`/`RUN.md`/`KNOWN-ISSUES.md`/
-  `TESTING-e2e.md`/`06-decisions.md`. **Documentazione di lavoro interna** (spec di design, piani
+  `TESTING-e2e.md`/`02-decisions.md`. **Documentazione di lavoro interna** (spec di design, piani
   di implementazione, compiti assegnati ad AI esterne, i loro report, esiti di spike, un handoff
   narrativo più esteso) vive in `Docs/i18n/ita/Claude-Maurizio/`, cartella locale **non tracciata
   in git** (voce dedicata in `.gitignore`) — continua a scriverci la documentazione di processo;
@@ -90,9 +90,9 @@ Host C#: i `.csproj` dichiarano `<RuntimeIdentifier>win-x64</RuntimeIdentifier>`
 
 ## Dove guardare
 
-- `Docs/i18n/ita/02-stato-e-implementazione.md` — stato corrente, versioni, cosa è fatto/da fare.
+- `Docs/i18n/ita/03-stato-e-implementazione.md` — stato corrente, versioni, cosa è fatto/da fare.
   Leggi questo per primo.
-- `Docs/i18n/ita/06-decisions.md` — log ADR. `Docs/i18n/ita/01-architettura.md` — la stessa storia
+- `Docs/i18n/ita/02-decisions.md` — log ADR. `Docs/i18n/ita/01-architettura.md` — la stessa storia
   raccontata in un unico filo, con il perché delle decisioni principali.
 - `Docs/i18n/ita/Claude-Maurizio/` — documentazione di lavoro interna (spec, piani, compiti per AI
   esterne, report ricevuti, spike) — locale, non pubblicata, continua a scriverci.

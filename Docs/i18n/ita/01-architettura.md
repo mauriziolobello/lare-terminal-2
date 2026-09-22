@@ -2,7 +2,7 @@
 
 Questo documento spiega **come è fatto** Lare Terminal e **perché** — la forma attuale è il punto
 d'arrivo di una serie di decisioni motivate, non un progetto disegnato tutto insieme all'inizio. Il
-log completo, decisione per decisione, è in [`06-decisions.md`](./06-decisions.md); qui la stessa
+log completo, decisione per decisione, è in [`02-decisions.md`](./02-decisions.md); qui la stessa
 storia è raccontata in un unico filo.
 
 ## I tre strati
@@ -127,7 +127,7 @@ l'istanza.
 
 ## Per approfondire
 
-- [`06-decisions.md`](./06-decisions.md) — ogni decisione qui riassunta, con le opzioni scartate e
+- [`02-decisions.md`](./02-decisions.md) — ogni decisione qui riassunta, con le opzioni scartate e
   il ragionamento completo dietro ciascuna.
-- [`02-stato-e-implementazione.md`](./02-stato-e-implementazione.md) — cosa di questa architettura
+- [`03-stato-e-implementazione.md`](./03-stato-e-implementazione.md) — cosa di questa architettura
   è oggi realmente implementato e in uso, area per area.

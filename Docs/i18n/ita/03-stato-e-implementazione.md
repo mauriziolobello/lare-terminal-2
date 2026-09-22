@@ -16,7 +16,7 @@ lo stato del codice, non l'intenzione originaria.
 | `mcp-server` | Server di tool MCP generico (shell persistente, apertura app, ricerca file) |
 | `mcp-nmap` | Server di tool del canale `/netsec` (diagnostica di rete) |
 | `startup-config` | Risoluzione condivisa di `--config-dir`/`startup.json` |
-| `plugin-protocol` + `plugin-ping`/`plugin-calc`/`plugin-counter`/`plugin-lc`/`plugin-crypto` | Sistema di plugin sidecar — dettagli in [`03-plugin-system.md`](./03-plugin-system.md) |
+| `plugin-protocol` + `plugin-ping`/`plugin-calc`/`plugin-counter`/`plugin-lc`/`plugin-crypto` | Sistema di plugin sidecar — dettagli in [`04-plugin-system.md`](./04-plugin-system.md) |
 
 Ogni componente tiene il proprio `CHANGELOG.md` (semver) e `IMPLEMENTATION.md` (dettaglio tecnico
 corrente) accanto al codice — la fonte più aggiornata, per chi vuole scendere oltre questo
@@ -86,14 +86,14 @@ Due canali aggiuntivi oltre alla shell locale. **AI Chat** è una finestra dedic
 dal terminale, con un proprio prompt di sistema. **Telegram** permette di impartire comandi da
 remoto tramite un bot; essendo un canale che riceve input non fidato da remoto, richiede un secondo
 fattore di autenticazione (TOTP) prima di poter anche solo raggiungere il gate di conferma dei
-comandi. Dettagli in [`05-canali.md`](./05-canali.md).
+comandi. Dettagli in [`06-canali.md`](./06-canali.md).
 
 ## Sistema di plugin
 
 Processi separati (sidecar) con un protocollo proprio, ciascuno con la propria finestra Tauri:
 una calcolatrice con modalità programmatore (basi numeriche, operazioni bit a bit), un plugin di
 cifratura, e alcuni plugin più semplici usati anche come riferimento per chi vuole scriverne uno
-nuovo. Dettagli e guida in [`03-plugin-system.md`](./03-plugin-system.md).
+nuovo. Dettagli e guida in [`04-plugin-system.md`](./04-plugin-system.md).
 
 ## Ricerca web nei turni AI
 
@@ -109,19 +109,19 @@ finestra propria per sfogliarli.
 ## Lingue dell'interfaccia
 
 Italiano, inglese, spagnolo — sia per l'interfaccia sia per le risposte dell'AI nei turni. Dettagli
-tecnici in [`06-i18n.md`](./06-i18n.md).
+tecnici in [`07-i18n.md`](./07-i18n.md).
 
 ## Canali esterni
 
 Integrazioni verso strumenti specifici, ciascuna con un set fisso e predefinito di capacità (mai
 accesso generico al sistema): diagnostica di rete (inclusa la lettura dello stato del proprio
 router domestico) e un canale per l'analisi di mercati finanziari. Dettagli in
-[`05-canali.md`](./05-canali.md).
+[`06-canali.md`](./06-canali.md).
 
 ## Strumenti Python (pytools)
 
 Alcuni canali esterni si appoggiano a script Python indipendenti, uno per dominio, ciascuno col
-proprio ambiente virtuale. Dettagli in [`04-pytools.md`](./04-pytools.md).
+proprio ambiente virtuale. Dettagli in [`05-pytools.md`](./05-pytools.md).
 
 ## Sicurezza e gate di conferma
 

@@ -45,16 +45,17 @@ una spiegazione lunga, del codice).
 AI di sviluppo** (Claude di Anthropic in supervisione, più AI esterne per l'implementazione dei
 compiti più delimitati) — non solo nel prodotto finale, ma nel *modo* in cui è stato costruito: TDD
 reale, decisioni architetturali motivate e non solo verbalizzate, un log di ogni scelta importante
-(`06-decisions.md`). Chi è curioso di come si costruisce software con un'AI come collaboratore
+(`02-decisions.md`). Chi è curioso di come si costruisce software con un'AI come collaboratore
 abituale, non solo come autocompletamento, trova qui un caso concreto e documentato.
 
 ## Rapporto con la versione precedente
 
-Questo repository (`lare-terminal-2`) continua la storia di un progetto precedente
-(`lare-terminal`, stesso proprietario). La prima versione resta pubblica per intero, come
-riferimento storico: architettura precedente, decisioni originarie (ADR-001..014, riprese anche
-qui), il percorso che ha portato fin qui. Non è materiale "superato e da ignorare" — è la prima metà
-della stessa storia, e mostra il ragionamento con cui il progetto si è evoluto.
+Questo repository (`lare-terminal-2`) continua la storia di
+[Lare Terminal](https://github.com/mauriziolobello/lare-terminal), il progetto precedente, stesso
+proprietario. La prima versione resta pubblica per intero, come riferimento storico: architettura
+precedente, decisioni originarie (ADR-001..014, riprese anche qui), il percorso che ha portato fin
+qui. Non è materiale "superato e da ignorare" — è la prima metà della stessa storia, e mostra il
+ragionamento con cui il progetto si è evoluto.
 
 ## Stato del progetto
 
@@ -62,21 +63,21 @@ In sviluppo attivo. L'architettura a tre strati (canali → orchestratore → se
 stabile; la shell PowerShell custom, la finestra terminale, il loop AI con gate di conferma, il
 sistema di plugin e i canali (Telegram, AI Chat, integrazioni esterne) sono implementati e in uso
 quotidiano. Il quadro dettagliato — cosa c'è oggi, cosa manca, i debiti noti — è in
-[`02-stato-e-implementazione.md`](./02-stato-e-implementazione.md).
+[`03-stato-e-implementazione.md`](./03-stato-e-implementazione.md).
 
 ## Come muoversi in questa documentazione
 
 - [`01-architettura.md`](./01-architettura.md) — i tre strati, le decisioni chiave e perché sono
   state prese così.
-- [`02-stato-e-implementazione.md`](./02-stato-e-implementazione.md) — cosa esiste oggi, per area.
-- [`03-plugin-system.md`](./03-plugin-system.md) — come funzionano i plugin ed estendere il
-  programma con uno nuovo.
-- [`04-pytools.md`](./04-pytools.md) — tool Python invocabili dall'AI (analisi finanziaria,
-  networking, altro).
-- [`05-canali.md`](./05-canali.md) — Telegram, AI Chat, i canali di integrazione esterna.
-- [`06-i18n.md`](./06-i18n.md) — come funziona il supporto multilingua dell'interfaccia.
-- [`06-decisions.md`](./06-decisions.md) — il log delle decisioni architetturali (ADR), a partire
+- [`02-decisions.md`](./02-decisions.md) — il log delle decisioni architetturali (ADR), a partire
   dalla prima versione.
+- [`03-stato-e-implementazione.md`](./03-stato-e-implementazione.md) — cosa esiste oggi, per area.
+- [`04-plugin-system.md`](./04-plugin-system.md) — come funzionano i plugin ed estendere il
+  programma con uno nuovo.
+- [`05-pytools.md`](./05-pytools.md) — tool Python invocabili dall'AI (analisi finanziaria,
+  networking, altro).
+- [`06-canali.md`](./06-canali.md) — Telegram, AI Chat, i canali di integrazione esterna.
+- [`07-i18n.md`](./07-i18n.md) — come funziona il supporto multilingua dell'interfaccia.
 - [`BUILD.md`](./BUILD.md), [`DEPLOY.md`](./DEPLOY.md), [`RUN.md`](./RUN.md) — compilare,
   distribuire, avviare.
 - [`KNOWN-ISSUES.md`](./KNOWN-ISSUES.md) — problemi noti.

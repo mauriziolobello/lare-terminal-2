@@ -2,7 +2,7 @@
 
 Questo documento descrive i canali attraverso cui un comando o una richiesta rivolta all'AI possono
 entrare in Lare Terminal, oltre alla shell locale già raccontata in
-[`01-architettura.md`](./01-architettura.md) e [`02-stato-e-implementazione.md`](./02-stato-e-implementazione.md).
+[`01-architettura.md`](./01-architettura.md) e [`03-stato-e-implementazione.md`](./03-stato-e-implementazione.md).
 Nel modello a tre strati (canali → orchestratore → server di tool) ogni canale è un punto d'ingresso
 diverso che parla lo stesso protocollo verso lo stesso orchestratore: cambia solo *da dove* arriva
 la richiesta, non il principio con cui viene gestita una volta arrivata — in particolare, il gate di
@@ -20,7 +20,7 @@ Oggi, oltre alla shell, esistono:
 
 La shell locale è il canale predefinito ed è già descritta per intero in
 [`01-architettura.md`](./01-architettura.md) (il protocollo, il gate di conferma, come nasce una
-risposta) e in [`02-stato-e-implementazione.md`](./02-stato-e-implementazione.md) (host della shell,
+risposta) e in [`03-stato-e-implementazione.md`](./03-stato-e-implementazione.md) (host della shell,
 finestra terminale, finestre di output). Qui basta un richiamo: gira solo su `127.0.0.1`, autenticata
 con un token locale, e per questo è l'unico canale che l'AI può usare in autonomia relativa — dietro
 al gate di conferma esplicito, ma senza un secondo fattore di autenticazione, perché il canale stesso
@@ -144,7 +144,7 @@ finestra dedicata dove stare, vengono spezzate in più messaggi quando superano 
 di un messaggio Telegram. Il canale non ha un proprio system prompt indipendente: usa lo stesso
 prompt generico di un turno `/ai` nel terminale (meno, ovviamente, la possibilità di aprire
 finestre), e risponde di default in italiano indipendentemente dalla lingua configurata per
-l'interfaccia locale — vedi [`06-i18n.md`](./06-i18n.md) per il dettaglio di come si propaga (o non
+l'interfaccia locale — vedi [`07-i18n.md`](./07-i18n.md) per il dettaglio di come si propaga (o non
 si propaga) la lingua canale per canale.
 
 ## Canali esterni
@@ -203,7 +203,7 @@ alcuni comandi diagnostici nativi del sistema operativo. Espone oggi **otto tool
   collegati alla rete locale. Richiede un file di configurazione dedicato
   (`Configuration/fritzbox.json`, mai committato) con host/utente/password del router — i dettagli
   sull'infrastruttura Python condivisa che questo tool usa sono in
-  [`04-pytools.md`](./04-pytools.md).
+  [`05-pytools.md`](./05-pytools.md).
 
 Il system prompt del canale include una nota di onestà tecnica esplicita su questo ultimo tool: il
 registro eventi di un router domestico **non è un sistema di rilevamento intrusioni**. Riporta
@@ -253,9 +253,9 @@ per l'intelligenza artificiale, analisi tecnica quantitativa a doppio regime).
 - [`00-apertura.md`](./00-apertura.md) — cos'è il progetto e perché esiste.
 - [`01-architettura.md`](./01-architettura.md) — il modello a tre strati (canali → orchestratore →
   server di tool) e il gate di conferma, di cui ogni canale qui descritto è un'istanza.
-- [`02-stato-e-implementazione.md`](./02-stato-e-implementazione.md) — cosa di questi canali è oggi
+- [`03-stato-e-implementazione.md`](./03-stato-e-implementazione.md) — cosa di questi canali è oggi
   realmente implementato e in uso.
-- [`04-pytools.md`](./04-pytools.md) — gli script Python condivisi da alcuni tool dei canali esterni
+- [`05-pytools.md`](./05-pytools.md) — gli script Python condivisi da alcuni tool dei canali esterni
   (`fritzbox_status`, il dominio `financial-markets`).
 
 ## Limiti dichiarati

@@ -1,13 +1,13 @@
-# 06 — Decisioni (ADR)
+# Decisioni (ADR)
 
-Log delle decisioni architetturali. Per ognuna: **contesto**, **opzioni**, **decisione**, **perché** (trade-off, non solo il verdetto), **conseguenze**. Questo è il documento che cattura il *ragionamento* — la cosa più facile da perdere.
+Log delle decisioni architetturali. Per ognuna: **contesto**, **opzioni**, **decisione**, **perché** (trade-off, non solo il verdetto), **conseguenze**. Questo è il documento che cattura il *ragionamento* — la cosa più facile da perdere. Vedi anche [`01-architettura.md`](./01-architettura.md), la stessa storia raccontata in un unico filo invece che decisione per decisione.
 
 > **Nota sulla continuità con la v1.** ADR-001..014 sono copiate intatte dal log della
 > [versione precedente del progetto](https://github.com/mauriziolobello/lare-terminal), compresi i
 > loro riferimenti interni ad altri documenti (`07-ux-and-config.md`, `08-persistent-shell.md`,
-> `09-open-app.md`, `10-custom-windows.md`, uno spec del 2026-07-15): quei file vivono SOLO nel
-> repository precedente, non sotto questo repo — raggiungibili da lì. La numerazione continua da
-> ADR-015 con le decisioni proprie della 2.0.
+> `09-open-app.md`, `10-custom-windows.md`, `ENVIRONMENT.md`, uno spec del 2026-07-15): quei file
+> vivono SOLO nel repository precedente, non sotto questo repo — raggiungibili da lì. La
+> numerazione continua da ADR-015 con le decisioni proprie della 2.0.
 
 ---
 
@@ -127,8 +127,8 @@ all'introduzione), lasciando `run_in_session`/`open_target` autonomi in locale
 come sempre. Motivazione: i futuri tool esterni (server MCP dedicati, es. nmap)
 possono avere effetti sensibili (rete, non solo la macchina locale) che
 giustificano una conferma anche in locale, senza rendere l'uso quotidiano della
-UI locale meno fluido. Design:
-`Docs/superpowers/specs/2026-07-15-local-tool-confirm-gate-design.md`.
+UI locale meno fluido. Design: uno spec del 2026-07-15 (vedi nota di continuità
+in cima al documento).
 
 ---
 
@@ -136,9 +136,11 @@ UI locale meno fluido. Design:
 
 **Contesto.** L'hotkey di richiamo (default `F2`) non deve essere fissa.
 
-**Decisione.** L'hotkey è un **parametro di configurazione fra i primi**: qualunque tasto funzione o combinazione (`Ctrl+Alt+T`, `Opt+T`, …). Dettagli e implicazioni in `07-ux-and-config.md`.
+**Decisione.** L'hotkey è un **parametro di configurazione fra i primi**: qualunque tasto funzione o combinazione (`Ctrl+Alt+T`, `Opt+T`, …). Dettagli e implicazioni in `07-ux-and-config.md` (versione precedente del progetto).
 
 **Perché.** Preferenze utente e conflitti con altre app/OS. `tauri-plugin-global-shortcut` supporta già accelerator arbitrari, quindi il costo è esporre+persistere+ri-registrare, non implementare da zero. **Conseguenza:** prevedere uno strato di config fin da subito (non hard-codare `F2`).
+
+*Nota di continuità (2.0): l'hotkey e l'overlay a cui si applicava non sono sopravvissuti al cambio di modello descritto in ADR-016 — questa decisione resta come parte della storia della v1.*
 
 ---
 
@@ -150,7 +152,7 @@ UI locale meno fluido. Design:
 
 **Perché.** Costo quasi nullo ora: lo stack è già cross-platform e il ramo `#[cfg(unix)]` di `mcp-server` copre Linux oltre a macOS. Decidere adesso evita che il codice maturi assumendo solo due piattaforme.
 
-**Caveat noto (rischio aperto).** Su **Wayland** il modello di sicurezza restringe hotkey globali e focus-steal (un'app non può rubarli a piacimento); su **X11** è permissivo come Windows. → Servirà uno **spike dedicato hotkey/focus su Wayland** (eventuale via portal/compositor) quando avremo una macchina Linux, analogo a quello fatto su Windows. Equivalenti di sistema in `ENVIRONMENT.md` (webkit2gtk, autostart XDG/systemd).
+**Caveat noto (rischio aperto).** Su **Wayland** il modello di sicurezza restringe hotkey globali e focus-steal (un'app non può rubarli a piacimento); su **X11** è permissivo come Windows. → Servirà uno **spike dedicato hotkey/focus su Wayland** (eventuale via portal/compositor) quando avremo una macchina Linux, analogo a quello fatto su Windows. Equivalenti di sistema in `ENVIRONMENT.md` (webkit2gtk, autostart XDG/systemd) — versione precedente del progetto.
 
 **Conseguenze.** Documenti resi tri-platform; Fase 6 estesa a macOS **e** Linux con lo spike Wayland.
 
@@ -160,7 +162,7 @@ UI locale meno fluido. Design:
 
 **Contesto.** Servono funzioni "meta" (configurazione e, in futuro, altro) accessibili dallo stesso cursore, senza menu.
 
-**Decisione.** Input con prefisso **`/`** = **comando slash**, una **terza categoria di input** accanto a OS e NL. Primo comando: **`/config`** (apre una dialog). Vedi `07-ux-and-config.md` per la dialog e i parametri.
+**Decisione.** Input con prefisso **`/`** = **comando slash**, una **terza categoria di input** accanto a OS e NL. Primo comando: **`/config`** (apre una dialog). Vedi `07-ux-and-config.md` (versione precedente del progetto) per la dialog e i parametri.
 
 **Gestione (Fase 1).** I comandi slash sono **gestiti dalla UI** (`/config` apre una finestra locale di configurazione, che persiste i settaggi nel file di config). In futuro alcuni comandi slash potranno essere instradati al backend; il prefisso `/` resta il discriminatore. Il `router` dell'orchestratore potrà guadagnare una `Route::Slash`, ma per ora non è necessario (la UI intercetta prima dell'invio).
 
@@ -172,7 +174,7 @@ UI locale meno fluido. Design:
 
 **Contesto.** L'esecuzione era one-shot (`cmd /C …` fresca a ogni comando) → `cd`/env non persistono. L'utente vuole che "il cursore SIA una sessione di terminale".
 
-**Decisione.** Sostituire `run_os_command` con una **shell persistente** nel `mcp-server`: `run_in_session`. Default **PowerShell** (Windows) / **sh** (Unix). Approccio **A**: stdin/stdout in pipe + **marker** per confini netti ed exit code (NON un PTY → niente colori/programmi interattivi per ora). Spec completa: `08-persistent-shell.md`.
+**Decisione.** Sostituire `run_os_command` con una **shell persistente** nel `mcp-server`: `run_in_session`. Default **PowerShell** (Windows) / **sh** (Unix). Approccio **A**: stdin/stdout in pipe + **marker** per confini netti ed exit code (NON un PTY → niente colori/programmi interattivi per ora). Spec completa: `08-persistent-shell.md` (versione precedente del progetto).
 
 **Perché.** È il modello di un vero terminale (stato persistente) e copre l'esigenza confermata. Il PTY/emulatore completo (vim, colori) è un upgrade futuro, non necessario ora (YAGNI). Il **protocollo WS resta invariato** (Chunk/Done) — cambia solo dentro `mcp-server`, grazie all'isolamento delle capacità nel server MCP.
 
@@ -185,7 +187,7 @@ UI locale meno fluido. Design:
 **Contesto.** Seconda superficie di risposta: aprire l'app nativa giusta (cartella→Explorer, URL→browser, file→app). L'AI che sceglie da sola è Fase 2.
 
 **Decisioni.**
-- **Capacità:** tool MCP `open_target` nel `mcp-server`, via crate `opener` (cross-platform, no shell-string). Spec: `09-open-app.md`.
+- **Capacità:** tool MCP `open_target` nel `mcp-server`, via crate `opener` (cross-platform, no shell-string). Spec: `09-open-app.md` (versione precedente del progetto).
 - **Trigger:** comando esplicito **`/open <target>`** (no euristica → niente ambiguità con `cd`/comandi finché non c'è l'AI).
 - **Routing slash (refinement ADR-010):** gli slash si dividono in **UI-local** (`/config` → dialog) e **backend** (tutti gli altri → inoltrati all'orchestratore, route `Slash`, dispatch `/open`/`/reset`/sconosciuto). Protocollo WS invariato.
 
@@ -198,7 +200,7 @@ UI locale meno fluido. Design:
 **Contesto.** Terza superficie: una finestra ricca dove versare risposte formattate (spiegazioni, codice, tabelle) — la "carne" per l'intento apprendimento dell'AI.
 
 **Decisioni.**
-- **Capacità = UI** (Tauri possiede le finestre), non `mcp-server`. Quindi **il protocollo si estende** (prima volta): `ServerMsg::OpenWindow { title, kind, content }`, `WindowKind::Markdown`. Additivo. Spec: `10-custom-windows.md`.
+- **Capacità = UI** (Tauri possiede le finestre), non `mcp-server`. Quindi **il protocollo si estende** (prima volta): `ServerMsg::OpenWindow { title, kind, content }`, `WindowKind::Markdown`. Additivo. Spec: `10-custom-windows.md` (versione precedente del progetto).
 - **Flusso:** orchestratore emette `OpenWindow` → la UI crea una nuova `WebviewWindow` e renderizza il Markdown.
 - **Trigger:** backend slash **`/show <markdown>`** (esplicito ora; l'AI emette lo stesso messaggio in Fase 2).
 - **Sicurezza:** Markdown→HTML **sanificato** (vendor `marked`+`DOMPurify` pinnati, locali; no CDN; no innerHTML grezzo). In alternativa renderer minimale DOM-based.
@@ -214,7 +216,7 @@ UI locale meno fluido. Design:
 **Decisione (da implementare in Fase 2).** L'`AIAdapter` avrà (almeno) due famiglie di implementazioni:
 - **Diretta:** Anthropic Messages API (default `claude-opus-4-8`), già previsto da ADR-005.
 - **Via proxy:** OpenRouter / endpoint OpenAI-compatibile (base URL + API key configurabili, modello scelto dall'utente).
-Selezione e credenziali via configurazione (vedi `07-ux-and-config.md`; segreti fuori dal repo).
+Selezione e credenziali via configurazione (vedi `07-ux-and-config.md`, versione precedente del progetto; segreti fuori dal repo).
 
 **Vincolo non negoziabile — compatibilità MCP.** Qualunque AI/proxy scelto deve supportare il **tool/function calling**, perché è l'orchestratore (client MCP) a guidare i tool del `mcp-server` tramite il loop di tool-use dell'AI. Un modello/proxy senza function calling **non** è ammissibile (romperebbe l'accesso ai tool). L'astrazione `AIAdapter` deve quindi esporre il tool-use in modo uniforme, mappando i tool MCP sul formato del provider/proxy.
 
@@ -226,14 +228,93 @@ Selezione e credenziali via configurazione (vedi `07-ux-and-config.md`; segreti 
 
 Contesto: la 2.0 vuole i comandi `/…` nella riga di comando di una sessione PowerShell e i comandi
 dell'AI eseguiti nella shell dell'utente. Decisione: `lare-shell` è una host custom del motore
-PowerShell (come `pwsh.exe`), non un hook su una shell altrui. Provata dallo spike
-`spikes/2026-09-05-lare-shell-host.md`. Conseguenze: componente C#; Linux/macOS pwsh-flavored.
+PowerShell (come `pwsh.exe`), non un hook su una shell altrui. Conseguenze: componente C#;
+Linux/macOS pwsh-flavored.
+
+**Verificato con uno spike usa-e-getta** (2026-09-04/05, ~1700 righe C#, codice non promosso a
+base dell'implementazione finale): runspace ospitata con `PSHost`/`PSHostUserInterface`/
+`PSHostRawUserInterface` propri, PSReadLine importato dallo stesso path di un pwsh 7.6.5
+installato, lettura riga tramite `PSConsoleHostReadLine` (lo stesso meccanismo di `ConsoleHost`),
+righe `/…` intercettate e non eseguite, ogni altra riga eseguita con `AddScript | Out-Default`.
+
+Esito dei test interattivi, in due round (Windows Terminal 1.24, pwsh 7.6.5, Python 3.14.7):
+prompt/colori/cronologia/Tab completion come pwsh, comandi `/…` intercettati correttamente,
+comandi reali e `cd` persistente, Ctrl+C su un comando lungo — **confermati fin dal primo round**.
+Un REPL Python interattivo (`python`, comando nativo) **falliva** nel primo round (loop infinito di
+traceback) ed è stato risolto nel secondo. Le barre di stato fisse disegnate direttamente nel
+terminale (regione di scroll DECSTBM) hanno richiesto un secondo round per funzionare senza
+sovrapposizioni.
+
+Lezioni tecniche non ovvie, verificate empiricamente nello spike:
+
+- **Le sequenze di escape ANSI vanno costruite da codice carattere esplicito** (`(char)0x1B`), mai
+  da una stringa letterale `"\x1b…"` in C#: `\x` in una stringa C# consuma fino a 4 cifre
+  esadecimali successive, quindi `"\x1b7"` non produce ESC seguito da "7" ma un unico carattere
+  Unicode sbagliato (U+01B7) — causa di **tutti** i difetti di rendering osservati nel primo round.
+- **Un cmdlet interposto fra un comando nativo e `Out-Default` gli toglie la console vera**: un
+  programma nativo interattivo (il REPL Python del test 3b) smette di funzionare se nella pipeline
+  c'è qualcosa fra lui e l'output finale — es. un `Tee-Object` usato per contare gli oggetti in
+  transito reindirizza lo stdout del processo nativo su una pipe, e un programma che si aspetta una
+  vera console (come l'interprete Python interattivo) fallisce nel leggere le dimensioni dello
+  schermo. Con `riga | Out-Default` puro, come fa `ConsoleHost`, il figlio eredita la console vera.
+- **`NotifyBeginApplication`/`NotifyEndApplication` non sono opzionali**: salvano e ripristinano la
+  modalità della console attorno all'esecuzione di un programma esterno — senza, l'interfaccia
+  della host resta in uno stato inconsistente dopo che un programma esterno interattivo si chiude.
+- **Una runspace ospitata non eredita di per sé la policy di esecuzione di un pwsh reale**: nello
+  spike è stata forzata in-process (`RemoteSigned`) solo per far caricare PSReadLine — scelta
+  esplicitamente segnalata come "da rivedere nel prodotto, non da copiare alla cieca" (risolta
+  poi in ADR-019).
+- **PSReadLine con input rediretto va in un loop**: va saltato esplicitamente quando
+  `Console.IsInputRedirected`, come fa lo stesso `ConsoleHost`.
+
+**Costo scoperto, non un difetto della decisione**: le barre di stato fisse funzionano ma
+**cancellano lo scrollback** — un prezzo alto per un terminale vero. Questo ha aperto la domanda
+risolta in ADR-016: rendere la stessa host dentro una finestra applicativa propria (Tauri +
+emulatore xterm.js + ConPTY), con barre e segnalini in HTML fuori dall'area terminale e lo
+scrollback gestito dall'emulatore, non dalla host.
 
 ## ADR-016 — Lare Terminal è una finestra Tauri con xterm.js + ConPTY (2026-09-05)
 
 Decisione: la host gira dentro una finestra Tauri con emulatore xterm.js; barre e segnalini in HTML.
-Provata dallo spike `spikes/2026-09-05-lare-terminal-window.md`. L'overlay F2 della v1 muore;
-`ui.exe` resta host di finestre con una pagina host nascosta al posto del cursore.
+L'overlay F2 della v1 muore; `ui.exe` resta host di finestre con una pagina host nascosta al posto
+del cursore.
+
+**Verificato con un secondo spike usa-e-getta** (2026-09-05, sopra il codice del primo spike, con
+un flag `--no-bars` per disattivare le barre in-terminale e l'aggiunta di un canale di
+segnalazione OSC 9001): Tauri 2.11.5 vanilla JS, finestra con griglia CSS a tre righe (barra
+indicatori in alto, area terminale, barra di comandi rapidi in basso), xterm.js 6.0.0 + addon-fit
+vendored (tema Campbell, font Cascadia Mono), `portable-pty` 0.9.0 per l'integrazione con ConPTY
+su Windows (comandi Tauri `pty_spawn`/`pty_write`/`pty_resize`, chunk in base64 per non corrompere
+UTF-8 multi-byte spezzato a metà nel JSON), un canale diretto host→emulatore (sequenza OSC 9001
+personalizzata, catturata da `registerOscHandler`) per accendere un indicatore "AI al lavoro"
+senza passare dal protocollo verso l'orchestratore.
+
+Esito dei test interattivi: **confermato su tutta la linea**, incluso il punto che aveva motivato
+il cambio — lo scrollback torna intatto e recuperabile con la rotellina del mouse (il costo
+dello spike precedente sparisce), il resize riadatta correttamente terminale e barre (con un lieve
+sfarfallio da attenuare con un debounce del fit o un renderer WebGL, non un blocco), i pulsanti
+rapidi in basso scrivono il comando nella shell, il segnalino OSC 9001 si accende correttamente
+(ConPTY lascia passare la sequenza custom, verificato — un canale di riserva via titolo finestra,
+previsto per il caso contrario, non si è reso necessario), la chiusura della finestra non lascia
+processi `lare-*` residui.
+
+Fatti tecnici emersi, rilevanti anche oltre lo spike:
+
+- **ConPTY non segnala la fine dell'output (EOF) quando il processo figlio esce**: l'unico segnale
+  affidabile è attendere esplicitamente la terminazione del processo (`Child::wait()`) su un
+  thread dedicato — l'*exit watcher* del prodotto finale nasce da questa osservazione.
+- **`generate_context!` di Tauri incorpora `frontendDist` a compile time**: una modifica al solo
+  frontend, senza toccare codice Rust, può non forzare una ricompilazione del crate — richiede
+  `cargo clean -p <crate>` o un `build.rs` con `rerun-if-changed` sulla cartella frontend. Gotcha
+  operativo tenuto presente per tutto lo sviluppo successivo.
+- Le sequenze OSC personalizzate attraversano ConPTY (almeno su Windows 11/WT 1.24): un canale
+  diretto host→emulatore utile anche in produzione, in aggiunta al WebSocket verso l'orchestratore.
+
+**Conseguenze.** Forma finale del lato shell confermata: finestra Tauri con terminale integrato
+(xterm.js ↔ ConPTY ↔ `lare-shell.exe` ↔ WS ↔ orchestratore), più le finestre Markdown/config/
+library/plugin già esistenti. La stessa `lare-shell.exe` resta usabile nuda in un profilo Windows
+Terminal (senza barre, o con barre transitorie), per chi preferisce quella modalità — un motore,
+due renderer.
 
 ## ADR-017 — Configurazione: una cartella, nessuna variabile d'ambiente (2026-09-04)
 
@@ -259,7 +340,8 @@ la cwd è per sessione. (4) Slash ignoto dalla shell → `Done` muto + log; `/ai
 **Conseguenze.** Le connessioni `ui`/Telegram non cambiano (nessuna regressione v1). Senza
 `ui.exe` connesso un turno shell completa comunque (riga di avviso al posto della conferma);
 l'autostart è del piano 3. Lo streaming nella finestra resta fuori MVP (§12). `/find` e `/nowin`
-dalla shell sono scartati in questa versione (debito, HANDOFF).
+dalla shell sono scartati in questa versione — debito dichiarato in
+[`03-stato-e-implementazione.md`](./03-stato-e-implementazione.md).
 
 ## ADR-019 — Host `lare-shell`: policy da file, profili di pwsh, cattura via host UI, un thread per runspace e console (2026-09-06)
 
@@ -296,7 +378,8 @@ chiamata (variabili e funzioni definite dal comando restano nella sessione, come
 prompt) — verificato empiricamente nel Task 4. `$LASTEXITCODE` è azzerato prima del comando.
 
 **Conseguenze.** La host è un pwsh "vero" per l'utente (PSReadLine, profilo, prompt) più i `/…`;
-i test girano contro un server WS finto su `TcpListener` (mai `HttpListener`); debiti in HANDOFF.
+i test girano contro un server WS finto su `TcpListener` (mai `HttpListener`); debiti dichiarati in
+[`03-stato-e-implementazione.md`](./03-stato-e-implementazione.md).
 
 ## ADR-020 — Finestra terminale: `--no-terminal` come ruolo esplicito di `ui.exe` (2026-09-07)
 
