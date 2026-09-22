@@ -79,3 +79,12 @@ not_shared.txt
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Documentazione grezza/interna (log di sessione Claude+Maurizio: HANDOFF
+# storico, compiti per AI esterne, report ricevuti, spec/piani di lavoro,
+# CLAUDE.md originale) — riferimento locale per continuare a lavorarci,
+# MAI pubblicata. Deciso 2026-09-22 in vista della pubblicazione del repo:
+# la documentazione pubblica essenziale sta in Docs/i18n/ita/*.md (i
+# documenti numerati NN-argomento.md) + BUILD/DEPLOY/RUN/KNOWN-ISSUES/
+# TESTING-e2e.md + 06-decisions.md (log ADR, resta pubblico).
+Docs/i18n/ita/Claude-Maurizio/
