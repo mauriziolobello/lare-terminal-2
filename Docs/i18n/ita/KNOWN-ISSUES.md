@@ -3,8 +3,8 @@
 Due famiglie di problemi noti: quelli **ereditati dalla v1** (sezioni sotto, nessun task del
 piano 1/2a ha toccato le aree coinvolte) e quelli **nativi del 2.0**, introdotti da una decisione
 di design del piano corrente (marcati come tali). Per lo storico completo dei problemi v1
-(inclusi quelli già risolti) vedi
-`C:\Users\Maurizio\Documents\Progetti\Lare Terminal\Docs\KNOWN-ISSUES.md` (sola lettura).
+(inclusi quelli già risolti) vedi `KNOWN-ISSUES.md` nel
+[repository della versione precedente](https://github.com/mauriziolobello/lare-terminal).
 
 ---
 
@@ -50,7 +50,7 @@ Telegram/AI Chat il problema architetturale resta identico alla v1.
 permanente di canale esterno (config/venv mancante) causa reconnect infinito invece di un errore
 mostrato una volta").
 
-**Risolto in `crates/ui` 2.3.3** (`Docs/i18n/ita/compiti-ai-esterne/2026-09-09-reconnect-infinito-canale-esterno.md`):
+**Risolto in `crates/ui` 2.3.3**:
 - `crates/ui/frontend/ws-client.js`: introdotto parametro opzionale `maxRetries` per-istanza in
   `LareWsClient`. Quando i tentativi consecutivi raggiungono `maxRetries`, il client smette di schedulare
   timer ed emette lo stato terminale `"failed"`.

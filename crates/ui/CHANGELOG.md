@@ -5,9 +5,9 @@ Versioning: `major.minor.update`.
 
 ## 2.4.2 — 2026-09-20 — fix: "Salva" non dava più nessun segnale visivo al click
 
-Riscontro di Maurizio dopo aver testato la 2.3.9/2.4.0/2.4.1 dal vivo: giusto togliere lo stato
-stabile "✓ Salvato" (era l'inganno originale), ma senza NESSUN segnale il bottone sembra non fare
-nulla — "non si capisce" che il click è stato registrato.
+Segnalato dopo un test dal vivo della 2.3.9/2.4.0/2.4.1: corretto rimuovere lo stato stabile
+"✓ Salvato" (era l'inganno originale), ma senza alcun segnale il bottone risultava indistinguibile
+da un click non registrato.
 
 Fix: estratto `flashButtonFeedback(btnEl, symbol)` (era `flashCopyFeedback`, già usato dai due
 bottoni Copia introdotti in 2.4.0 — rinominato e condiviso, non duplicato) e usato anche dal

@@ -44,7 +44,7 @@ sopravvivono a ogni deploy) e pubblica sempre `lare-shell` in `Test Run\shell\` 
 utile nel deploy — vedi `BUILD.md`), a meno di `-SkipShell`.
 
 Termina con `$LASTEXITCODE` diverso da 0 anche a successo (debito noto, `robocopy` usa 1 per "file
-copiati" — vedi `HANDOFF.md`): non è un segnale di errore, guarda l'output
+copiati"): non è un segnale di errore, guarda l'output
 (`Test Run pronta: ...` sull'ultima riga).
 
 **Verifica rapida del deploy** (senza tastiera né orchestratore):

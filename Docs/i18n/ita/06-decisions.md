@@ -2,12 +2,12 @@
 
 Log delle decisioni architetturali. Per ognuna: **contesto**, **opzioni**, **decisione**, **perché** (trade-off, non solo il verdetto), **conseguenze**. Questo è il documento che cattura il *ragionamento* — la cosa più facile da perdere.
 
-> **Nota sulla continuità con la v1.** ADR-001..014 sono copiate intatte dal log della v1
-> (`C:\Users\Maurizio\Documents\Progetti\Lare Terminal\Docs\06-decisions.md`), compresi i loro
-> riferimenti interni ad altri documenti v1 (`07-ux-and-config.md`, `08-persistent-shell.md`,
-> `09-open-app.md`, `10-custom-windows.md`, `Docs/superpowers/specs/2026-07-15-…`): quei file
-> vivono SOLO nel repo v1 (sola lettura, `..\Lare Terminal\Docs\`), non sotto questo repo. La
-> numerazione continua da ADR-015 con le decisioni proprie della 2.0.
+> **Nota sulla continuità con la v1.** ADR-001..014 sono copiate intatte dal log della
+> [versione precedente del progetto](https://github.com/mauriziolobello/lare-terminal), compresi i
+> loro riferimenti interni ad altri documenti (`07-ux-and-config.md`, `08-persistent-shell.md`,
+> `09-open-app.md`, `10-custom-windows.md`, uno spec del 2026-07-15): quei file vivono SOLO nel
+> repository precedente, non sotto questo repo — raggiungibili da lì. La numerazione continua da
+> ADR-015 con le decisioni proprie della 2.0.
 
 ---
 

@@ -100,8 +100,8 @@ la colonna Esito dice "non verificato" piuttosto che presumerlo.
 **Limite della macchina (prime tre passate)**: nessuna `ANTHROPIC_API_KEY` né
 `Configuration\llms.json` → `StubAdapter` (nessuna tool call, nessun gate reale): i punti 5-9 erano
 coperti solo dai test automatici (`SlashTurnTests`, `ExecutorTests`, `ws_integration.rs`).
-**Quarta passata (2026-09-07, AI reale)**: Maurizio ha indicato di prendere `llms.json` dal deploy
-v1 (`C:\Lare Terminal\Local\llms.json` → `Test Run\Configuration\llms.json`, gitignored; provider
+**Quarta passata (2026-09-07, AI reale)**: `llms.json` preso dal deploy v1
+(`C:\Lare Terminal\Local\llms.json` → `Test Run\Configuration\llms.json`, gitignored; provider
 attivo `claude-direct`) e i punti 5-9 sono stati verificati dal vivo in una nuova finestra Windows
 Terminal — esiti nella tabella.
 
@@ -116,7 +116,7 @@ riverificato i punti toccati dal fix (autostart, riconnessione).
 | 3 | `/ping` → finestra "Lare — /ping" con le righe per strato + riga di conferma nel terminale | OK (finestra + riga di conferma); riverificato nella seconda passata come parte della verifica di riconnessione (punto 10) |
 | 4 | `/help`, `/config`, `/library` → finestre giuste; `/nonesiste` → muto; `/ai x` senza virgolette → errore di sintassi | OK `/help` → "Lare — Comandi"; OK `/config`; OK `/library` → "Lare — Archivio" (seconda passata); OK `/nonesiste` muto (log discard); OK `/ai x` → riga di errore di sintassi |
 | 5 | `/ai "elenca i 3 file più grandi in questa cartella"` → `[Y/n]` → Invio → comando eseguito NEL terminale → finestra Markdown col risultato | **OK (quarta passata, AI reale)**: tre gate in sequenza (due `cerca routine`, poi `Get-ChildItem -File \| Sort-Object Length -Descending \| Select-Object -First 3 …`), `y` a ciascuno, tabella stampata nel terminale, finestra "elenca i 3 file più grandi…" con il risultato, riga `→ finestra … aperta`. **Anomalia osservata una volta**: i primi due gate risultavano già accettati (stampato `y` senza tasti inviati) e la `y` del terzo è comparsa anche al prompt successivo — tasti pendenti/duplicati nel buffer della console; fix: il gate svuota il buffer prima del prompt e logga i tasti scartati (`gate: scartato tasto pendente …`); nelle passate seguenti nessun tasto pendente e nessun doppione (log `gate: tasto Key=Y`) |
-| 6 | `/ai "vai nella cartella Documents"` → il prompt dopo mostra `Documents` (cwd persiste, D17) | **OK (AI reale)**: gate `cd ~\Documents; pwd` → `y` → `Path` stampato → prompt `PS C:\Users\Maurizio\Documents>` |
+| 6 | `/ai "vai nella cartella Documents"` → il prompt dopo mostra `Documents` (cwd persiste, D17) | **OK (AI reale)**: gate `cd ~\Documents; pwd` → `y` → `Path` stampato → prompt `PS C:\Users\<utente>\Documents>` |
 | 7 | `/ai "cancella tutti i file temporanei"` → `n` al gate → nessun comando eseguito, il turno finisce | **OK (AI reale)**: gate `cerca routine` + `Get-ChildItem -Force \| Where-Object …` → `n` (log `gate: tasto Key=N`) → nessuna esecuzione, turno completato, finestra aperta con la risposta dell'AI |
 | 8 | Ctrl+C in attesa del turno AI, e Ctrl+C durante un `ExecInShell` lungo avviato dall'AI → "annullato (Ctrl+C)"/"comando interrotto (Ctrl+C): turno annullato" | **OK (AI reale, nuova finestra WT)**: (a) `/ai "conta lentamente fino a un milione…"` + Ctrl+C dopo 2 s → `annullato (Ctrl+C)`, prompt; log `Ctrl+C ricevuto (turno in corso: True)` / `turno … annullato`, e i `Chunk`/`Done` arrivati dopo per quel turno scartati come stantii (contratto c); (b) `/ai "esegui Start-Sleep -Seconds 60"` → `y` → Ctrl+C → `[LARE] comando interrotto (Ctrl+C).` + `comando interrotto (Ctrl+C): turno annullato`, prompt. Ctrl+C su un comando DIGITATO (`Start-Sleep 30`, terza passata): `[LARE] comando interrotto (Ctrl+C).` e prompt. Nelle prime due passate (host in `conhost`) la riga mancava: era il **driver** (`SendKeys ^c` e `GenerateConsoleCtrlEvent` non consegnavano alcun Ctrl+C, nemmeno a un `pwsh` di controllo) — non la host |
 | 9 | `/ai "apri python in modo interattivo"` → REPL python utilizzabile, `exit()` torna al prompt | **OK (AI reale)**: gate `python (interattivo)` → `y` → REPL di Python 3.14 nel terminale (`>>>`), input digitato ed eseguito, `exit` → riga `→ finestra … aperta` e prompt |
@@ -131,7 +131,7 @@ riverificato i punti toccati dal fix (autostart, riconnessione).
    predefinito, quella console si apriva come una NUOVA SCHEDA di WT. Fix: `Launcher.EnsureUi()`
    avvia anche `ui.exe` con `hideWindow: true` (verificato: le finestre vere create da `ui.exe` —
    Markdown, `/config`, `/library` — restano visibili; solo la console di debug resta nascosta).
-   Vedi ADR-019 punto 6 (rivisto) e `HANDOFF.md`.
+   Vedi ADR-019 punto 6 (rivisto).
 2. **Fragment del profilo WT**: il sintomo "avvio di `Terminal` fallito" era il driver SendKeys,
    non le virgolette; la revisione finale ha poi imposto il `commandline` **quotato** (senza, con
    spazi nel percorso, `CreateProcess` prova prefissi come `…\Progetti\Lare.exe`), fix wave `22dcb09`.
@@ -144,7 +144,7 @@ riverificato i punti toccati dal fix (autostart, riconnessione).
 
 Fix wave e2e: commit `a8d148f` (2 file + test nuovi, 115/115).
 
-**Nota per Maurizio (incidente durante l'e2e).** Durante la prima passata, guidata via SendKeys e
+**Nota (incidente durante l'e2e).** Durante la prima passata, guidata via SendKeys e
 UI Automation, il controller ha chiuso con `exit` una scheda "PowerShell" nella finestra Windows
 Terminal dell'utente (`wt -w new` aveva aperto una seconda finestra WT nello stesso processo e
 l'enumerazione leggeva la prima): quasi certamente una scheda dell'utente, non aperta da questo
@@ -159,7 +159,7 @@ e2e — nessun dato recuperabile da questa sede, va solo segnalato.
 > l'ha eseguita dal vivo DOPO il completamento del piano (con lo stesso metodo "da tastiera" già
 > usato per la Parte 6 — `scripts/dev/e2e-driver/`, SendKeys + screenshot + UI Automation, README
 > con le lezioni), incluso il fix di chiusura finestra emerso proprio da questa passata (commit
-> `07c584c` — vedi `HANDOFF.md`), e ha anche trovato e corretto dal vivo un secondo difetto reale
+> `07c584c`), e ha anche trovato e corretto dal vivo un secondo difetto reale
 > (bottone "riavvia" invisibile dietro il viewport di xterm.js, `z-index`, commit `80cd46a`). **Passi
 > 1/2/5/6/7/9/10, le verifiche di modalità B/autostart Task 6 e il bottone "riavvia" eseguiti dal
 > vivo dal controller dopo il completamento del piano; restano da eseguire solo `/calc`, `/config`/
