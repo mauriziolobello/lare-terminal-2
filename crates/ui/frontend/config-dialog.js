@@ -343,7 +343,7 @@ export class ConfigDialog {
       0, 100, 1, Math.round((cfg.window_alpha ?? 0.87) * 100)
     );
 
-    // Lingua (dropdown con opzioni fisse "Italiano", "English", "Español", "Deutsch", "Français").
+    // Lingua (dropdown con opzioni fisse, nel proprio idioma: it/en/es/de/fr/nl/da/ru/pl).
     const languageSelect = this._buildSelect(
       fields, t("config.language"), "config-language",
       [
@@ -352,6 +352,10 @@ export class ConfigDialog {
         { value: "es", label: "Español" },
         { value: "de", label: "Deutsch" },
         { value: "fr", label: "Français" },
+        { value: "nl", label: "Nederlands" },
+        { value: "da", label: "Dansk" },
+        { value: "ru", label: "Русский" },
+        { value: "pl", label: "Polski" },
       ],
       cfg.language || "it"
     );

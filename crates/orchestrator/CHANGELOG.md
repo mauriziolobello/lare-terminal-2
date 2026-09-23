@@ -3,6 +3,33 @@
 All notable changes to this crate are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), versioning: [SemVer](https://semver.org/).
 
+## 2.7.0 — 2026-09-23 — settima-decima lingua: olandese (nl), danese (da), russo (ru), polacco (pl)
+
+Stesso schema del commit precedente (2.6.0, tedesco/francese), applicato a quattro lingue in più.
+Contenuti tradotti da 4 subagenti paralleli (uno per lingua, ciascuno con verifica di parità
+obbligatoria prima di chiudere), riverificati indipendentemente dal supervisore, poi attivati in
+codice in un unico passaggio.
+
+1. **Direttiva AI (`crates/orchestrator/src/agent.rs`)**: `RESPOND_DUTCH`, `RESPOND_DANISH`,
+   `RESPOND_RUSSIAN`, `RESPOND_POLISH` + quattro nuovi arm in `system_prompt()`.
+2. **Finestra /help (`crates/orchestrator/src/core.rs`)**: `HELP_TITLE_DUTCH` ("Lare — Opdrachten"),
+   `HELP_TITLE_DANISH` ("Lare — Kommandoer"), `HELP_TITLE_RUSSIAN` ("Lare — Команды"),
+   `HELP_TITLE_POLISH` ("Lare — Polecenia") + quattro nuovi arm nel ramo `"help"`.
+3. **Contenuti**: `Test Run/Configuration/i18n/{nl,da,ru,pl}.json` (212/212 chiavi ciascuno) e
+   `Test Run/Configuration/help/{nl,da,ru,pl}.md`.
+4. **Dropdown lingua** (`crates/ui/frontend/config-dialog.js`, vedi changelog di `crates/ui`):
+   quattro nuove opzioni "Nederlands"/"Dansk"/"Русский"/"Polski".
+
+Fix collaterale, scoperto durante la traduzione (segnalato indipendentemente da due dei quattro
+subagenti confrontando contro `it.json`): `config.tab_search` era rimasto `"Search"` non tradotto
+sia in `it.json` che in `es.json` — corretto in un commit separato prima di questo
+("Ricerca"/"Búsqueda").
+
+TDD: stessa estensione dei due test di 2.6.0
+(`agent::tests::system_prompt_respects_language_directive`,
+`core::tests::slash_help_respects_language_directive`), RED→GREEN per ciascuna delle quattro
+lingue. 959/959 test del crate verdi (`cargo test -p orchestrator --lib`).
+
 ## 2.6.0 — 2026-09-23 — quinta e sesta lingua: tedesco (de) e francese (fr) per AI e /help
 
 Stesso schema già usato per lo spagnolo in 2.2.6, applicato a due lingue in un solo passaggio

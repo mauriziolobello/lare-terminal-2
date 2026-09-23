@@ -1,4 +1,10 @@
-# Implementation — crates/ui v2.5.0
+# Implementation — crates/ui v2.6.0
+
+## Dropdown lingua: Nederlands, Dansk, Русский, Polski (v2.6.0)
+
+Stessa estensione statica di v2.5.0, quattro voci in più: `{ value: "nl", label: "Nederlands" }`,
+`{ value: "da", label: "Dansk" }`, `{ value: "ru", label: "Русский" }`,
+`{ value: "pl", label: "Polski" }`. Contropartita di `crates/orchestrator` 2.7.0.
 
 ## Dropdown lingua: Deutsch e Français (v2.5.0)
 

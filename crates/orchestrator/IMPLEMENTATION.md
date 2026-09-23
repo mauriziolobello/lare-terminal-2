@@ -1,4 +1,17 @@
-# Implementation — orchestrator v2.6.0
+# Implementation — orchestrator v2.7.0
+
+## Settima-decima lingua: olandese (nl), danese (da), russo (ru), polacco (pl) (v2.7.0)
+
+Stesso schema di "Quinta e sesta lingua" sotto, applicato a quattro lingue: costanti
+`RESPOND_DUTCH`/`RESPOND_DANISH`/`RESPOND_RUSSIAN`/`RESPOND_POLISH` in `agent.rs`,
+`HELP_TITLE_DUTCH`/`HELP_TITLE_DANISH`/`HELP_TITLE_RUSSIAN`/`HELP_TITLE_POLISH` in `core.rs`,
+quattro arm in più in entrambi i `match`. Contenuti (`Configuration/i18n/{nl,da,ru,pl}.json`,
+`Configuration/help/{nl,da,ru,pl}.md`) tradotti da subagenti paralleli, riverificati dal
+supervisore con lo stesso script di parità usato per tedesco/francese. Nota tecnica per il russo:
+`HELP_TITLE_RUSSIAN` contiene testo in cirillico dentro una stringa Rust — nessun accorgimento
+particolare richiesto, il compilatore tratta `&str` come UTF-8 nativamente, stesso principio già
+visto per i placeholder `{nome}` (sempre in ASCII/latino per restare leggibili dal codice che li
+sostituisce, indipendentemente dalla lingua del testo circostante).
 
 ## Quinta e sesta lingua: tedesco (de) e francese (fr) per AI e /help (v2.6.0)
 

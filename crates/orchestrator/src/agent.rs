@@ -21,6 +21,10 @@ pub const RESPOND_ENGLISH: &str = " Answer in English, concisely.";
 pub const RESPOND_SPANISH: &str = " Responde en español, de forma concisa.";
 pub const RESPOND_GERMAN: &str = " Antworte auf Deutsch, prägnant.";
 pub const RESPOND_FRENCH: &str = " Réponds en français, de façon concise.";
+pub const RESPOND_DUTCH: &str = " Antwoord beknopt in het Nederlands.";
+pub const RESPOND_DANISH: &str = " Svar kortfattet på dansk.";
+pub const RESPOND_RUSSIAN: &str = " Отвечай на русском языке, кратко.";
+pub const RESPOND_POLISH: &str = " Odpowiadaj zwięźle po polsku.";
 
 /// Base del system prompt dell'assistente terminale (senza la direttiva di lingua finale).
 pub const BASE_SYSTEM_PROMPT: &str = "Sei l'assistente di Lare Terminal, un terminale sulla macchina dell'utente (OS Windows, shell PowerShell persistente: cwd ed env persistono tra i comandi). Hai i seguenti strumenti: run_in_session (esegui un comando nella shell persistente), open_target (apri URL, cartella o file con l'app di default), show_markdown (mostra contenuto Markdown ricco — spiegazioni lunghe, codice, tabelle — in una finestra dedicata), search_routines (cerca fra le routine PowerShell gia' salvate, per nome/descrizione/tag) e run_routine (esegui per nome una routine gia' salvata, nella stessa shell persistente). Prima di scrivere un comando nuovo con run_in_session per una richiesta operativa (file, disco, rete, sistema), controlla SEMPRE con search_routines se esiste gia' una routine salvata pertinente anche solo per tema (es. 'file grandi' e una routine sulla dimensione dei file sono lo stesso tema): se c'e' una routine adatta usa run_routine invece di riscrivere il comando da zero. Scrivi un comando nuovo solo se nessuna routine esistente e' pertinente. Hai anche get_routine_content (leggi il corpo di una routine salvata, sola lettura) e save_routine (salva un nuovo script come routine riusabile, o aggiornane una esistente passando replace). Prima di chiamare save_routine per una routine NUOVA, controlla SEMPRE con search_routines se esiste gia' qualcosa di simile per nome o tema: se si', leggi il contenuto con get_routine_content e decidi se riusare quella esistente, aggiornarla (save_routine con replace) o crearne una distinta con un nome diverso. Chiama save_routine SOLO dopo aver gia' testato lo script con run_in_session e verificato che funzioni: mai salvare uno script mai eseguito. Preferisci ESEGUIRE i comandi invece di spiegare come farli: se la richiesta e' fattibile via shell, usa run_in_session. Quando la risposta e' formattata o lunga (spiegazioni, codice, tabelle), usa show_markdown invece di scriverla come testo semplice. Per mostrare il contenuto di un file o un output lungo usa show_markdown e non ripetere lo stesso contenuto anche come testo. Evita comandi interattivi o a esecuzione prolungata (REPL come python o node, editor come vim o nano): bloccherebbero la sessione.";
@@ -45,6 +49,10 @@ pub fn system_prompt(opts: TurnOptions) -> String {
         Some("es") => RESPOND_SPANISH,
         Some("de") => RESPOND_GERMAN,
         Some("fr") => RESPOND_FRENCH,
+        Some("nl") => RESPOND_DUTCH,
+        Some("da") => RESPOND_DANISH,
+        Some("ru") => RESPOND_RUSSIAN,
+        Some("pl") => RESPOND_POLISH,
         _ => RESPOND_ITALIAN,
     };
     if opts.web_search {
@@ -839,6 +847,38 @@ mod tests {
         });
         assert!(fr.ends_with(RESPOND_FRENCH));
         assert!(!fr.contains(RESPOND_ITALIAN.trim()));
+
+        // lang: Some("nl") -> dutch
+        let nl = system_prompt(TurnOptions {
+            lang: Some("nl".into()),
+            ..Default::default()
+        });
+        assert!(nl.ends_with(RESPOND_DUTCH));
+        assert!(!nl.contains(RESPOND_ITALIAN.trim()));
+
+        // lang: Some("da") -> danish
+        let da = system_prompt(TurnOptions {
+            lang: Some("da".into()),
+            ..Default::default()
+        });
+        assert!(da.ends_with(RESPOND_DANISH));
+        assert!(!da.contains(RESPOND_ITALIAN.trim()));
+
+        // lang: Some("ru") -> russian
+        let ru = system_prompt(TurnOptions {
+            lang: Some("ru".into()),
+            ..Default::default()
+        });
+        assert!(ru.ends_with(RESPOND_RUSSIAN));
+        assert!(!ru.contains(RESPOND_ITALIAN.trim()));
+
+        // lang: Some("pl") -> polish
+        let pl = system_prompt(TurnOptions {
+            lang: Some("pl".into()),
+            ..Default::default()
+        });
+        assert!(pl.ends_with(RESPOND_POLISH));
+        assert!(!pl.contains(RESPOND_ITALIAN.trim()));
 
         // system_prompt_override resta intoccato anche se lang è valorizzato
         let overridden = system_prompt(TurnOptions {

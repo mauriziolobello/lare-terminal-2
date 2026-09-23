@@ -3,6 +3,12 @@
 All notable changes to this package follow [Keep a Changelog](https://keepachangelog.com/) format.
 Versioning: `major.minor.update`.
 
+## 2.6.0 — 2026-09-23 — dropdown lingua: aggiunti Nederlands, Dansk, Русский, Polski
+
+Contropartita lato UI di `crates/orchestrator` 2.7.0 (olandese/danese/russo/polacco per AI e
+`/help`): stessa estensione statica di 2.5.0, quattro voci in più nell'elenco di
+`config-dialog.js`. Nessuna logica nuova. 263/263 test JS invariati.
+
 ## 2.5.0 — 2026-09-23 — dropdown lingua: aggiunti Deutsch e Français
 
 Contropartita lato UI di `crates/orchestrator` 2.6.0 (tedesco e francese per AI e `/help`):
