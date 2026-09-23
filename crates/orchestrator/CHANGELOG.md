@@ -3,6 +3,34 @@
 All notable changes to this crate are documented here.
 Format: [Keep a Changelog](https://keepachangelog.com/en/1.0.0/), versioning: [SemVer](https://semver.org/).
 
+## 2.6.0 — 2026-09-23 — quinta e sesta lingua: tedesco (de) e francese (fr) per AI e /help
+
+Stesso schema già usato per lo spagnolo in 2.2.6, applicato a due lingue in un solo passaggio
+(richiesto da Maurizio, dopo aver completato la traduzione dei dizionari UI/help — vedi
+`Docs/i18n/ita/07-i18n.md` "Aggiungere una lingua, passo per passo").
+
+1. **Direttiva AI (`crates/orchestrator/src/agent.rs`)**:
+   - Aggiunte costanti `RESPOND_GERMAN = " Antworte auf Deutsch, prägnant."` e
+     `RESPOND_FRENCH = " Réponds en français, de façon concise."`.
+   - `system_prompt` seleziona la direttiva giusta quando `opts.lang.as_deref()` è `Some("de")` o
+     `Some("fr")`; invariato il fallback a `RESPOND_ITALIAN` per ogni altro codice.
+2. **Finestra /help (`crates/orchestrator/src/core.rs`)**:
+   - Costanti `HELP_TITLE_GERMAN = "Lare — Befehle"` e `HELP_TITLE_FRENCH = "Lare — Commandes"`.
+   - Ramo `"help"` mappa `Some("de") => (HELP_TITLE_GERMAN, "de")` e
+     `Some("fr") => (HELP_TITLE_FRENCH, "fr")`, delegando a `help::load_help_body` il caricamento
+     di `Configuration/help/de.md`/`fr.md`.
+3. **Contenuti**: `Test Run/Configuration/i18n/{de,fr}.json` (212/212 chiavi, parità verificata da
+   `i18n-parity.test.mjs`) e `Test Run/Configuration/help/{de,fr}.md`, tradotti dal riferimento
+   inglese con riscontro incrociato sull'italiano.
+4. **Dropdown lingua** (`crates/ui/frontend/config-dialog.js`, non in questo crate — vedi
+   changelog di `crates/ui`): due nuove opzioni "Deutsch"/"Français".
+
+TDD: esteso `agent::tests::system_prompt_respects_language_directive` (RED: costanti non
+definite → errore di compilazione; GREEN dopo l'aggiunta) e
+`core::tests::slash_help_respects_language_directive` (RED: titolo/contenuto ancora in italiano
+per `de`/`fr` → assert falliti; GREEN dopo i due match arm). 959/959 test del crate verdi
+(`cargo test -p orchestrator --lib`).
+
 ## 2.5.2 — 2026-09-16 — show_markdown: rimuove i marcatori di citazione grezzi `<cite>`/`(cite>`
 
 Segnalato dal vivo da Maurizio: nei documenti generati con ricerca web, il testo mostrava

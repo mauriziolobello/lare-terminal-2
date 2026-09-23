@@ -3,6 +3,19 @@
 All notable changes to this package follow [Keep a Changelog](https://keepachangelog.com/) format.
 Versioning: `major.minor.update`.
 
+## 2.5.0 — 2026-09-23 — dropdown lingua: aggiunti Deutsch e Français
+
+Contropartita lato UI di `crates/orchestrator` 2.6.0 (tedesco e francese per AI e `/help`):
+`config-dialog.js`, sezione lingua — due nuove opzioni statiche `{ value: "de", label: "Deutsch" }`
+e `{ value: "fr", label: "Français" }` aggiunte all'elenco già esistente (Italiano/English/Español),
+seguendo la stessa etichetta "nel proprio idioma" già in uso (le etichette non si traducono in base
+alla lingua attiva, così chi seleziona per sbaglio una lingua sconosciuta riconosce comunque la
+propria in elenco — vedi `Docs/i18n/ita/07-i18n.md` "Cambiare lingua").
+
+Nessun nuovo test: `config-dialog.js` non ha una suite JS dedicata nel repository (nessun file
+`config-dialog*.test.mjs` preesistente da estendere) — verificato che la suite generale
+(`node --test crates/ui/frontend/*.test.mjs`, 263/263) resta verde dopo la modifica.
+
 ## 2.4.2 — 2026-09-20 — fix: "Salva" non dava più nessun segnale visivo al click
 
 Segnalato dopo un test dal vivo della 2.3.9/2.4.0/2.4.1: corretto rimuovere lo stato stabile

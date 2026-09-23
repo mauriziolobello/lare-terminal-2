@@ -1,4 +1,15 @@
-# Implementation — crates/ui v2.3.3
+# Implementation — crates/ui v2.5.0
+
+## Dropdown lingua: Deutsch e Français (v2.5.0)
+
+Estensione dell'elenco statico in `_buildSelect` (`crates/ui/frontend/config-dialog.js`, campo
+`config-language`) con due voci: `{ value: "de", label: "Deutsch" }`, `{ value: "fr", label:
+"Français" }`. Nessuna logica nuova — lo stesso `_buildSelect` già gestiva Italiano/English/Español;
+il salvataggio persiste `language` in `config.json` come già avveniva. Contropartita necessaria per
+`crates/orchestrator` 2.6.0, che aggiunge tedesco/francese per la direttiva AI e `/help`: senza
+questa voce l'utente non potrebbe selezionare le due lingue da `/config`, pur essendo già presenti
+e funzionanti i dizionari (`Configuration/i18n/{de,fr}.json`) e i file di help
+(`Configuration/help/{de,fr}.md`).
 
 ## Limite tentativi di reconnect canali esterni e fix reset backoff (v2.3.3)
 

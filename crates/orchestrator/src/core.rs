@@ -108,6 +108,8 @@ pub const WINDOW_SLASHES: &[&str] = &["help", "show"];
 const HELP_TITLE_IT: &str = "Lare \u{2014} Comandi";
 const HELP_TITLE_EN: &str = "Lare \u{2014} Commands";
 const HELP_TITLE_SPANISH: &str = "Lare \u{2014} Comandos";
+const HELP_TITLE_GERMAN: &str = "Lare \u{2014} Befehle";
+const HELP_TITLE_FRENCH: &str = "Lare \u{2014} Commandes";
 
 /// Handle a single client `Command`, emitting all response messages on `tx`.
 ///
@@ -360,6 +362,8 @@ async fn handle_slash(
             let (title, lang_code) = match lang {
                 Some("en") => (HELP_TITLE_EN, "en"),
                 Some("es") => (HELP_TITLE_SPANISH, "es"),
+                Some("de") => (HELP_TITLE_GERMAN, "de"),
+                Some("fr") => (HELP_TITLE_FRENCH, "fr"),
                 _ => (HELP_TITLE_IT, "it"),
             };
             let help_dir = crate::help::help_dir_path(config_dir);
@@ -1918,6 +1922,16 @@ mod tests {
             "# Lare \u{2014} Comandos\n\nTexto de ayuda en español con comandos.",
         )
         .expect("write es.md");
+        std::fs::write(
+            help_dir.join("de.md"),
+            "# Lare \u{2014} Befehle\n\nHilfetext auf Deutsch mit Befehlen.",
+        )
+        .expect("write de.md");
+        std::fs::write(
+            help_dir.join("fr.md"),
+            "# Lare \u{2014} Commandes\n\nTexte d'aide en français avec commandes.",
+        )
+        .expect("write fr.md");
 
         async fn run_help_with_lang(lang: Option<&str>, config_dir: &std::path::Path) -> Vec<ServerMsg> {
             let ai = StubAdapter;
@@ -1995,6 +2009,32 @@ mod tests {
             assert!(!content.contains("Commands"), "content should NOT contain 'Commands', got {content:?}");
         } else {
             panic!("expected OpenWindow at index 0, got {:?}", msgs_es[0]);
+        }
+
+        // 5. With lang: Some("de") -> German title and content
+        let msgs_de = run_help_with_lang(Some("de"), tmp.path()).await;
+        assert_eq!(msgs_de.len(), 2);
+        if let ServerMsg::OpenWindow { title, content, kind } = &msgs_de[0] {
+            assert_eq!(*kind, WindowKind::Help);
+            assert!(title.contains("Befehle"), "title should contain 'Befehle', got {title:?}");
+            assert!(!title.contains("Comandi"), "title should NOT contain 'Comandi', got {title:?}");
+            assert!(content.contains("Befehle"), "content should contain 'Befehle', got {content:?}");
+            assert!(!content.contains("Comandi"), "content should NOT contain 'Comandi', got {content:?}");
+        } else {
+            panic!("expected OpenWindow at index 0, got {:?}", msgs_de[0]);
+        }
+
+        // 6. With lang: Some("fr") -> French title and content
+        let msgs_fr = run_help_with_lang(Some("fr"), tmp.path()).await;
+        assert_eq!(msgs_fr.len(), 2);
+        if let ServerMsg::OpenWindow { title, content, kind } = &msgs_fr[0] {
+            assert_eq!(*kind, WindowKind::Help);
+            assert!(title.contains("Commandes"), "title should contain 'Commandes', got {title:?}");
+            assert!(!title.contains("Comandi"), "title should NOT contain 'Comandi', got {title:?}");
+            assert!(content.contains("Commandes"), "content should contain 'Commandes', got {content:?}");
+            assert!(!content.contains("Comandi"), "content should NOT contain 'Comandi', got {content:?}");
+        } else {
+            panic!("expected OpenWindow at index 0, got {:?}", msgs_fr[0]);
         }
     }
 }

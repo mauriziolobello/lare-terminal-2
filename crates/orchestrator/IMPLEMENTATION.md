@@ -1,4 +1,20 @@
-# Implementation — orchestrator v2.2.6
+# Implementation — orchestrator v2.6.0
+
+## Quinta e sesta lingua: tedesco (de) e francese (fr) per AI e /help (v2.6.0)
+
+Stesso schema di "Terza lingua: spagnolo" sotto, applicato a due lingue in un solo passaggio:
+1. **Direttiva AI (`crates/orchestrator/src/agent.rs`)**:
+   - Costanti `RESPOND_GERMAN`/`RESPOND_FRENCH` aggiunte accanto a `RESPOND_ITALIAN`/`_ENGLISH`/`_SPANISH`.
+   - `system_prompt` estende il `match` su `opts.lang.as_deref()` con `Some("de")`/`Some("fr")`.
+2. **Finestra /help (`crates/orchestrator/src/core.rs`)**:
+   - Costanti `HELP_TITLE_GERMAN`/`HELP_TITLE_FRENCH`; ramo `"help"` esteso con i due codici,
+     invariato il fallback italiano per qualunque altro codice.
+3. **Contenuti**: `Configuration/i18n/{de,fr}.json` (dizionario UI, 212 chiavi) e
+   `Configuration/help/{de,fr}.md` (corpo di `/help`) — nessuna modifica di codice richiesta per
+   questi, la catena di fallback in `help.rs` e il caricamento dinamico in `i18n.rs`/`i18n-parity.test.mjs`
+   sono già generici rispetto al set di lingue.
+4. **UI**: `crates/ui/frontend/config-dialog.js` — due nuove voci nel dropdown lingua ("Deutsch",
+   "Français"), vedi `crates/ui/IMPLEMENTATION.md`.
 
 ## Terza lingua: spagnolo (es) per AI e /help (v2.2.6)
 
