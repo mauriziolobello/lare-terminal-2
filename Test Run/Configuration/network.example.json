@@ -1,9 +1,9 @@
 {
   "ai_autoparticipate": true,
-  "ai_display_name": "<name>",
+  "ai_display_name": "<name-for-your-ai-on-this-machine>",
   "ai_participates": true,
   "chat_port": 40100,
-  "display_name": "<name>",
+  "display_name": "<your-name-or-nickname>",
   "enabled": false,
   "label_base": "lare"
 }

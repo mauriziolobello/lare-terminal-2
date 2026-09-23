@@ -1,5 +1,5 @@
 {
   "host": "192.168.178.1",
-  "user": "<username>",
-  "password": "<password>"
+  "user": "<your-fritzbox-username>",
+  "password": "<your-fritzbox-password>"
 }

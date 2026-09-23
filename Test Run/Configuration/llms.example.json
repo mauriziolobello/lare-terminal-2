@@ -1,9 +1,9 @@
 {
   "active": "claude-direct",
   "api_keys": {
-    "anthropic": "<api-key>",
-    "deepseek": "<api-key>",
-    "openrouter": "<api-key>"
+    "anthropic": "<your-anthropic-api-key>",
+    "deepseek": "<your-deepseek-api-key>",
+    "openrouter": "<your-openrouter-api-key>"
   },
   "providers": [
     {
