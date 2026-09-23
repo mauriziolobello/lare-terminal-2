@@ -33,3 +33,7 @@ cargo test                # test del workspace
 
 Guide operative complete: [`BUILD.md`](./Docs/i18n/ita/BUILD.md),
 [`DEPLOY.md`](./Docs/i18n/ita/DEPLOY.md), [`RUN.md`](./Docs/i18n/ita/RUN.md).
+
+## Licenza
+
+[MIT](./LICENSE).
