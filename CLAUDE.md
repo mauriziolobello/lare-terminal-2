@@ -85,6 +85,17 @@ Host C#: i `.csproj` dichiarano `<RuntimeIdentifier>win-x64</RuntimeIdentifier>`
   narrativo più esteso) vive in `Docs/i18n/ita/Claude-Maurizio/`, cartella locale **non tracciata
   in git** (voce dedicata in `.gitignore`) — continua a scriverci la documentazione di processo;
   non è materiale pubblico, non finisce nel repository pubblicato.
+- **`Docs/i18n/eng/` tenuta in parallelo con `Docs/i18n/ita/` (dal 2026-09-23, traduzione a cura di
+  Gemini, revisione di qualità del supervisore)**: stessi nomi di file numerati tradotti in inglese
+  una volta (`00-apertura.md`→`00-opening.md`, `01-architettura.md`→`01-architecture.md`,
+  `03-stato-e-implementazione.md`→`03-status-and-implementation.md`,
+  `06-canali.md`→`06-channels.md`; gli altri nomi restano invariati perché già parole inglesi/sigle
+  — `02-decisions.md`, `04-plugin-system.md`, `05-pytools.md`, `07-i18n.md`,
+  `BUILD/DEPLOY/RUN/KNOWN-ISSUES/TESTING-e2e.md`). **Chi modifica un documento pubblico sotto
+  `Docs/i18n/ita/` deve segnalare la modifica per l'aggiornamento della controparte inglese** (non
+  necessariamente nello stesso commit se la traduzione è delegata — ma non lasciarla implicita: una
+  riga nel messaggio di commit o nel report di fine compito). Identificatori di codice, nomi di
+  comandi/flag, path, output letterale dei programmi non si traducono mai, in nessuna lingua.
 - **Sicurezza**: WS solo su `127.0.0.1` + token su file; ogni comando proposto dall'AI passa dal
   gate di conferma (ADR-007) prima di eseguire.
 
