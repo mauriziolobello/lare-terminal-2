@@ -5,8 +5,8 @@ davvero — non solo che i test unitari passino. Parti 1-4 riproducono quanto ve
 chiusura del **piano 1** ("fondamenta": deploy in `Test Run\`, avvio di orchestrator e `ui.exe`);
 Parte 5 aggiunge il canale shell del **piano 2a** (client di sviluppo, senza la host reale); Parte
 6 aggiunge la host C# vera del **piano 2b** in modalità B (Windows Terminal); Parte 7 aggiunge la
-finestra terminale del **piano 3** in modalità A (`ui.exe`, xterm.js + ConPTY) — **ancora da
-eseguire dal vivo**, vedi la nota in testa a quella sezione. Compila la colonna
+finestra terminale del **piano 3** in modalità A (`ui.exe`, xterm.js + ConPTY) — **eseguita dal vivo
+parzialmente**, vedi la nota in testa a quella sezione. Compila la colonna
 **Esito** eseguendo i passi in ordine, da una macchina pulita se possibile (nessun
 `Test Run\Configuration\token`/`logs\` residui da run precedenti, per vedere anche il caso
 "primo avvio").
