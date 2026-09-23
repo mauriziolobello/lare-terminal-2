@@ -1,9 +1,9 @@
 {
   "active": "claude-direct",
   "api_keys": {
-    "anthropic": "<la-tua-chiave-api-anthropic>",
-    "deepseek": "<la-tua-chiave-api-deepseek>",
-    "openrouter": "<la-tua-chiave-api-openrouter>"
+    "anthropic": "<api-key>",
+    "deepseek": "<api-key>",
+    "openrouter": "<api-key>"
   },
   "providers": [
     {

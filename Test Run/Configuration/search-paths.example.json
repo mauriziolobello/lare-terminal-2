@@ -1,6 +1,6 @@
 {
   "cloud": [
-    "C:\\Users\\<nome-utente>\\OneDrive"
+    "C:\\Users\\<username>\\OneDrive"
   ],
   "exclude": [
     "node_modules",
@@ -20,9 +20,9 @@
   "max_depth": 8,
   "result_cap": 2000,
   "standard": [
-    "C:\\Users\\<nome-utente>\\Documents",
-    "C:\\Users\\<nome-utente>\\Downloads",
-    "C:\\Users\\<nome-utente>\\OneDrive\\Desktop"
+    "C:\\Users\\<username>\\Documents",
+    "C:\\Users\\<username>\\Downloads",
+    "C:\\Users\\<username>\\OneDrive\\Desktop"
   ],
   "version": 2
 }
