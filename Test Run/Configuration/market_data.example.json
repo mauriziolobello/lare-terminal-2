@@ -1,0 +1,8 @@
+{
+  "active": "yfinance",
+  "sources": [
+    {
+      "kind": "yfinance"
+    }
+  ]
+}

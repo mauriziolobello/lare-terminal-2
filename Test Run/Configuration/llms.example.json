@@ -1,0 +1,37 @@
+{
+  "active": "claude-direct",
+  "api_keys": {
+    "anthropic": "<la-tua-chiave-api-anthropic>",
+    "deepseek": "<la-tua-chiave-api-deepseek>",
+    "openrouter": "<la-tua-chiave-api-openrouter>"
+  },
+  "providers": [
+    {
+      "api_key_ref": "anthropic",
+      "model": "claude-sonnet-5",
+      "name": "claude-direct",
+      "provider": "anthropic"
+    },
+    {
+      "api_key_ref": "openrouter",
+      "model": "deepseek/deepseek-chat",
+      "name": "deepseek-openrouter",
+      "provider": "openrouter"
+    },
+    {
+      "api_key_ref": "deepseek",
+      "base_url": "https://api.deepseek.com/anthropic",
+      "model": "deepseek-v4-pro",
+      "name": "deepseek-direct",
+      "provider": "anthropic",
+      "web_fetch_supported": false
+    },
+    {
+      "api_key_ref": "deepseek",
+      "base_url": "https://api.deepseek.com",
+      "model": "deepseek-v4-pro",
+      "name": "deepseek-openai-direct",
+      "provider": "openrouter"
+    }
+  ]
+}

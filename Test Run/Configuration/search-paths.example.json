@@ -1,0 +1,28 @@
+{
+  "cloud": [
+    "C:\\Users\\<nome-utente>\\OneDrive"
+  ],
+  "exclude": [
+    "node_modules",
+    ".git",
+    "Windows",
+    "Program Files",
+    "Program Files (x86)",
+    "ProgramData",
+    "$Recycle.Bin",
+    "System Volume Information",
+    "$WinREAgent",
+    "Recovery",
+    "PerfLogs",
+    "AppData"
+  ],
+  "external": "auto",
+  "max_depth": 8,
+  "result_cap": 2000,
+  "standard": [
+    "C:\\Users\\<nome-utente>\\Documents",
+    "C:\\Users\\<nome-utente>\\Downloads",
+    "C:\\Users\\<nome-utente>\\OneDrive\\Desktop"
+  ],
+  "version": 2
+}
