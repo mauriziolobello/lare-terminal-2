@@ -1,125 +1,126 @@
 # Lare Terminal 2.0
 
-Un terminale PowerShell con un'AI agentica integrata nella riga di comando — non un chatbot a
-fianco, non un overlay: un vero terminale (prompt reale, storico, profili, `cd` che persiste) in
-cui le righe che iniziano con `/` sono comandi speciali, e `/ai "..."` fa agire l'AI **nella
-stessa sessione di shell**, con lo stesso `cwd`, dietro un gate di conferma esplicito su ogni
-comando che propone di eseguire.
+**English** | [Italiano](./README.it.md)
 
-> **English:** full documentation in [`Docs/i18n/eng/`](./Docs/i18n/eng/), starting from
-> [`00-opening.md`](./Docs/i18n/eng/00-opening.md). Quick start below is the same in both
-> languages: see [`BUILD.md`](./Docs/i18n/eng/BUILD.md) → [`DEPLOY.md`](./Docs/i18n/eng/DEPLOY.md)
-> → [`RUN.md`](./Docs/i18n/eng/RUN.md).
+A PowerShell terminal with an agentic AI built into the command line — not a chatbot on the side,
+not an overlay: a real terminal (real prompt, history, profiles, a `cd` that persists) where lines
+starting with `/` are special commands, and `/ai "..."` makes the AI act **in the same shell
+session**, with the same `cwd`, behind an explicit confirmation gate on every command it proposes
+to run.
 
-Continua la storia di [Lare Terminal](https://github.com/mauriziolobello/lare-terminal), la sua
-prima incarnazione (un overlay trasparente richiamato a tasto) — quel repository resta pubblico
-come riferimento storico completo.
+It continues the story of [Lare Terminal](https://github.com/mauriziolobello/lare-terminal), its
+first incarnation (a transparent overlay summoned by hotkey) — that repository stays public as the
+complete historical reference.
 
-## Cosa fa
+## What it does
 
-- **Shell PowerShell vera** (host custom del motore PowerShell, PSReadLine, profili) in una
-  finestra terminale propria — oppure come profilo di Windows Terminal.
-- **`/ai "richiesta"`** — l'AI propone ed esegue comandi nella tua sessione, ognuno dietro una
-  conferma `[Y/n]`; la risposta finale si apre in una finestra Markdown salvabile.
-- **Comandi `/…`** — `/help`, `/config`, `/library` (archivio documenti), `/find` (ricerca file
-  dal vivo), `/open`, `/web`, `/show`, e altri.
-- **Canali esterni a tool fissi** — `/netsec` (diagnostica di rete su `nmap`), `/markets` (analisi
-  mercati finanziari, tool Python).
-- **AI Chat** — stanza condivisa fra più macchine Lare nella stessa LAN, con partecipazione delle AI.
-- **Telegram** — comandi da remoto, con pairing e secondo fattore TOTP.
-- **Plugin** — eseguibili sidecar con finestra propria (`/calc`, `/ping`, …).
-- **Nove lingue** d'interfaccia e di risposta AI: italiano, inglese, spagnolo, tedesco, francese,
-  olandese, danese, russo, polacco.
+- **A real PowerShell shell** (custom host of the PowerShell engine, PSReadLine, profiles) in its
+  own terminal window — or as a Windows Terminal profile.
+- **`/ai "request"`** — the AI proposes and runs commands in your session, each behind a `[Y/n]`
+  confirmation; the final answer opens in a Markdown window you can save.
+- **`/…` commands** — `/help`, `/config`, `/library` (document archive), `/find` (live file
+  search), `/open`, `/web`, `/show`, and more.
+- **External channels with fixed tools** — `/netsec` (network diagnostics on top of `nmap`),
+  `/markets` (financial market analysis, Python tools).
+- **AI Chat** — a room shared by several Lare machines on the same LAN, with the AIs taking part.
+- **Telegram** — remote commands, with pairing and a TOTP second factor.
+- **Plugins** — sidecar executables with their own window (`/calc`, `/ping`, …).
+- **Nine languages** for the interface and AI answers: Italian, English, Spanish, German, French,
+  Dutch, Danish, Russian, Polish.
 
-## Requisiti
+## Requirements
 
-Solo **Windows 10/11 x64**.
+**Windows 10/11 x64** only.
 
-Per compilare:
+To build:
 
-- [Rust](https://rustup.rs/) stabile, toolchain MSVC (con i Build Tools di Visual Studio)
+- [Rust](https://rustup.rs/) stable, MSVC toolchain (with the Visual Studio Build Tools)
 - [.NET 10 SDK](https://dotnet.microsoft.com/)
-- Node.js — solo per i test JS del frontend e per lo script di sviluppo `shell-client.mjs`
+- Node.js — only for the frontend JS tests and the `shell-client.mjs` dev script
 
-Per eseguire:
+To run:
 
-- **WebView2 Runtime** (già presente su Windows 10/11 aggiornati)
-- **PowerShell 7.6+** (`pwsh`) installato — la shell carica PSReadLine dai suoi moduli
+- **WebView2 Runtime** (already present on up-to-date Windows 10/11)
+- **PowerShell 7.6+** (`pwsh`) installed — the shell loads PSReadLine from its modules
 - **.NET 10 Runtime** x64
-- Una **chiave API Anthropic** (o di un altro provider supportato) — senza, l'AI risponde con uno
-  stub di prova
-- Opzionali: `nmap` per `/netsec`; Python 3 per `/markets` e lo stato del router FRITZ!Box
+- An **Anthropic API key** (or one for another supported provider) — without it, the AI answers
+  with a test stub
+- Optional: `nmap` for `/netsec`; Python 3 for `/markets` and the FRITZ!Box router status
 
-## Avvio rapido
+## Quick start
 
 ```powershell
 git clone https://github.com/mauriziolobello/lare-terminal-2.git
 cd lare-terminal-2
 
-.\build.ps1 -IncludePlugins            # compila Rust + host C# (la prima volta è lenta)
-.\deploy_test_run.ps1 -IncludePlugins  # popola la cartella eseguibile "Test Run\"
+.\build.ps1 -IncludePlugins            # builds Rust + the C# host (slow the first time)
+.\deploy_test_run.ps1 -IncludePlugins  # populates the runnable folder "Test Run\"
 ```
 
-Poi la chiave dell'AI — una delle due:
+Then the AI key — either of the two:
 
 ```powershell
-# a) variabile d'ambiente (vale dai terminali aperti DOPO il setx)
+# a) environment variable (applies to terminals opened AFTER setx)
 setx ANTHROPIC_API_KEY "sk-ant-..."
 
-# b) oppure file di configurazione (permette anche altri provider)
+# b) or the configuration file (also allows other providers)
 copy "Test Run\Configuration\llms.example.json" "Test Run\Configuration\llms.json"
-#    e sostituisci i segnaposto <your-...-api-key> con le tue chiavi
+#    and replace the <your-...-api-key> placeholders with your keys
 ```
 
-E si avvia:
+And launch it:
 
 ```powershell
 cd "Test Run"
 .\ui.exe
 ```
 
-Un solo comando: si apre la finestra del terminale e l'orchestratore parte da solo in background.
-Prova `/help`, poi `/ai "elenca i 3 file più grandi qui"`.
+One command: the terminal window opens and the orchestrator starts on its own in the background.
+Try `/help`, then `/ai "list the 3 largest files here"`. The interface language is chosen in
+`/config` (Italian by default).
 
-## Configurazione
+## Configuration
 
-Tutta la configurazione vive in `Test Run\Configuration\` (o nella cartella passata con
-`--config-dir`). I file con segreti o dati personali **non sono nel repository**: per ciascuno c'è
-un **template `*.example.json`** da copiare togliendo `.example` dal nome e sostituendo i
-segnaposto `<your-...>`.
+All configuration lives in `Test Run\Configuration\` (or in the folder passed with
+`--config-dir`). Files holding secrets or personal data are **not in the repository**: for each
+one there is a **`*.example.json` template** to copy, dropping `.example` from the name and
+replacing the `<your-...>` placeholders.
 
-| Template | Serve per | Necessario? |
+| Template | Used for | Needed? |
 |---|---|---|
-| `llms.example.json` | chiavi API e scelta del provider/modello AI | solo se non usi `ANTHROPIC_API_KEY` o vuoi un altro provider |
-| `telegramsettings.example.json` | token del bot Telegram | solo per attivare Telegram |
-| `network.example.json` | AI Chat in LAN (nome, porta, partecipazione dell'AI) | no — generato al primo avvio, disattivo |
-| `fritzbox.example.json` | credenziali del router FRITZ!Box per `/netsec` | solo per `fritzbox_status` |
-| `search-paths.example.json` | cartelle indicizzate da `/find` | no — generato al primo avvio |
-| `search-content.example.json` | estensioni considerate testo/binario da `/find` | no — generato al primo avvio |
-| `market_data.example.json` | fonte dati per `/markets` | no — si imposta da `/config` |
-| `config.example.json` | preferenze UI (lingua, trasparenza, ricerca web) | no — si imposta da `/config` |
+| `llms.example.json` | API keys and choice of AI provider/model | only if you don't use `ANTHROPIC_API_KEY` or want another provider |
+| `telegramsettings.example.json` | Telegram bot token | only to enable Telegram |
+| `network.example.json` | AI Chat on the LAN (name, port, AI participation) | no — generated on first run, disabled |
+| `fritzbox.example.json` | FRITZ!Box router credentials for `/netsec` | only for `fritzbox_status` |
+| `search-paths.example.json` | folders indexed by `/find` | no — generated on first run |
+| `search-content.example.json` | extensions treated as text/binary by `/find` | no — generated on first run |
+| `market_data.example.json` | data source for `/markets` | no — set from `/config` |
+| `config.example.json` | UI preferences (language, transparency, web search) | no — set from `/config` |
 
-Dettagli su ogni file (chi lo crea, quando, cosa è segreto):
-[`Test Run/Configuration/README.md`](./Test%20Run/Configuration/README.md).
+Details on every file (who creates it, when, what is secret):
+[`Test Run/Configuration/README.md`](./Test%20Run/Configuration/README.md) (Italian).
 
-## Cosa leggere, in ordine
+## What to read, in order
 
-1. [`00-apertura.md`](./Docs/i18n/ita/00-apertura.md) — cos'è, perché esiste, mappa dei documenti.
-2. [`BUILD.md`](./Docs/i18n/ita/BUILD.md) → [`DEPLOY.md`](./Docs/i18n/ita/DEPLOY.md) →
-   [`RUN.md`](./Docs/i18n/ita/RUN.md) — compilare, preparare la cartella eseguibile, avviare
-   (con i gotcha di Windows).
-3. [`KNOWN-ISSUES.md`](./Docs/i18n/ita/KNOWN-ISSUES.md) — limiti noti prima di sorprendersi.
-4. Per capire come è fatto: [`01-architettura.md`](./Docs/i18n/ita/01-architettura.md),
-   [`02-decisions.md`](./Docs/i18n/ita/02-decisions.md) (log delle decisioni),
-   [`03-stato-e-implementazione.md`](./Docs/i18n/ita/03-stato-e-implementazione.md), poi i
-   documenti per sottosistema (plugin, tool Python, canali, lingue).
+1. [`00-opening.md`](./Docs/i18n/eng/00-opening.md) — what it is, why it exists, map of the docs.
+2. [`BUILD.md`](./Docs/i18n/eng/BUILD.md) → [`DEPLOY.md`](./Docs/i18n/eng/DEPLOY.md) →
+   [`RUN.md`](./Docs/i18n/eng/RUN.md) — build, prepare the runnable folder, launch (with the
+   Windows gotchas).
+3. [`KNOWN-ISSUES.md`](./Docs/i18n/eng/KNOWN-ISSUES.md) — known limits before they surprise you.
+4. To understand how it's built: [`01-architecture.md`](./Docs/i18n/eng/01-architecture.md),
+   [`02-decisions.md`](./Docs/i18n/eng/02-decisions.md) (decision log),
+   [`03-status-and-implementation.md`](./Docs/i18n/eng/03-status-and-implementation.md), then the
+   per-subsystem documents (plugins, Python tools, channels, languages).
+
+The Italian documentation in [`Docs/i18n/ita/`](./Docs/i18n/ita/) is the reference version; the
+English one is kept in step with it.
 
 ## Stack
 
-Rust (orchestratore, protocollo, server di tool, interfaccia Tauri), C# (host custom del motore
-PowerShell), JavaScript vanilla (frontend delle finestre), Python (tool di dominio via MCP).
-Dettagli e perché delle scelte in [`01-architettura.md`](./Docs/i18n/ita/01-architettura.md).
+Rust (orchestrator, protocol, tool servers, Tauri interface), C# (custom host of the PowerShell
+engine), vanilla JavaScript (window frontends), Python (domain tools over MCP). Details and the
+reasons behind the choices in [`01-architecture.md`](./Docs/i18n/eng/01-architecture.md).
 
-## Licenza
+## License
 
 [MIT](./LICENSE).

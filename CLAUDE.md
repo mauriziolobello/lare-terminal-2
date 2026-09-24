@@ -96,6 +96,10 @@ Host C#: i `.csproj` dichiarano `<RuntimeIdentifier>win-x64</RuntimeIdentifier>`
   necessariamente nello stesso commit se la traduzione è delegata — ma non lasciarla implicita: una
   riga nel messaggio di commit o nel report di fine compito). Identificatori di codice, nomi di
   comandi/flag, path, output letterale dei programmi non si traducono mai, in nessuna lingua.
+- **README radice bilingue**: `README.md` è in **inglese** (è quello che GitHub mostra in home),
+  `README.it.md` in italiano; selettore `English | Italiano` in cima a entrambi. Eccezione
+  voluta alla regola "italiano di riferimento" — vale solo per la vetrina del repository. Chi
+  modifica uno dei due aggiorna anche l'altro nello stesso commit.
 - **Sicurezza**: WS solo su `127.0.0.1` + token su file; ogni comando proposto dall'AI passa dal
   gate di conferma (ADR-007) prima di eseguire.
 
