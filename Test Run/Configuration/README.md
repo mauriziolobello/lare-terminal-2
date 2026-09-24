@@ -22,6 +22,34 @@ risolve a `Test Run\mcp-server.exe`, non a
 | `startup.json` | Template di configurazione — porta WS, path relativi (shell, mcp-server, plugin, pytools, routines), modello AI, autostart, log. Coincide con i default hard-coded (`StartupConfig::default()`): un file assente avrebbe lo stesso effetto, il template esiste per essere il punto dove editare la porta/il modello senza dover ricordare i default. |
 | `README.md` | Questo file. |
 | `routines/.gitkeep` | Mantiene tracciata la cartella `routines/` (destinazione di `paths.routines_dir`) prima che l'utente ci salvi la prima routine. |
+| `i18n/<lang>.json` | Dizionari dell'interfaccia, una lingua per file (`it`, `en`, `es`, `de`, `fr`, `nl`, `da`, `ru`, `pl`). `it.json` è la base e il fallback. |
+| `help/<lang>.md` | Corpo della finestra `/help`, una lingua per file (stesse nove lingue). |
+| `*.example.json` | Template dei file di configurazione non committati — vedi sotto. |
+
+## Template `*.example.json` — da copiare per creare la propria configurazione
+
+I file con segreti o dati personali (sotto, "File generati a runtime") non sono nel
+repository. Per ciascuno di quelli che un utente può voler scrivere o ritoccare a mano esiste
+un template con la stessa struttura: copialo togliendo `.example` dal nome e sostituisci i
+segnaposto `<your-...>` con i tuoi valori.
+
+```powershell
+copy llms.example.json llms.json    # poi modifica llms.json
+```
+
+| Template | File reale | Quando serve |
+|---|---|---|
+| `llms.example.json` | `llms.json` | Per scegliere provider/modello AI o mettere le chiavi API nel file invece che in `ANTHROPIC_API_KEY`. `active` indica quale voce di `providers` usare; ogni provider rimanda a una chiave di `api_keys` tramite `api_key_ref`. |
+| `telegramsettings.example.json` | `telegramsettings.json` | Solo per attivare Telegram: il token del bot ottenuto da `@BotFather`. |
+| `fritzbox.example.json` | `fritzbox.json` | Solo per il tool `fritzbox_status` di `/netsec`: host, utente e password del router. |
+| `network.example.json` | `network.json` | AI Chat in LAN. Facoltativo: l'orchestrator lo genera al primo avvio (servizio disattivo); si modifica anche da `/config` → AI Chat. |
+| `search-paths.example.json` | `search-paths.json` | Cartelle indicizzate da `/find`. Facoltativo: generato al primo avvio con le cartelle standard dell'utente. |
+| `search-content.example.json` | `search-content.json` | Estensioni trattate come testo/binario dalla ricerca nel contenuto. Facoltativo: generato al primo avvio. |
+| `market_data.example.json` | `market_data.json` | Fonte dati di `/markets`. Facoltativo: si imposta da `/config` → Dati Mercato. |
+| `config.example.json` | `config.json` | Preferenze UI (lingua, trasparenza, ricerca web). Facoltativo: si imposta da `/config`. |
+
+`notes.json`, `telegram-state.json`, `token`, `memory-<label>.md` non hanno template: sono
+interamente generati e gestiti dal programma.
 
 ## File generati a runtime — MAI committare (segreti o dati locali)
 
