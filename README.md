@@ -98,7 +98,7 @@ replacing the `<your-...>` placeholders.
 | `config.example.json` | UI preferences (language, transparency, web search) | no — set from `/config` |
 
 Details on every file (who creates it, when, what is secret):
-[`Test Run/Configuration/README.md`](./Test%20Run/Configuration/README.md) (Italian).
+[`Test Run/Configuration/README.md`](./Test%20Run/Configuration/README.md).
 
 ## What to read, in order
 

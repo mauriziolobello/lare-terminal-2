@@ -82,7 +82,7 @@ cartella) funziona senza modifiche.
 │                                                        vedi RUN.md)
 ├── Configuration\
 │   ├── startup.json                                 ← template, nessun segreto
-│   ├── README.md
+│   ├── README.md  README.it.md  *.example.json
 │   ├── token                                         ← generato al primo avvio (segreto)
 │   ├── llms.json                                     ← opzionale, a mano (segreto: api_keys)
 │   └── logs\                                         ← generata al primo avvio
@@ -96,7 +96,8 @@ cartella) funziona senza modifiche.
 | File | Committato (template)? | Segreto? | Chi lo crea |
 |---|---|---|---|
 | `startup.json` | Sì | No | template nel repo, coincide con i default hard-coded |
-| `README.md` | Sì | No | template nel repo |
+| `README.md`, `README.it.md` | Sì | No | template nel repo (inglese, italiano) |
+| `*.example.json` | Sì | No — solo segnaposto `<your-...>` | template nel repo, da copiare senza `.example` |
 | `token` | No (gitignored) | **Sì** — token WS (256 bit) | `orchestrator`, al primo avvio |
 | `llms.json` | No (gitignored) | **Sì** — contiene `api_keys` per provider | a mano, solo se serve un provider diverso dal default |
 | `telegramsettings.json` | No | **Sì** — token del bot | a mano, solo per attivare Telegram |
@@ -107,7 +108,8 @@ cartella) funziona senza modifiche.
 | `logs\`, `library\`, `plugin-storage\<id>\` | No | No | app rispettive, a runtime |
 
 Dettaglio completo (con "quando" esatto: al primo avvio vs a ogni avvio vs al primo salvataggio)
-in `Test Run/Configuration/README.md`, che è lo stesso template usato in ogni deploy.
+in `Test Run/Configuration/README.it.md` (versione inglese: `README.md` nella stessa cartella), che
+è lo stesso template usato in ogni deploy.
 
 **Credenziali dei provider AI.** `ANTHROPIC_API_KEY` (e `OPENROUTER_API_KEY`) restano variabili
 d'ambiente — scelta esplicita, fuori dallo scope di D6 (che riguarda la *posizione* della

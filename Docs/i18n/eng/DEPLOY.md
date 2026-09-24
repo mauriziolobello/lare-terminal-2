@@ -80,7 +80,7 @@ rather than repository locations: `Test Run\` (or a copy in any folder) function
 │                                                        see RUN.md)
 ├── Configuration\
 │   ├── startup.json                                 ← template, contains no secrets
-│   ├── README.md
+│   ├── README.md  README.it.md  *.example.json
 │   ├── token                                         ← generated upon first launch (secret)
 │   ├── llms.json                                     ← optional, manual (secret: api_keys)
 │   └── logs\                                         ← generated upon first launch
@@ -94,7 +94,8 @@ rather than repository locations: `Test Run\` (or a copy in any folder) function
 | File | Committed (template)? | Secret? | Created by |
 |---|---|---|---|
 | `startup.json` | Yes | No | template in repo, matches hard-coded defaults |
-| `README.md` | Yes | No | template in repo |
+| `README.md`, `README.it.md` | Yes | No | template in repo (English, Italian) |
+| `*.example.json` | Yes | No — `<your-...>` placeholders only | template in repo, to copy without `.example` |
 | `token` | No (gitignored) | **Yes** — WS token (256-bit) | `orchestrator`, on first run |
 | `llms.json` | No (gitignored) | **Yes** — contains provider `api_keys` | manually, only if using a non-default provider |
 | `telegramsettings.json` | No | **Yes** — bot token | manually, only to activate Telegram |
@@ -105,7 +106,8 @@ rather than repository locations: `Test Run\` (or a copy in any folder) function
 | `logs\`, `library\`, `plugin-storage\<id>\` | No | No | respective applications, at runtime |
 
 Full details (with exact lifecycle timing: first run vs every run vs first save) in
-`Test Run/Configuration/README.md`, which is the exact template used across all deployments.
+`Test Run/Configuration/README.md` (Italian version: `README.it.md` in the same folder), which is
+the exact template used across all deployments.
 
 **AI provider credentials.** `ANTHROPIC_API_KEY` (and `OPENROUTER_API_KEY`) remain environment
 variables — an explicit design decision outside the scope of D6 (which governs the *location* of Lare

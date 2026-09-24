@@ -1,93 +1,89 @@
 # Test Run/Configuration/
 
-Questa è la cartella di configurazione (`--config-dir`) usata da **tutti** i
-binari quando girano da `Test Run\` (l'orchestratore, `ui.exe`, e a cascata i
-processi figli — `mcp-server.exe`, i plugin, gli script Python). Regola unica
-(spec 2.0, decisione D6, vedi `crates/startup-config/src/lib.rs`): ogni
-binario usa `--config-dir <path>` se passato, altrimenti
-`<cartella dell'eseguibile>\Configuration\`. Nessuna variabile d'ambiente
-`LARE_*` viene mai letta.
+**English** | [Italiano](./README.it.md)
 
-**Importante — i percorsi relativi in `startup.json` (`paths.*`, `log.dir`)
-sono risolti rispetto alla RADICE DEL DEPLOY, cioè la cartella che CONTIENE
-`Configuration\` (qui: `Test Run\`), non rispetto a questa cartella e non
-rispetto alla cwd del processo.** Esempio: `"mcp_server": "mcp-server.exe"`
-risolve a `Test Run\mcp-server.exe`, non a
-`Test Run\Configuration\mcp-server.exe`.
+This is the configuration folder (`--config-dir`) used by **all** binaries when they run from
+`Test Run\` (the orchestrator, `ui.exe`, and in turn their child processes — `mcp-server.exe`,
+the plugins, the Python scripts). One single rule (2.0 spec, decision D6, see
+`crates/startup-config/src/lib.rs`): every binary uses `--config-dir <path>` if passed, otherwise
+`<executable folder>\Configuration\`. No `LARE_*` environment variable is ever read.
 
-## File committati (template, nessun segreto)
+**Important — relative paths in `startup.json` (`paths.*`, `log.dir`) are resolved against the
+DEPLOY ROOT, i.e. the folder that CONTAINS `Configuration\` (here: `Test Run\`), not against this
+folder and not against the process cwd.** Example: `"mcp_server": "mcp-server.exe"` resolves to
+`Test Run\mcp-server.exe`, not to `Test Run\Configuration\mcp-server.exe`.
 
-| File | Cos'è |
+## Committed files (templates, no secrets)
+
+| File | What it is |
 |---|---|
-| `startup.json` | Template di configurazione — porta WS, path relativi (shell, mcp-server, plugin, pytools, routines), modello AI, autostart, log. Coincide con i default hard-coded (`StartupConfig::default()`): un file assente avrebbe lo stesso effetto, il template esiste per essere il punto dove editare la porta/il modello senza dover ricordare i default. |
-| `README.md` | Questo file. |
-| `routines/.gitkeep` | Mantiene tracciata la cartella `routines/` (destinazione di `paths.routines_dir`) prima che l'utente ci salvi la prima routine. |
-| `i18n/<lang>.json` | Dizionari dell'interfaccia, una lingua per file (`it`, `en`, `es`, `de`, `fr`, `nl`, `da`, `ru`, `pl`). `it.json` è la base e il fallback. |
-| `help/<lang>.md` | Corpo della finestra `/help`, una lingua per file (stesse nove lingue). |
-| `*.example.json` | Template dei file di configurazione non committati — vedi sotto. |
+| `startup.json` | Configuration template — WS port, relative paths (shell, mcp-server, plugins, pytools, routines), AI model, autostart, logging. Matches the hard-coded defaults (`StartupConfig::default()`): a missing file would have the same effect; the template exists as the place to edit the port/model without having to remember the defaults. |
+| `README.md`, `README.it.md` | This file (English) and its Italian version. |
+| `routines/.gitkeep` | Keeps the `routines/` folder (target of `paths.routines_dir`) tracked before the user saves the first routine into it. |
+| `i18n/<lang>.json` | Interface dictionaries, one language per file (`it`, `en`, `es`, `de`, `fr`, `nl`, `da`, `ru`, `pl`). `it.json` is the base and the fallback. |
+| `help/<lang>.md` | Body of the `/help` window, one language per file (same nine languages). |
+| `*.example.json` | Templates of the uncommitted configuration files — see below. |
 
-## Template `*.example.json` — da copiare per creare la propria configurazione
+## `*.example.json` templates — copy them to create your own configuration
 
-I file con segreti o dati personali (sotto, "File generati a runtime") non sono nel
-repository. Per ciascuno di quelli che un utente può voler scrivere o ritoccare a mano esiste
-un template con la stessa struttura: copialo togliendo `.example` dal nome e sostituisci i
-segnaposto `<your-...>` con i tuoi valori.
+Files holding secrets or personal data (below, "Files generated at runtime") are not in the
+repository. For each one a user may want to write or tweak by hand there is a template with the
+same structure: copy it dropping `.example` from the name and replace the `<your-...>`
+placeholders with your own values.
 
 ```powershell
-copy llms.example.json llms.json    # poi modifica llms.json
+copy llms.example.json llms.json    # then edit llms.json
 ```
 
-| Template | File reale | Quando serve |
+| Template | Real file | When you need it |
 |---|---|---|
-| `llms.example.json` | `llms.json` | Per scegliere provider/modello AI o mettere le chiavi API nel file invece che in `ANTHROPIC_API_KEY`. `active` indica quale voce di `providers` usare; ogni provider rimanda a una chiave di `api_keys` tramite `api_key_ref`. |
-| `telegramsettings.example.json` | `telegramsettings.json` | Solo per attivare Telegram: il token del bot ottenuto da `@BotFather`. |
-| `fritzbox.example.json` | `fritzbox.json` | Solo per il tool `fritzbox_status` di `/netsec`: host, utente e password del router. |
-| `network.example.json` | `network.json` | AI Chat in LAN. Facoltativo: l'orchestrator lo genera al primo avvio (servizio disattivo); si modifica anche da `/config` → AI Chat. |
-| `search-paths.example.json` | `search-paths.json` | Cartelle indicizzate da `/find`. Facoltativo: generato al primo avvio con le cartelle standard dell'utente. |
-| `search-content.example.json` | `search-content.json` | Estensioni trattate come testo/binario dalla ricerca nel contenuto. Facoltativo: generato al primo avvio. |
-| `market_data.example.json` | `market_data.json` | Fonte dati di `/markets`. Facoltativo: si imposta da `/config` → Dati Mercato. |
-| `config.example.json` | `config.json` | Preferenze UI (lingua, trasparenza, ricerca web). Facoltativo: si imposta da `/config`. |
+| `llms.example.json` | `llms.json` | To choose the AI provider/model, or to keep the API keys in the file instead of in `ANTHROPIC_API_KEY`. `active` names which `providers` entry to use; each provider points to a key in `api_keys` through `api_key_ref`. |
+| `telegramsettings.example.json` | `telegramsettings.json` | Only to enable Telegram: the bot token obtained from `@BotFather`. |
+| `fritzbox.example.json` | `fritzbox.json` | Only for the `fritzbox_status` tool of `/netsec`: router host, user and password. |
+| `network.example.json` | `network.json` | AI Chat on the LAN. Optional: the orchestrator generates it on first run (service disabled); it can also be edited from `/config` → AI Chat. |
+| `search-paths.example.json` | `search-paths.json` | Folders indexed by `/find`. Optional: generated on first run with the user's standard folders. |
+| `search-content.example.json` | `search-content.json` | Extensions treated as text/binary by the content search. Optional: generated on first run. |
+| `market_data.example.json` | `market_data.json` | Data source for `/markets`. Optional: set from `/config` → Market Data. |
+| `config.example.json` | `config.json` | UI preferences (language, transparency, web search). Optional: set from `/config`. |
 
-`notes.json`, `telegram-state.json`, `token`, `memory-<label>.md` non hanno template: sono
-interamente generati e gestiti dal programma.
+`notes.json`, `telegram-state.json`, `token`, `memory-<label>.md` have no template: they are
+entirely generated and managed by the program.
 
-## File generati a runtime — MAI committare (segreti o dati locali)
+## Files generated at runtime — NEVER commit (secrets or local data)
 
-Creati dal primo avvio dei binari, uno per macchina/deploy. Nessuno di
-questi va in `git add`, anche se `deploy_test_run.ps1` non li tocca mai
-direttamente:
+Created on the binaries' first run, one per machine/deploy. None of these goes into `git add`,
+even though `deploy_test_run.ps1` never touches them directly:
 
-| File | Chi lo crea | Segreto? |
+| File | Created by | Secret? |
 |---|---|---|
-| `token` | orchestrator, al primo avvio (`token_store::resolve_token`) | **Sì** — token di autenticazione del canale WS (256 bit) |
-| `llms.json` | mai auto-generato: va creato a mano se si vuole un provider AI diverso dal default (Claude diretto via `ANTHROPIC_API_KEY`) | **Sì** — contiene `api_keys` |
-| `telegramsettings.json` | mai auto-generato: va creato a mano per attivare il canale Telegram | **Sì** — contiene il token del bot |
-| `telegram-state.json` | orchestrator, quando `telegramsettings.json` è presente (secret TOTP + chat id appaiata) | **Sì** |
-| `config.json` | `ui.exe`, al primo salvataggio delle impostazioni finestra | No (locale, non sensibile) |
-| `search-paths.json` | orchestrator, a ogni avvio (`PathsConfig::load_or_generate`) — cartelle indicizzate dalla ricerca | No, ma specifico della macchina (percorsi assoluti locali) |
-| `search-content.json` | orchestrator, a ogni avvio (`ContentConfig::load_or_generate`) | No, specifico della macchina |
-| `network.json` | orchestrator, a ogni avvio (`load_or_generate_with_migration`) — impostazioni AI Chat (nickname, porta di discovery, autopartecipazione), disattivo di default | No |
-| `market_data.json` | `ui.exe`, al primo salvataggio delle impostazioni "fonte dati mercato" (tab `/config`) | No, ma specifico della macchina (es. porta/host di IB Gateway) |
-| `aichat.json` | nome legacy di `network.json` (pre-migrazione): letto solo per compatibilità se presente, mai scritto con questo nome nel codice attuale | No |
-| `notes.json` | orchestrator, al primo salvataggio di una nota da AI Chat | No |
-| `memory-<label>.md` | orchestrator, memoria persistente di AI Chat per etichetta AI | No, ma è contenuto conversazionale locale |
+| `token` | orchestrator, on first run (`token_store::resolve_token`) | **Yes** — authentication token of the WS channel (256 bit) |
+| `llms.json` | never auto-generated: create it by hand if you want an AI provider other than the default (direct Claude via `ANTHROPIC_API_KEY`) | **Yes** — contains `api_keys` |
+| `telegramsettings.json` | never auto-generated: create it by hand to enable the Telegram channel | **Yes** — contains the bot token |
+| `telegram-state.json` | orchestrator, when `telegramsettings.json` is present (TOTP secret + paired chat id) | **Yes** |
+| `config.json` | `ui.exe`, on the first save of the window settings | No (local, not sensitive) |
+| `search-paths.json` | orchestrator, on every start (`PathsConfig::load_or_generate`) — folders indexed by the search | No, but machine-specific (local absolute paths) |
+| `search-content.json` | orchestrator, on every start (`ContentConfig::load_or_generate`) | No, machine-specific |
+| `network.json` | orchestrator, on every start (`load_or_generate_with_migration`) — AI Chat settings (nickname, discovery port, auto-participation), disabled by default | No |
+| `market_data.json` | `ui.exe`, on the first save of the "market data source" settings (`/config` tab) | No, but machine-specific (e.g. IB Gateway port/host) |
+| `aichat.json` | legacy name of `network.json` (pre-migration): read only for compatibility if present, never written under this name by the current code | No |
+| `notes.json` | orchestrator, on the first save of a note from AI Chat | No |
+| `memory-<label>.md` | orchestrator, persistent AI Chat memory per AI label | No, but it is local conversational content |
 
-## Cartelle create a runtime — MAI committare il contenuto
+## Folders created at runtime — NEVER commit their contents
 
-| Cartella | Chi la crea |
+| Folder | Created by |
 |---|---|
-| `logs/` | orchestrator, al primo avvio (`logging::open_log_file`) — log giornalieri `orchestrator.log.<data>` |
-| `library/documents/` | `ui.exe`, al primo avvio (`create_dir_all` in `main.rs`, setup Tauri) |
-| `library/find/` | `ui.exe`, al primo avvio (ricerche salvate) |
-| `plugin-storage/<id>/` | orchestrator, per ogni plugin scoperto (storage privato del plugin) |
+| `logs/` | orchestrator, on first run (`logging::open_log_file`) — daily logs `orchestrator.log.<date>` |
+| `library/documents/` | `ui.exe`, on first run (`create_dir_all` in `main.rs`, Tauri setup) |
+| `library/find/` | `ui.exe`, on first run (saved searches) |
+| `plugin-storage/<id>/` | orchestrator, for each discovered plugin (the plugin's private storage) |
 
-`library/` intera e `logs/` sono escluse da `.gitignore`: non serve (e non va
-fatto) creare `.gitkeep` al loro interno — le rispettive app le creano da
-sole con `create_dir_all` al primo avvio.
+The whole of `library/` and `logs/` are excluded by `.gitignore`: there is no need (and it must
+not be done) to create a `.gitkeep` inside them — the respective apps create them on their own
+with `create_dir_all` on first run.
 
-## Plugin e pytools
+## Plugins and pytools
 
-`plugins/` e `pytools/` NON vivono qui dentro: sono cartelle sorelle di
-`Configuration\` (root del deploy, `Test Run\`), coerentemente con la regola
-dei path relativi spiegata sopra (`paths.plugins_dir: "plugins"`,
-`paths.pytools_dir: "pytools"`).
+`plugins/` and `pytools/` do NOT live in here: they are sibling folders of `Configuration\` (the
+deploy root, `Test Run\`), consistently with the relative-path rule explained above
+(`paths.plugins_dir: "plugins"`, `paths.pytools_dir: "pytools"`).

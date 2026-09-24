@@ -97,7 +97,7 @@ segnaposto `<your-...>`.
 | `config.example.json` | preferenze UI (lingua, trasparenza, ricerca web) | no — si imposta da `/config` |
 
 Dettagli su ogni file (chi lo crea, quando, cosa è segreto):
-[`Test Run/Configuration/README.md`](./Test%20Run/Configuration/README.md).
+[`Test Run/Configuration/README.it.md`](./Test%20Run/Configuration/README.it.md).
 
 ## Cosa leggere, in ordine
 
